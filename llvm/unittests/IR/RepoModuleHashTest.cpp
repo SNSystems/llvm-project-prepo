@@ -27,7 +27,7 @@ protected:
   std::unique_ptr<Module> M1;
   void calculateModeulHash() {
     legacy::PassManager PM;
-    PM.add(createRepoTicketGenerationPass());
+    PM.add(createRepoMetadataGenerationPass());
     PM.run(*M0);
     PM.run(*M1);
   }
@@ -84,7 +84,7 @@ TEST_F(TestModuleHash, DiffPasses) {
   M1->setTargetTriple("x86_64-unknown-linux-gnu-repo");
   legacy::PassManager PM;
   PM.run(*M0);
-  PM.add(createRepoTicketGenerationPass());
+  PM.add(createRepoMetadataGenerationPass());
   PM.run(*M1);
   EXPECT_NE(M0->getModuleHash().getValue().Bytes,
             M1->getModuleHash().getValue().Bytes);

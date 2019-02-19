@@ -425,7 +425,7 @@ void PassManagerBuilder::addFunctionSimplificationPasses(
 
 void PassManagerBuilder::populateModulePassManager(
     legacy::PassManagerBase &MPM) {
-  MPM.add(createRepoTicketGenerationPass());
+  MPM.add(createRepoMetadataGenerationPass());
   MPM.add(createRepoPruningPass());
 
   if (!PGOSampleUse.empty()) {

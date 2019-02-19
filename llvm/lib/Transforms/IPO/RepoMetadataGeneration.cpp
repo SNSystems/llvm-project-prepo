@@ -1,4 +1,4 @@
-//===----    RepoTicketGeneration.cpp - Create a program repository   -----===//
+//===----    RepoMetadataGeneration.cpp - Create a program repository   -----===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -35,16 +35,16 @@ STATISTIC(NumAliases, "Number of aliases hashed");
 
 namespace {
 
-/// RepoTicketGeneration finds functions, global variables and calculate the
+/// RepoMetadataGeneration finds functions, global variables and calculate the
 /// hash values.
-class RepoTicketGeneration : public ModulePass {
+class RepoMetadataGeneration : public ModulePass {
 public:
   static char ID;
-  RepoTicketGeneration() : ModulePass(ID) {
-    initializeRepoTicketGenerationPass(*PassRegistry::getPassRegistry());
+  RepoMetadataGeneration() : ModulePass(ID) {
+    initializeRepoMetadataGenerationPass(*PassRegistry::getPassRegistry());
   }
 
-  StringRef getPassName() const override { return "RepoTicketGenerationPass"; }
+  StringRef getPassName() const override { return "RepoMetadataGenerationPass"; }
 
   bool runOnModule(Module &M) override;
 
@@ -56,15 +56,15 @@ private:
 
 } // end anonymous namespace
 
-char RepoTicketGeneration::ID = 0;
-INITIALIZE_PASS(RepoTicketGeneration, "prepo",
+char RepoMetadataGeneration::ID = 0;
+INITIALIZE_PASS(RepoMetadataGeneration, "prepo",
                 "Generate Program Repository Tickets", false, false)
 
-ModulePass *llvm::createRepoTicketGenerationPass() {
-  return new RepoTicketGeneration();
+ModulePass *llvm::createRepoMetadataGenerationPass() {
+  return new RepoMetadataGeneration();
 }
 
-bool RepoTicketGeneration::runOnModule(Module &M) {
+bool RepoMetadataGeneration::runOnModule(Module &M) {
   if (skipModule(M) || !isObjFormatRepo(M))
     return false;
 

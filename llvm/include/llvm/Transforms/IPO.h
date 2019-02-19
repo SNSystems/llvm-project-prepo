@@ -209,7 +209,7 @@ ModulePass *createHotColdSplittingPass();
 //===----------------------------------------------------------------------===//
 /// createProgramRepositoryPass - This pass creates a program repository hash.
 ///
-ModulePass *createRepoTicketGenerationPass();
+ModulePass *createRepoMetadataGenerationPass();
 
 //===----------------------------------------------------------------------===//
 /// This pass prunes global objects which are already in the program repository.

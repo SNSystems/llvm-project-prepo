@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 //
 // This file implements the FunctionHash and  VariableHash Calculator which
-// are used as 'ticket' item by the RepoTicketGeneration passes.
+// are used as 'ticket' item by the RepoMetadataGeneration passes.
 //
 //===----------------------------------------------------------------------===//
 

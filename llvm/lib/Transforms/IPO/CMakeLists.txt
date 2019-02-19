@@ -28,8 +28,8 @@ add_llvm_library(LLVMipo
   PartialInlining.cpp
   PassManagerBuilder.cpp
   PruneEH.cpp
+  RepoMetadataGeneration.cpp
   RepoPruning.cpp
-  RepoTicketGeneration.cpp
   SampleProfile.cpp
   SCCP.cpp
   StripDeadPrototypes.cpp

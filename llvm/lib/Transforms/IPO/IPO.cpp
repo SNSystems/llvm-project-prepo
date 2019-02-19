@@ -48,7 +48,7 @@ void llvm::initializeIPO(PassRegistry &Registry) {
   initializePartialInlinerLegacyPassPass(Registry);
   initializePostOrderFunctionAttrsLegacyPassPass(Registry);
   initializeRepoPruningPass(Registry);
-  initializeRepoTicketGenerationPass(Registry);
+  initializeRepoMetadataGenerationPass(Registry);
   initializeReversePostOrderFunctionAttrsLegacyPassPass(Registry);
   initializePruneEHPass(Registry);
   initializeIPSCCPLegacyPassPass(Registry);

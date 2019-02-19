@@ -132,7 +132,7 @@ bool RepoPruning::runOnModule(Module &M) {
       return false;
     auto const Result = ticketmd::get(&GO);
     assert(!Result.second && "The repo_ticket metadata should be created by "
-                             "the RepoTicketGeneration pass!");
+                             "the RepoMetadataGeneration pass!");
 
     auto const Key =
         pstore::index::digest{Result.first.high(), Result.first.low()};

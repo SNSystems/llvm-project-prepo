@@ -67,7 +67,7 @@ namespace llvm {
   public:
     using SymbolTable = StringMap<MCSymbol *, BumpPtrAllocator &>;
     /// A container which contains all TicketNodes created by the
-    /// RepoTicketGeneration Pass or by the backend.
+    /// RepoMetadataGeneration Pass or by the backend.
     using RepoTicketContainer = SmallVector<TicketNode *, 4>;
 
   private:

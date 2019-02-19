@@ -193,7 +193,7 @@ namespace {
       (void) llvm::createMergeFunctionsPass();
       (void) llvm::createMergeICmpsPass();
       (void) llvm::createExpandMemCmpPass();
-      (void)llvm::createRepoTicketGenerationPass();
+      (void)llvm::createRepoMetadataGenerationPass();
       (void)llvm::createRepoPruningPass();
       std::string buf;
       llvm::raw_string_ostream os(buf);

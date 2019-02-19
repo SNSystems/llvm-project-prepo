@@ -344,7 +344,7 @@ void initializeRegionPrinterPass(PassRegistry&);
 void initializeRegionViewerPass(PassRegistry&);
 void initializeRegisterCoalescerPass(PassRegistry&);
 void initializeRenameIndependentSubregsPass(PassRegistry&);
-void initializeRepoTicketGenerationPass(PassRegistry &);
+void initializeRepoMetadataGenerationPass(PassRegistry &);
 void initializeRepoPruningPass(PassRegistry &);
 void initializeResetMachineFunctionPass(PassRegistry&);
 void initializeReversePostOrderFunctionAttrsLegacyPassPass(PassRegistry&);

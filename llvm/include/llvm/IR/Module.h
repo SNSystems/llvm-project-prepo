@@ -191,7 +191,7 @@ private:
 
   friend class Constant;
 
-  // The module hash, which is only used by the RepoTicketGeneration pass.
+  // The module hash, which is only used by the RepoMetadataGeneration pass.
   // TODO: Don't want to modify this structure; need a better way.
   llvm::Optional<MD5::MD5Result> ModuleHash;
 

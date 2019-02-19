@@ -384,7 +384,7 @@ public:
   unsigned getDepth() const { return Depth; }
   void setDepth(unsigned newDepth) { Depth = newDepth; }
 
-  // Compute hash of passes (used by the RepoTicketGeneration pass).
+  // Compute hash of passes (used by the RepoMetadataGeneration pass).
   void computeDataPassesHash(const Module &M, MD5 &PassesHash) const;
 
   // Print routines used by debug-pass

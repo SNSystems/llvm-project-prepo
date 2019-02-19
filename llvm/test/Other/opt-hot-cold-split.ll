@@ -24,7 +24,7 @@
 ; CHECK-NEXT:  Assumption Cache Tracker
 ; CHECK-NEXT:  Profile summary info
 ; CHECK-NEXT:    ModulePass Manager
-; CHECK-NEXT:      RepoTicketGenerationPass
+; CHECK-NEXT:      RepoMetadataGenerationPass
 ; CHECK-NEXT:      RepoPruningPass
 ; CHECK-NEXT:      Force set function attributes
 ; CHECK-NEXT:      Infer set function attributes
