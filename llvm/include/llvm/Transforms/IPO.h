@@ -207,12 +207,14 @@ ModulePass *createMergeFunctionsPass();
 ModulePass *createHotColdSplittingPass();
 
 //===----------------------------------------------------------------------===//
-/// createProgramRepositoryPass - This pass creates a program repository hash.
+/// createRepoMetadataGenerationPass - This pass creates a program repository
+/// hash.
 ///
 ModulePass *createRepoMetadataGenerationPass();
 
 //===----------------------------------------------------------------------===//
-/// This pass prunes global objects which are already in the program repository.
+/// createRepoPruningPass - This pass prunes global objects which are already
+/// in the program repository.
 ///
 ModulePass *createRepoPruningPass();
 

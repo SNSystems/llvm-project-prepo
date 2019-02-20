@@ -1,4 +1,4 @@
-//===----    RepoMetadataGeneration.cpp - Create a program repository   -----===//
+//===----    RepoMetadataGeneration.cpp - Create a program repository -----===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -44,7 +44,9 @@ public:
     initializeRepoMetadataGenerationPass(*PassRegistry::getPassRegistry());
   }
 
-  StringRef getPassName() const override { return "RepoMetadataGenerationPass"; }
+  StringRef getPassName() const override {
+    return "RepoMetadataGenerationPass";
+  }
 
   bool runOnModule(Module &M) override;
 
