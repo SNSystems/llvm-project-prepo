@@ -23,6 +23,7 @@ The process to follow is similar to that for a conventional build of Clang+LLVM,
 
 1. Build LLVM as [normal](https://llvm.org/docs/CMake.html) enabling the clang and pstore subprojects (e.g.):
 
+        $ mkdir build && cd build
         $ cmake -G "Ninja" -DLLVM_ENABLE_PROJECTS="clang;pstore" -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD=OFF ../llvm
         $ ninja
 
