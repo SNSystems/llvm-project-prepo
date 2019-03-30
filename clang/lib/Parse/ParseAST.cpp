@@ -23,6 +23,7 @@
 #include "clang/Sema/SemaConsumer.h"
 #include "clang/Sema/TemplateInstCallback.h"
 #include "llvm/Support/CrashRecoveryContext.h"
+#include "llvm/Support/TimeProfiler.h"
 #include <cstdio>
 #include <memory>
 
@@ -151,6 +152,7 @@ void clang::ParseAST(Sema &S, bool PrintStats, bool SkipFunctionBodies) {
   bool HaveLexer = S.getPreprocessor().getCurrentLexer();
 
   if (HaveLexer) {
+    llvm::TimeTraceScope TimeScope("Frontend", StringRef(""));
     P.Initialize();
     Parser::DeclGroupPtrTy ADecl;
     for (bool AtEOF = P.ParseFirstTopLevelDecl(ADecl); !AtEOF;
