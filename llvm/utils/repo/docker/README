@@ -1,4 +1,4 @@
-Ability to create a Docker image for 'pstore'
+Ability to create a Docker image for llvm-prepo
 
 Usage: build_docker_image.sh [options] [-- [cmake_args]...]
 
@@ -28,14 +28,13 @@ For example, running:
     -- -DCMAKE_BUILD_TYPE=Release
 
 will produce a docker image:
-    pstore:latest - a small image with preinstalled release versions of
-                    clang and pstore, build from the 'master' branch.
+  llvm-prepo:latest - a small image with preinstalled release versions of
+                      clang and pstore tools, build from the 'master' branch.
 
 The image can be executed with:
-    docker run -t -i pstore:latest /bin/bash
+  docker run -t -i llvm-prepo:latest /bin/bash
 
 The --local argument specifies a local directory that is the root for the
 llvm repository.
 
 For additional information see llvm/docs/Docker.rst for details
-

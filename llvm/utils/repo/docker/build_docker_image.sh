@@ -38,11 +38,11 @@ For example, running:
     -- -DCMAKE_BUILD_TYPE=Release
 
 will produce a docker image:
-    pstore:latest - a small image with preinstalled release versions of
-                    clang and pstore, build from the 'master' branch.
+  llvm-prepo:latest - a small image with preinstalled release versions of
+                      clang and pstore tools, build from the 'master' branch.
 
 The image can be executed with:
-    docker run -t -i pstore:latest /bin/bash
+  docker run -t -i llvm-prepo:latest /bin/bash
 
 The --local argument specifies a local directory that is the root for the
 llvm repository.
@@ -50,7 +50,7 @@ EOF
 }
 
 IMAGE_SOURCE="pstore"
-DOCKER_REPOSITORY="pstore"
+DOCKER_REPOSITORY="llvm-prepo"
 
 DOCKER_TAG=""
 BUILD_ARGS=""
@@ -136,12 +136,11 @@ mkdir -p "$BUILD_DIR/repository"
 
 if [ "$LOCAL_REPOSITORY" != "" ]; then
   if [ ! -d "$LOCAL_REPOSITORY" ]; then
-    echo "Unable to acces '$LOCAL_REPOSITORY'"
+    echo "Unable to access '$LOCAL_REPOSITORY'"
     exit 1
   fi
 
   set +e
-  #LOCAL_REPOSITORY=$(git rev-parse --show-toplevel)
   echo "Local repository: '$LOCAL_REPOSITORY' -> '$BUILD_DIR/repository'"
   rsync -rlp --exclude='.git' "$LOCAL_REPOSITORY/." "$BUILD_DIR/repository"
   CHECKOUT_ARGS="--local $LOCAL_REPOSITORY $CHECKOUT_ARGS"

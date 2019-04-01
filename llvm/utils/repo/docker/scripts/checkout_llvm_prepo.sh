@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#===- llvm/utils/repo/docker/scripts/checkout_pstore.sh -------------------===//
+#===- llvm/utils/repo/docker/scripts/checkout_llvm_prepo.sh ---------------===//
 #
 # Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
@@ -11,7 +11,7 @@ set -e
 
 function show_usage() {
   cat << EOF
-Usage: checkout_pstore.sh [options]
+Usage: checkout_llvm_prepo.sh [options]
 
 Checkout git sources into /tmp/pstore-build/src. Used inside a docker container.
 
@@ -40,7 +40,8 @@ function clone_project() {
   fi
   set -e
   echo "Checking out '$SOURCE/$PROJECT' into '$DIRECTORY/$DESTINATION'"
-  git clone --branch $SOURCE $GIT_REPOSITORY/$PROJECT $DESTINATION
+  # Create a shallow clone, including only the last revision.
+  git clone --depth 1 --branch $SOURCE $GIT_REPOSITORY/$PROJECT $DESTINATION
 }
 
 BRANCH=""

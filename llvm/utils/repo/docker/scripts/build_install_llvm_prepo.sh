@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#===- llvm/utils/repo/docker/scripts/build_install_pstore.sh --------------===//
+#===- llvm/utils/repo/docker/scripts/build_install_llvm-prepo.sh ----------===//
 #
 # Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
@@ -11,7 +11,7 @@ set -e
 
 function show_usage() {
   cat << EOF
-Usage: build_install_pstore.sh [options] -- [cmake-args]
+Usage: build_install_llvm_prepo.sh [options] -- [cmake-args]
 
 Run cmake with the specified arguments. Used inside docker container.
 Passes additional -DCMAKE_INSTALL_PREFIX and puts the build results into

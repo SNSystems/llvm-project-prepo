@@ -37,13 +37,13 @@ RUN ls -l ${workspace_dir}/src
 # Checkout the source code.
 ARG checkout_args
 RUN echo "checkout_args: " ${checkout_args}
-RUN ${scripts_dir}/checkout_pstore.sh \
+RUN ${scripts_dir}/checkout_llvm_prepo.sh \
     --workspace ${workspace_dir} ${checkout_args}
 
 # Run the build. Results of the build will be available at install directory.
 ARG build_args
 RUN echo "build_args: " ${build_args}
-RUN ${scripts_dir}/build_install_pstore.sh \
+RUN ${scripts_dir}/build_install_llvm_prepo.sh \
     --workspace ${workspace_dir} --install-dir ${install_dir} ${build_args}
 
 # Stage 2. Produce a minimal release image with build results.
