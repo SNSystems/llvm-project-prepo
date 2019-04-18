@@ -92,6 +92,9 @@ private:
   using NamesWithPrefixContainer =
       SmallVector<std::unique_ptr<std::string>, 16>;
 
+  using TicketType = std::vector<pstore::repo::compilation_member>;
+  TicketType CompilationMembers;
+
   /// A structure of a fragment content.
   struct FragmentContentsType {
     /// Sections contain all the section_contents in this fragment.
@@ -100,14 +103,14 @@ private:
     /// dependent.
     SmallVector<pstore::typed_address<pstore::repo::compilation_member>, 4>
         Dependents;
+    // A pointer to the corresponding compilation member in the
+    // CompilationMembers.
+    pstore::repo::compilation_member *CorrespondingCompilationMember = nullptr;
   };
 
   // A mapping of a fragment digest to its contents (which include the
   // section contents and dependent fragments).
   using ContentsType = std::map<ticketmd::DigestType, FragmentContentsType>;
-
-  using TicketType = std::vector<pstore::repo::compilation_member>;
-  TicketType CompilationMembers;
 
   BumpPtrAllocator Alloc;
   StringSaver VersionSymSaver{Alloc};
@@ -120,6 +123,10 @@ private:
 
   pstore::extent<std::uint8_t>
   writeDebugLineHeader(TransactionType &Transaction, ContentsType &Fragments);
+
+  pstore::index::digest
+  updateFragmentDigest(const ticketmd::DigestType &InitailHash,
+                       FragmentContentsType &FragmentContent);
 
 public:
   RepoObjectWriter(std::unique_ptr<MCRepoObjectTargetWriter> MOTW,
@@ -166,7 +173,7 @@ public:
   pstore::index::digest buildCompilationRecord(
       const pstore::database &Db, const MCAssembler &Asm,
       ModuleNamesContainer &Names, NamesWithPrefixContainer &Symbols,
-      const ContentsType &Fragments, StringRef OutputFile, StringRef Triple);
+      ContentsType &Fragments, StringRef OutputFile, StringRef Triple);
 
   static pstore::repo::linkage_type
   toPstoreLinkage(GlobalValue::LinkageTypes L);
@@ -640,7 +647,7 @@ template <typename T> ArrayRef<std::uint8_t> makeByteArrayRef(T const &Value) {
 pstore::index::digest RepoObjectWriter::buildCompilationRecord(
     const pstore::database &Db, const MCAssembler &Asm,
     ModuleNamesContainer &Names, NamesWithPrefixContainer &Symbols,
-    const ContentsType &Fragments, StringRef OutputFile, StringRef Triple) {
+    ContentsType &Fragments, StringRef OutputFile, StringRef Triple) {
   MD5 CompilationHash;
 
   CompilationHash.update(OutputFile.size());
@@ -675,7 +682,8 @@ pstore::index::digest RepoObjectWriter::buildCompilationRecord(
     // If the global object was removed during LLVM's transform passes, this
     // member is not emitted and doesn't insert to the database, and it does
     // not contribute to the hash.
-    if (Symbol->getPruned() || Fragments.find(D) != Fragments.end()) {
+    auto FragmentPos = Fragments.find(D);
+    if (Symbol->getPruned() || FragmentPos != Fragments.end()) {
       CompilationMembers.emplace_back(
           DigestVal, pstore::extent<pstore::repo::fragment>(),
           pstore::typed_address<pstore::indirect_string>(
@@ -691,6 +699,10 @@ pstore::index::digest RepoObjectWriter::buildCompilationRecord(
       CompilationHash.update(Name.size());
       CompilationHash.update(stringViewAsRef(Name));
     }
+    // Update the fragment to remember the corrresponding compilation member.
+    if (FragmentPos != Fragments.end())
+      FragmentPos->second.CorrespondingCompilationMember =
+          &CompilationMembers.back();
   }
 
   MD5::MD5Result digest;
@@ -831,6 +843,43 @@ RepoObjectWriter::writeDebugLineHeader(TransactionType &Transaction,
   return {};
 }
 
+pstore::index::digest
+RepoObjectWriter::updateFragmentDigest(const ticketmd::DigestType &InitailHash,
+                                       FragmentContentsType &FragmentContent) {
+  MD5 FragmentHash;
+  MD5::MD5Result FragmentDigest;
+  auto IsEmptyDependent = FragmentContent.Dependents.empty();
+  if (!IsEmptyDependent) {
+    // If this Fragment has dependents and the dependents have an internal
+    // linkage type, accumulate the dependents' hash to this fragment.
+
+    FragmentHash.update(InitailHash.Bytes);
+    for (auto Dependent : FragmentContent.Dependents) {
+      auto DependentCompilationMember =
+          CompilationMembers[Dependent.absolute()];
+      if (DependentCompilationMember.linkage ==
+          pstore::repo::linkage_type::internal) {
+        FragmentHash.update(
+            makeByteArrayRef(DependentCompilationMember.digest));
+        FragmentHash.update(makeByteArrayRef(DependentCompilationMember.name));
+      }
+    }
+    FragmentHash.final(FragmentDigest);
+  }
+
+  auto const Key =
+      IsEmptyDependent
+          ? pstore::index::digest{InitailHash.high(), InitailHash.low()}
+          : pstore::index::digest{FragmentDigest.high(), FragmentDigest.low()};
+
+  if (!IsEmptyDependent) {
+    // Update the corresponding compilation member in CompilationMembers.
+    FragmentContent.CorrespondingCompilationMember->digest = Key;
+  }
+
+  return Key;
+}
+
 uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
                                        const MCAsmLayout &Layout) {
   uint64_t StartOffset = W.OS.tell();
@@ -905,8 +954,8 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
           RepoFragments;
 
       for (auto &Fragment : Fragments) {
-        auto const Key =
-            pstore::index::digest{Fragment.first.high(), Fragment.first.low()};
+
+        auto const Key = updateFragmentDigest(Fragment.first, Fragment.second);
 
         // The fragment creation APIs require that the input sections are sorted
         // by section_content::type. This guarantees that for them.
@@ -962,7 +1011,7 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
       assert(TriplePos != Names.end() && "Triple can't be found!");
       auto TripleAddr = TriplePos->second;
 
-      // Set the compilation member's grahment extent.
+      // Set the compilation member's fragment extent.
       auto setFragmentExtent =
           [&RepoFragments, &FragmentsIndex,
            &Db](pstore::repo::compilation_member &CompilationMember)
