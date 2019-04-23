@@ -47,8 +47,9 @@ RUN ${scripts_dir}/build_install_llvm_prepo.sh \
     --workspace ${workspace_dir} --install-dir ${install_dir} ${build_args}
 
 # Stage 2. Produce a minimal release image with build results.
-FROM launcher.gcr.io/google/ubuntu16_04 as pstore-stage
+FROM launcher.gcr.io/google/ubuntu16_04 as llvm-prepo-stage
 #LABEL maintainer "LLVM Developers"
+ENTRYPOINT /bin/bash
 
 # Copy build results of stage 1 to /usr/local.
 #COPY --from=builder ${install_dir}/ ${user_dir}/

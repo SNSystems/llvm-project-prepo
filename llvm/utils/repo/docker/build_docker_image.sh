@@ -32,9 +32,9 @@ Required options: --docker-repository, at least one --install-target.
 All options after '--' are passed to CMake invocation.
 
 For example, running:
-  build_docker_image.sh \
-    --branch master --docker-tag latest \
-    --install-target install-clang --install-target install-pstore \
+  build_docker_image.sh
+    --branch master --docker-tag latest
+    --install-target install-clang --install-target install-pstore
     -- -DCMAKE_BUILD_TYPE=Release
 
 will produce a docker image:
@@ -42,7 +42,7 @@ will produce a docker image:
                       clang and pstore tools, build from the 'master' branch.
 
 The image can be executed with:
-  docker run -t -i llvm-prepo:latest /bin/bash
+  docker run -t -i llvm-prepo:latest
 
 The --local argument specifies a local directory that is the root for the
 llvm repository.
@@ -103,11 +103,6 @@ command -v docker >/dev/null ||
     echo "Docker binary cannot be found. Please install Docker to use this script."
     exit 1
   }
-
-if [ "$DOCKER_REPOSITORY" == "" ]; then
-  echo "Required argument missing: --docker-repository"
-  exit 1
-fi
 
 if [ $SEEN_INSTALL_TARGET -eq 0 ]; then
   echo "Please provide at least one --install-target"
