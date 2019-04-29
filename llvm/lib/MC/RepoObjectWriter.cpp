@@ -103,9 +103,9 @@ private:
     /// dependent.
     SmallVector<pstore::typed_address<pstore::repo::compilation_member>, 4>
         Dependents;
-    // A pointer to the corresponding compilation member in the
+    // A iterator to the corresponding compilation member in the
     // CompilationMembers.
-    pstore::repo::compilation_member *CorrespondingCompilationMember = nullptr;
+    TicketType::iterator CorrespondingCompilationMemberIt;
   };
 
   // A mapping of a fragment digest to its contents (which include the
@@ -701,8 +701,8 @@ pstore::index::digest RepoObjectWriter::buildCompilationRecord(
     }
     // Update the fragment to remember the corrresponding compilation member.
     if (FragmentPos != Fragments.end())
-      FragmentPos->second.CorrespondingCompilationMember =
-          &CompilationMembers.back();
+      FragmentPos->second.CorrespondingCompilationMemberIt =
+          CompilationMembers.end()-1;
   }
 
   MD5::MD5Result digest;
@@ -843,38 +843,35 @@ RepoObjectWriter::writeDebugLineHeader(TransactionType &Transaction,
   return {};
 }
 
-pstore::index::digest
-RepoObjectWriter::updateFragmentDigest(const ticketmd::DigestType &InitailHash,
-                                       FragmentContentsType &FragmentContent) {
+pstore::index::digest RepoObjectWriter::updateFragmentDigest(
+    const ticketmd::DigestType &InitialDigest,
+    FragmentContentsType &FragmentContent) {
   MD5 FragmentHash;
-  MD5::MD5Result FragmentDigest;
-  auto IsEmptyDependent = FragmentContent.Dependents.empty();
-  if (!IsEmptyDependent) {
-    // If this Fragment has dependents and the dependents have an internal
-    // linkage type, accumulate the dependents' hash to this fragment.
-
-    FragmentHash.update(InitailHash.Bytes);
-    for (auto Dependent : FragmentContent.Dependents) {
+  MD5::MD5Result FragmentDigest = InitialDigest;
+  const bool HasDependents = !FragmentContent.Dependents.empty();
+  if (HasDependents) {
+    FragmentHash.update(InitialDigest.Bytes);
+    // Accumulate the dependents' hash to this fragment.
+    for (const auto Dependent : FragmentContent.Dependents) {
       auto DependentCompilationMember =
           CompilationMembers[Dependent.absolute()];
-      if (DependentCompilationMember.linkage ==
-          pstore::repo::linkage_type::internal) {
-        FragmentHash.update(
-            makeByteArrayRef(DependentCompilationMember.digest));
-        FragmentHash.update(makeByteArrayRef(DependentCompilationMember.name));
-      }
+      // Accumulated the dependent's digest.
+      FragmentHash.update(makeByteArrayRef(DependentCompilationMember.digest));
+      // Accumulated the dependent's name.
+      FragmentHash.update(stringViewAsRef(
+          reinterpret_cast<const ModuleNamesContainer::value_type *>(
+              DependentCompilationMember.name.absolute())
+              ->first));
     }
     FragmentHash.final(FragmentDigest);
   }
 
   auto const Key =
-      IsEmptyDependent
-          ? pstore::index::digest{InitailHash.high(), InitailHash.low()}
-          : pstore::index::digest{FragmentDigest.high(), FragmentDigest.low()};
+      pstore::index::digest{FragmentDigest.high(), FragmentDigest.low()};
 
-  if (!IsEmptyDependent) {
+  if (HasDependents) {
     // Update the corresponding compilation member in CompilationMembers.
-    FragmentContent.CorrespondingCompilationMember->digest = Key;
+    FragmentContent.CorrespondingCompilationMemberIt->digest = Key;
   }
 
   return Key;
