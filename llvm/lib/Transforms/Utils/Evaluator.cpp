@@ -33,6 +33,7 @@
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/IR/RepoTicket.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/User.h"
 #include "llvm/IR/Value.h"
@@ -124,6 +125,20 @@ isSimpleEnoughValueToCommit(Constant *C,
   return isSimpleEnoughValueToCommitHelper(C, SimpleConstants, DL);
 }
 
+static std::pair<bool, GlobalValue::LinkageTypes>
+getPruningAndLinkage(const GlobalVariable &GV) {
+  if (const GlobalObject *GO = GV.getBaseObject()) {
+    if (const auto *const T = GO->getMetadata(LLVMContext::MD_repo_ticket)) {
+      if (const TicketNode *const MD = dyn_cast<TicketNode>(T)) {
+        if (MD->getPruned()) {
+          return std::make_pair(true, MD->getLinkage());
+        }
+      }
+    }
+  }
+  return std::make_pair(false, GV.getLinkage());
+}
+
 /// Return true if this constant is simple enough for us to understand.  In
 /// particular, if it is a cast to anything other than from one pointer type to
 /// another pointer type, we punt.  We basically just support direct accesses to
@@ -145,9 +160,18 @@ static bool isSimpleEnoughPointerToCommit(Constant *C) {
         isa<GlobalVariable>(CE->getOperand(0)) &&
         cast<GEPOperator>(CE)->isInBounds()) {
       GlobalVariable *GV = cast<GlobalVariable>(CE->getOperand(0));
+      bool Pruning;
+      GlobalValue::LinkageTypes InitialLinkage;
+      std::tie(Pruning, InitialLinkage) = getPruningAndLinkage(*GV);
       // Do not allow weak/*_odr/linkonce/dllimport/dllexport linkage or
       // external globals.
-      if (!GV->hasUniqueInitializer())
+      if (!Pruning && !GV->hasUniqueInitializer())
+        return false;
+      if (Pruning &&
+          (GlobalValue::isAvailableExternallyLinkage(InitialLinkage) ||
+           GlobalValue::isWeakForLinker(InitialLinkage) ||
+           GV->isExternallyInitialized() ||
+           GlobalValue::isExternalLinkage(GV->getLinkage())))
         return false;
 
       // The first index must be zero.
