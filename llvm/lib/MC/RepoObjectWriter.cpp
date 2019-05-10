@@ -103,9 +103,9 @@ private:
     /// dependent.
     SmallVector<pstore::typed_address<pstore::repo::compilation_member>, 4>
         Dependents;
-    // A iterator to the corresponding compilation member in the
+    // Iterators to the corresponding compilation members in the
     // CompilationMembers.
-    TicketType::iterator CorrespondingCompilationMemberIt;
+    SmallVector<TicketType::iterator, 4> CorrespondingCompilationMembersIts;
   };
 
   // A mapping of a fragment digest to its contents (which include the
@@ -700,9 +700,14 @@ pstore::index::digest RepoObjectWriter::buildCompilationRecord(
       CompilationHash.update(stringViewAsRef(Name));
     }
     // Update the fragment to remember the corrresponding compilation member.
-    if (FragmentPos != Fragments.end())
-      FragmentPos->second.CorrespondingCompilationMemberIt =
-          CompilationMembers.end()-1;
+    if (FragmentPos != Fragments.end()) {
+      //  A reallocation shouldn't happen because the corresponding
+      //  compilation_member lies inside of Tickets and compilationMembers is
+      //  reserved to Tickets.size(),.
+      assert(CompilationMembers.capacity() == Tickets.size());
+      FragmentPos->second.CorrespondingCompilationMembersIts.push_back(
+          CompilationMembers.end() - 1);
+    }
   }
 
   MD5::MD5Result digest;
@@ -871,7 +876,9 @@ pstore::index::digest RepoObjectWriter::updateFragmentDigest(
 
   if (HasDependents) {
     // Update the corresponding compilation member in CompilationMembers.
-    FragmentContent.CorrespondingCompilationMemberIt->digest = Key;
+    for (const auto It : FragmentContent.CorrespondingCompilationMembersIts) {
+      It->digest = Key;
+    }
   }
 
   return Key;
