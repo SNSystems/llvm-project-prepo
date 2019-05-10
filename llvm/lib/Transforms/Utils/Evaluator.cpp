@@ -125,18 +125,28 @@ isSimpleEnoughValueToCommit(Constant *C,
   return isSimpleEnoughValueToCommitHelper(C, SimpleConstants, DL);
 }
 
-static std::pair<bool, GlobalValue::LinkageTypes>
-getPruningAndLinkage(const GlobalVariable &GV) {
-  if (const GlobalObject *GO = GV.getBaseObject()) {
-    if (const auto *const T = GO->getMetadata(LLVMContext::MD_repo_ticket)) {
+static bool wasPruned(const GlobalVariable &GV) {
+  if (const GlobalObject *const GO = GV.getBaseObject()) {
+    if (const MDNode *const T = GO->getMetadata(LLVMContext::MD_repo_ticket)) {
       if (const TicketNode *const MD = dyn_cast<TicketNode>(T)) {
-        if (MD->getPruned()) {
-          return std::make_pair(true, MD->getLinkage());
-        }
+        return MD->getPruned();
       }
     }
   }
-  return std::make_pair(false, GV.getLinkage());
+  return false;
+}
+
+static GlobalValue::LinkageTypes getOriginalLinkage(const GlobalVariable &GV,
+                                                    bool WasPruned) {
+  if (WasPruned) {
+    assert(GV.getBaseObject() != nullptr);
+    assert(GV.getBaseObject()->getMetadata(LLVMContext::MD_repo_ticket) !=
+           nullptr);
+    return (dyn_cast<TicketNode>(
+                GV.getBaseObject()->getMetadata(LLVMContext::MD_repo_ticket)))
+        ->getLinkage();
+  }
+  return GV.getLinkage();
 }
 
 /// Return true if this constant is simple enough for us to understand.  In
@@ -160,19 +170,21 @@ static bool isSimpleEnoughPointerToCommit(Constant *C) {
         isa<GlobalVariable>(CE->getOperand(0)) &&
         cast<GEPOperator>(CE)->isInBounds()) {
       GlobalVariable *GV = cast<GlobalVariable>(CE->getOperand(0));
-      bool Pruning;
-      GlobalValue::LinkageTypes InitialLinkage;
-      std::tie(Pruning, InitialLinkage) = getPruningAndLinkage(*GV);
+      bool WasPruned = wasPruned(*GV);
+      GlobalValue::LinkageTypes InitialLinkage =
+          getOriginalLinkage(*GV, WasPruned);
       // Do not allow weak/*_odr/linkonce/dllimport/dllexport linkage or
       // external globals.
-      if (!Pruning && !GV->hasUniqueInitializer())
-        return false;
-      if (Pruning &&
-          (GlobalValue::isAvailableExternallyLinkage(InitialLinkage) ||
-           GlobalValue::isWeakForLinker(InitialLinkage) ||
-           GV->isExternallyInitialized() ||
-           GlobalValue::isExternalLinkage(GV->getLinkage())))
-        return false;
+      if (WasPruned) {
+        if (GlobalValue::isAvailableExternallyLinkage(InitialLinkage) ||
+            GlobalValue::isWeakForLinker(InitialLinkage) ||
+            GV->isExternallyInitialized() ||
+            GlobalValue::isExternalLinkage(GV->getLinkage()))
+          return false;
+      } else {
+        if (!GV->hasUniqueInitializer())
+          return false;
+      }
 
       // The first index must be zero.
       ConstantInt *CI = dyn_cast<ConstantInt>(*std::next(CE->op_begin()));
