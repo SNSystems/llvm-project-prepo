@@ -12,42 +12,41 @@
 
 target triple = "x86_64-pc-linux-gnu-elf"
 
-%"struct.(anonymous namespace)::ManualMapEntry" = type { i8* }
+%"MapEntry" = type { i8* }
 
-@_ZN12_GLOBAL__N_112ManualMapSetE = internal global [1 x %"struct.(anonymous namespace)::ManualMapEntry"] zeroinitializer, align 8
+@MapSet = internal global [1 x %"MapEntry"] zeroinitializer, align 8
 @.str = private unnamed_addr constant [11 x i8] c"ADD16ri_DB\00", align 1
 @llvm.global_ctors = appending global [1 x { i32, void ()*, i8* }] [{ i32, void ()*, i8* } { i32 65535, void ()* @_GLOBAL__sub_I_test.cpp, i8* null }]
 
-define internal void @_GLOBAL__sub_I_test.cpp() #0 section ".text.startup" {
+define internal void @_GLOBAL__sub_I_test.cpp() #0 {
 entry:
   call void @__cxx_global_var_init()
   ret void
 }
 
-define internal void @__cxx_global_var_init() #0 section ".text.startup" {
+define internal void @__cxx_global_var_init() #0 {
 entry:
-  call void @_ZN12_GLOBAL__N_114ManualMapEntryC2EPKc(%"struct.(anonymous namespace)::ManualMapEntry"* getelementptr inbounds ([1 x %"struct.(anonymous namespace)::ManualMapEntry"], [1 x %"struct.(anonymous namespace)::ManualMapEntry"]* @_ZN12_GLOBAL__N_112ManualMapSetE, i64 0, i64 0), i8* getelementptr inbounds ([11 x i8], [11 x i8]* @.str, i32 0, i32 0))
+  call void @MapEntryC2(%"MapEntry"* getelementptr inbounds ([1 x %"MapEntry"], [1 x %"MapEntry"]* @MapSet, i64 0, i64 0), i8* getelementptr inbounds ([11 x i8], [11 x i8]* @.str, i32 0, i32 0))
   ret void
 }
 
-define internal void @_ZN12_GLOBAL__N_114ManualMapEntryC2EPKc(%"struct.(anonymous namespace)::ManualMapEntry"* %this, i8* %RegInstStr) unnamed_addr #1 align 2 {
+define internal void @MapEntryC2(%"MapEntry"* %this, i8* %RegInstStr) unnamed_addr #1 align 2 {
 entry:
   %RegInstStr.addr = alloca i8*, align 8
-  %RegInstStr2 = getelementptr inbounds %"struct.(anonymous namespace)::ManualMapEntry", %"struct.(anonymous namespace)::ManualMapEntry"* %this, i32 0, i32 0
+  %RegInstStr2 = getelementptr inbounds %"MapEntry", %"MapEntry"* %this, i32 0, i32 0
   store i8* %RegInstStr, i8** %RegInstStr2, align 8
   ret void
 }
 
 ; Function Attrs: noinline norecurse nounwind optnone uwtable
-define dso_local i32 @main() #2 {
+define dso_local i32 @main() #1 {
 entry:
-  %0 = alloca [1 x %"struct.(anonymous namespace)::ManualMapEntry"]*, align 8
-  store [1 x %"struct.(anonymous namespace)::ManualMapEntry"]* @_ZN12_GLOBAL__N_112ManualMapSetE, [1 x %"struct.(anonymous namespace)::ManualMapEntry"]** %0, align 8
+  %0 = alloca [1 x %"MapEntry"]*, align 8
+  store [1 x %"MapEntry"]* @MapSet, [1 x %"MapEntry"]** %0, align 8
   ret i32 0
 }
 
 attributes #0 = { noinline }
 attributes #1 = { noinline  optnone}
-attributes #2 = { noinline  optnone}
 
 ; CHECK-NOT: @_GLOBAL__sub_I_test.cpp
