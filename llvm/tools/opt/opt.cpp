@@ -191,12 +191,6 @@ DisableSLPVectorization("disable-slp-vectorization",
                         cl::desc("Disable the slp vectorization pass"),
                         cl::init(false));
 
-// Add this option to support the repo pruning dependent tests.
-static cl::opt<bool>
-    DisablePrepo("disable-prepo",
-                 cl::desc("Disable the repo metadata generation pass"),
-                 cl::init(false));
-
 static cl::opt<bool> EmitSummaryIndex("module-summary",
                                       cl::desc("Emit module summary index"),
                                       cl::init(false));
@@ -792,8 +786,7 @@ int main(int argc, char **argv) {
   // object type is repo format.
   if (ModuleTriple.isOSBinFormatRepo() && !OptLevelO0 && !OptLevelO1 &&
       !OptLevelO2 && !OptLevelOs && !OptLevelOz && !OptLevelO3) {
-    if (!DisablePrepo)
-      Passes.add(createRepoMetadataGenerationPass());
+    Passes.add(createRepoMetadataGenerationPass());
     Passes.add(createRepoPruningPass());
   }
 

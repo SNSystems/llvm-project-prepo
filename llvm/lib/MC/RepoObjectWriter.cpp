@@ -125,7 +125,7 @@ private:
   writeDebugLineHeader(TransactionType &Transaction, ContentsType &Fragments);
 
   pstore::index::digest
-  updateFragmentDigest(const ticketmd::DigestType &InitailHash,
+  updateFragmentDigest(const ticketmd::DigestType &InitialHash,
                        FragmentContentsType &FragmentContent);
 
 public:
@@ -705,8 +705,10 @@ pstore::index::digest RepoObjectWriter::buildCompilationRecord(
       //  compilation_member lies inside of Tickets and compilationMembers is
       //  reserved to Tickets.size(),.
       assert(CompilationMembers.capacity() == Tickets.size());
-      FragmentPos->second.CorrespondingCompilationMembersIts.push_back(
-          CompilationMembers.end() - 1);
+      assert(!CompilationMembers.empty());
+      auto It = CompilationMembers.end();
+      std::advance(It, -1);
+      FragmentPos->second.CorrespondingCompilationMembersIts.push_back(It);
     }
   }
 
@@ -858,11 +860,11 @@ pstore::index::digest RepoObjectWriter::updateFragmentDigest(
     FragmentHash.update(InitialDigest.Bytes);
     // Accumulate the dependents' hash to this fragment.
     for (const auto Dependent : FragmentContent.Dependents) {
-      auto DependentCompilationMember =
+      const auto &DependentCompilationMember =
           CompilationMembers[Dependent.absolute()];
-      // Accumulated the dependent's digest.
+      // Accumulate the dependent's digest.
       FragmentHash.update(makeByteArrayRef(DependentCompilationMember.digest));
-      // Accumulated the dependent's name.
+      // Accumulate the dependent's name.
       FragmentHash.update(stringViewAsRef(
           reinterpret_cast<const ModuleNamesContainer::value_type *>(
               DependentCompilationMember.name.absolute())
