@@ -48,7 +48,9 @@ protected:
   ticketmd::GOInfo getGOInfo(const GlobalType *G) {
     ticketmd::GOInfoMap InfoMap;
     return std::move(
-        ticketmd::calculateInitialDigestAndDependencies(G, InfoMap)->second);
+        ticketmd::calculateInitialDigestAndDependenciesAndContributions(G,
+                                                                        InfoMap)
+            ->second);
   }
 
   const TicketNode *getTicket(const GlobalObject *F) {

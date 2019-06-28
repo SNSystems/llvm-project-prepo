@@ -177,6 +177,8 @@ public:
 
   ticketmd::DependenciesType &getDependencies() { return Dependencies; }
 
+  ticketmd::ContributionsType &getContributions() { return Contributions; }
+
 private:
   // Accumulate the hash of basicblocks, instructions and variables etc in the
   // function Fn.
@@ -184,6 +186,9 @@ private:
 
   // Hold the global object list which the function hash depenendent on.
   ticketmd::DependenciesType Dependencies;
+
+  // Hold the global variables which the function/variable hash contributed to.
+  ticketmd::ContributionsType Contributions;
 
   /// Assign serial numbers to values from the function.
   /// Explanation:
@@ -298,6 +303,19 @@ private:
 
   // Hold the function hash value.
   HashCalculator FnHash;
+
+  template <typename T>
+  void addContributionsFromCallInvoke(const T *Instruction) {
+    for (unsigned i = 0, ie = Instruction->getNumArgOperands(); i != ie; ++i) {
+      if (auto *GV = getAddressFromValue(Instruction->getArgOperand(i))) {
+        FnHash.getContributions().insert(GV);
+      }
+    }
+  }
+
+  const GlobalVariable *getAddressFromConstant(const Constant *C);
+  const GlobalVariable *getAddressFromValue(const Value *V);
+  const GlobalVariable *getStoreAddress(const StoreInst *SI);
 };
 
 /// VariableHashCalculator - Calculate the global variable hash.
@@ -345,12 +363,14 @@ struct DigestCalculator<Function> {
 };
 
 template <typename T>
-ticketmd::DigestAndDependencies calculateDigestAndDependencies(const T *GO) {
+ticketmd::DigestAndDependenciesAndContributions
+calculateDigestAndDependenciesAndContributions(const T *GO) {
   // Calculate the initial global object hash value and dependent list.
   typename DigestCalculator<T>::Calculator GOHC{GO};
   GOHC.calculateHash();
-  return std::make_pair(std::move(GOHC.getHashResult()),
-                        std::move(GOHC.hasher().getDependencies()));
+  return std::make_tuple(std::move(GOHC.getHashResult()),
+                         std::move(GOHC.hasher().getDependencies()),
+                         std::move(GOHC.hasher().getContributions()));
 }
 
 } // end namespace llvm
