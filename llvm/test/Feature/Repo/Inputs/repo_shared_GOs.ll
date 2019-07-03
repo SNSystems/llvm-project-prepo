@@ -21,7 +21,7 @@ entry:
   ret i32 %0
 }
 
-; uase by repo_store_GV.ll.
+; use by repo_store_GV.ll.
 @X = global i32 0
 
 define void @foov() {
@@ -30,7 +30,7 @@ entry:
   ret void
 }
 
-; uase by repo_store_getelementptr.ll.
+; use by repo_store_getelementptr.ll.
 @xs = global [2 x i32] zeroinitializer, align 4
 
 define void @test1() {
@@ -39,7 +39,7 @@ entry:
   ret void
 }
 
-; uase by repo_store_load.ll.
+; use by repo_store_load.ll.
 @a = global i32 0, align 4
 @b = global i32* @a, align 8
 
@@ -51,7 +51,7 @@ entry:
   ret void
 }
 
-; uase by repo_store_bitcast.ll.
+; use by repo_store_bitcast.ll.
 %TS = type { i64* }
 %TA = type { i64 }
 
@@ -64,7 +64,7 @@ define void @test3() {
   ret void
 }
 
-; uase by repo_call_GV.ll.
+; use by repo_call_GV.ll.
 target triple = "x86_64-pc-linux-gnu-repo"
 
 @Z = global i32 1

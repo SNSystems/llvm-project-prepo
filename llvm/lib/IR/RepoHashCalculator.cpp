@@ -329,7 +329,7 @@ void HashCalculator::hashGlobalValue(const GlobalValue *V) {
   if (auto *GO = dyn_cast<GlobalObject>(V)) {
     // Push GO into the dependent list if it is not a declaration.
     if (!GO->isDeclaration())
-      getDependencies().emplace_back(GO);
+      getDependencies().insert(GO);
   }
 }
 

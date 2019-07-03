@@ -363,14 +363,13 @@ struct DigestCalculator<Function> {
 };
 
 template <typename T>
-ticketmd::DigestAndDependenciesAndContributions
-calculateDigestAndDependenciesAndContributions(const T *GO) {
+ticketmd::GOInfo calculateDigestAndDependenciesAndContributions(const T *GO) {
   // Calculate the initial global object hash value and dependent list.
   typename DigestCalculator<T>::Calculator GOHC{GO};
   GOHC.calculateHash();
-  return std::make_tuple(std::move(GOHC.getHashResult()),
-                         std::move(GOHC.hasher().getDependencies()),
-                         std::move(GOHC.hasher().getContributions()));
+  return {std::move(GOHC.getHashResult()),
+          std::move(GOHC.hasher().getDependencies()),
+          std::move(GOHC.hasher().getContributions())};
 }
 
 } // end namespace llvm

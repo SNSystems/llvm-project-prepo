@@ -421,9 +421,9 @@ TEST_F(SingleModule, TwolevelsCall) {
   EXPECT_EQ(QDependencies.size(), std::size_t{0})
       << "Expected that the size of q's dependent list is zero";
   EXPECT_THAT(PDependencies, ::testing::ElementsAre(Z));
-  EXPECT_THAT(FooDependencies, ::testing::ElementsAre(P, Q))
+  EXPECT_THAT(FooDependencies, ::testing::UnorderedElementsAre(P, Q))
       << "Expected foo's dependent list is {P, Q}";
-  EXPECT_THAT(BarDependencies, ::testing::ElementsAre(P, Q))
+  EXPECT_THAT(BarDependencies, ::testing::UnorderedElementsAre(P, Q))
       << "Expected bar's dependent list is {P, Q}";
 
   const auto &Result = ticketmd::generateTicketMDs(*M);

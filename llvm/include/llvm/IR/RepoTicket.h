@@ -34,15 +34,13 @@ namespace ticketmd {
 using DigestType = MD5::MD5Result;
 static constexpr size_t DigestSize =
     std::tuple_size<decltype(DigestType::Bytes)>::value;
-using DependenciesType = SmallVector<const GlobalObject *, 1>;
+using DependenciesType = SmallSet<const GlobalObject *, 1>;
 using ContributionsType = SmallSet<const GlobalVariable *, 1>;
-using DigestAndDependenciesAndContributions =
-    std::tuple<DigestType, DependenciesType, ContributionsType>;
 /// Map GO to a unique number in the function call graph.
 using GOStateMap = llvm::DenseMap<const GlobalObject *, unsigned>;
 /// A pair of the global object's dependencies and a bool which is true if
 /// GO's hash value has been updated.
-using GODigestState = std::pair<DependenciesType, bool>;
+using GODigestState = std::pair<const DependenciesType &, bool>;
 
 const Constant *getAliasee(const GlobalAlias *GA);
 /// Set global object ticket metadata value and add this to the module level
@@ -63,9 +61,9 @@ struct GONumber {
 struct GOInfo {
   /// GO's initial hash value which does not include the hash of its dependents.
   DigestType InitialDigest;
-  /// A list of global objects which the GO's hash depenendent on.
+  /// A set of global objects which the GO's hash depenendent on.
   DependenciesType Dependencies;
-  /// A list of global variables which the GO's hash contributed to.
+  /// A set of global variables which the GO's hash contributed to.
   ContributionsType Contributions;
 
   GOInfo() = default;
@@ -93,12 +91,11 @@ template <typename GlobalType>
 GOInfoMap::const_iterator
 calculateInitialDigestAndDependenciesAndContributions(const GlobalType *G,
                                                       GOInfoMap &GOI) {
-  DigestAndDependenciesAndContributions Result =
-      calculateDigestAndDependenciesAndContributions(G);
+  GOInfo Result = calculateDigestAndDependenciesAndContributions(G);
   return GOI
-      .try_emplace(G, std::move(std::get<0>(Result)),
-                   std::move(std::get<1>(Result)),
-                   std::move(std::get<2>(Result)))
+      .try_emplace(G, std::move(Result.InitialDigest),
+                   std::move(Result.Dependencies),
+                   std::move(Result.Contributions))
       .first;
 }
 

@@ -43,6 +43,15 @@ void set(GlobalObject *GO, ticketmd::DigestType const &D) {
     NMD->addOperand(MD);
 }
 
+const TicketNode *getTicket(const GlobalObject *GO) {
+  if (const auto *const T = GO->getMetadata(LLVMContext::MD_repo_ticket)) {
+    if (const TicketNode *const MD = dyn_cast<TicketNode>(T)) {
+      return MD;
+    }
+  }
+  report_fatal_error("Failed to get TicketNode metadata!");
+}
+
 auto get(const GlobalObject *GO) -> std::pair<ticketmd::DigestType, bool> {
 
   if (const auto *const T = GO->getMetadata(LLVMContext::MD_repo_ticket)) {
@@ -85,10 +94,10 @@ updateInitialDigestAndGetDependencies(const GlobalObject *GO, MD5 &GOHash,
   return Pos->second.Dependencies;
 }
 
-const GODigestState updateDigestGONumAndGetDependencies(const GlobalObject *GO,
-                                                        MD5 &GOHash,
-                                                        GOInfoMap &GOIMap,
-                                                        GONumber &GONum) {
+GODigestState updateDigestGONumAndGetDependencies(const GlobalObject *GO,
+                                                  MD5 &GOHash,
+                                                  GOInfoMap &GOIMap,
+                                                  GONumber &GONum) {
   auto It = GOIMap.find(GO);
   if (It != GOIMap.end()) {
     const GOInfo &GOInformation = It->second;
@@ -100,9 +109,8 @@ const GODigestState updateDigestGONumAndGetDependencies(const GlobalObject *GO,
           true};
 }
 
-const GODigestState updateGODigestAndGetDependencies(const GlobalObject *GO,
-                                                     MD5 &GOHash,
-                                                     GOInfoMap &GOIMap) {
+GODigestState updateGODigestAndGetDependencies(const GlobalObject *GO,
+                                               MD5 &GOHash, GOInfoMap &GOIMap) {
   if (auto GOMD = GO->getMetadata(LLVMContext::MD_repo_ticket)) {
     if (const TicketNode *TN = dyn_cast<TicketNode>(GOMD)) {
       DigestType D = TN->getDigest();
@@ -120,17 +128,13 @@ const GODigestState updateGODigestAndGetDependencies(const GlobalObject *GO,
           true};
 }
 
-const GODigestState updateDigestUseMemoryDependencies(const GlobalObject *GO,
-                                                      MD5 &GOHash,
-                                                      GOInfoMap &GOIMap,
-                                                      GVInfoMap GVIMap) {
+GODigestState updateDigestUseContributions(const GlobalObject *GO, MD5 &GOHash,
+                                           GOInfoMap &GOIMap,
+                                           GVInfoMap GVIMap) {
   bool Changed = false;
   if (const auto &GV = dyn_cast<GlobalVariable>(GO)) {
     if (GVIMap.count(GV)) {
-      GOHash.update(
-          dyn_cast<TicketNode>(GV->getMetadata(LLVMContext::MD_repo_ticket))
-              ->getDigest()
-              .Bytes);
+      GOHash.update(getTicket(GO)->getDigest().Bytes);
       Changed = true;
     }
   }
@@ -160,7 +164,7 @@ updateDigestUseCallDependencies(const GlobalObject *GO, MD5 &GOHash,
   bool Changed = false;
   GOHash.update('T');
   auto State = UpdateDigestAndGetDependencies(GO, GOHash, GOIMap);
-  Changed |= State.second;
+  Changed = Changed || State.second;
 
   // Recursively for all the dependent global objects.
   for (const GlobalObject *D : State.first) {
@@ -168,8 +172,9 @@ updateDigestUseCallDependencies(const GlobalObject *GO, MD5 &GOHash,
     // if function will not be inlined, skip it
     if (Fn && Fn->hasFnAttribute(Attribute::NoInline))
       continue;
-    Changed |= updateDigestUseCallDependencies(D, GOHash, Visited, GOIMap,
-                                               UpdateDigestAndGetDependencies);
+    Changed = updateDigestUseCallDependencies(D, GOHash, Visited, GOIMap,
+                                              UpdateDigestAndGetDependencies) ||
+              Changed;
   }
   return Changed;
 }
@@ -195,7 +200,7 @@ std::tuple<bool, unsigned, unsigned> generateTicketMDs(Module &M) {
     updateDigestUseCallDependencies(&GO, Hash, Visited, GOIMap, Helper);
     for (const auto GV : GOIMap[&GO].Contributions) {
       // Record GO's possible memory dependents.
-      GVIMap[GV].emplace_back(&GO);
+      GVIMap[GV].insert(&GO);
     }
 
     MD5::MD5Result Digest;
@@ -208,22 +213,16 @@ std::tuple<bool, unsigned, unsigned> generateTicketMDs(Module &M) {
     return std::make_tuple(Changed, GONum.VarNum, GONum.FuncNum);
   }
 
-  // Update the GV's digest using the memory dependents.
+  // Update the GV's digest using the contributions.
   for (auto &It : GVIMap) {
     if (It.first->isDeclaration())
       continue;
 
     MD5 GVHash = MD5();
-    GVHash.update(
-        dyn_cast<TicketNode>(It.first->getMetadata(LLVMContext::MD_repo_ticket))
-            ->getDigest()
-            .Bytes);
+    GVHash.update(getTicket(It.first)->getDigest().Bytes);
     // Recursively for all the memory dependent global objects.
     for (const GlobalObject *GO : It.second) {
-      GVHash.update(
-          dyn_cast<TicketNode>(GO->getMetadata(LLVMContext::MD_repo_ticket))
-              ->getDigest()
-              .Bytes);
+      GVHash.update(getTicket(GO)->getDigest().Bytes);
     }
     MD5::MD5Result Digest;
     GVHash.final(Digest);
@@ -237,17 +236,14 @@ std::tuple<bool, unsigned, unsigned> generateTicketMDs(Module &M) {
 
     Visited.clear();
     MD5 Hash = MD5();
-    Hash.update(
-        dyn_cast<TicketNode>(GO.getMetadata(LLVMContext::MD_repo_ticket))
-            ->getDigest()
-            .Bytes);
+
+    Hash.update(getTicket(&GO)->getDigest().Bytes);
     auto Helper = [&GVIMap](const GlobalObject *GO, MD5 &GOHash,
                             GOInfoMap &GOIMap) {
-      return updateDigestUseMemoryDependencies(GO, GOHash, GOIMap, GVIMap);
+      return updateDigestUseContributions(GO, GOHash, GOIMap, GVIMap);
     };
-    auto Changed =
-        updateDigestUseCallDependencies(&GO, Hash, Visited, GOIMap, Helper);
-    if (Changed) {
+
+    if (updateDigestUseCallDependencies(&GO, Hash, Visited, GOIMap, Helper)) {
       MD5::MD5Result Digest;
       Hash.final(Digest);
       set(&GO, Digest);
