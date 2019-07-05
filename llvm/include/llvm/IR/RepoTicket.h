@@ -74,7 +74,7 @@ struct GOInfo {
 };
 using GOInfoMap = DenseMap<const GlobalObject *, GOInfo>;
 
-/// A map from a global variable (GV) to its memory dependents.
+/// A map from a global variable (GV) to the contibutions.
 using GVInfoMap = DenseMap<const GlobalVariable *, DependenciesType>;
 
 /// A tuple containing the global object information and two unsigned values

@@ -179,11 +179,11 @@ updateDigestUseCallDependencies(const GlobalObject *GO, MD5 &GOHash,
   return Changed;
 }
 
+// Calculate the final GO hash by adding the initial hashes of its dependents
+// and the contributions and create the ticket metadata for GOs.
 std::tuple<bool, unsigned, unsigned> generateTicketMDs(Module &M) {
   bool Changed = false;
   GONumber GONum;
-  // Calculate the final GO hash by adding the initial hashes of its dependents
-  // and create the ticket metadata for GOs.
   GOStateMap Visited;
   GOInfoMap GOIMap;
   GVInfoMap GVIMap;
@@ -199,7 +199,7 @@ std::tuple<bool, unsigned, unsigned> generateTicketMDs(Module &M) {
     };
     updateDigestUseCallDependencies(&GO, Hash, Visited, GOIMap, Helper);
     for (const auto GV : GOIMap[&GO].Contributions) {
-      // Record GO's possible memory dependents.
+      // Record GO's possible contributions.
       GVIMap[GV].insert(&GO);
     }
 
@@ -214,19 +214,19 @@ std::tuple<bool, unsigned, unsigned> generateTicketMDs(Module &M) {
   }
 
   // Update the GV's digest using the contributions.
-  for (auto &It : GVIMap) {
-    if (It.first->isDeclaration())
+  for (auto &Entry : GVIMap) {
+    if (Entry.first->isDeclaration())
       continue;
 
     MD5 GVHash = MD5();
-    GVHash.update(getTicket(It.first)->getDigest().Bytes);
-    // Recursively for all the memory dependent global objects.
-    for (const GlobalObject *GO : It.second) {
+    GVHash.update(getTicket(Entry.first)->getDigest().Bytes);
+    // Update GV's hash using the contributions.
+    for (const GlobalObject *GO : Entry.second) {
       GVHash.update(getTicket(GO)->getDigest().Bytes);
     }
     MD5::MD5Result Digest;
     GVHash.final(Digest);
-    set(const_cast<GlobalVariable *>(It.first), Digest);
+    set(const_cast<GlobalVariable *>(Entry.first), Digest);
   }
 
   // If GO's dependents include the updated GV, update the GO's digest.
