@@ -479,7 +479,7 @@ void RepoObjectWriter::writeSectionData(ContentsType &Fragments,
   // TODO: need a cleaner way to check that the alignment value will fit.
   assert(Alignment <= std::numeric_limits<std::uint8_t>::max());
 
-  auto Content = make_unique<pstore::repo::section_content>(
+  auto Content = llvm::make_unique<pstore::repo::section_content>(
       St, static_cast<std::uint8_t>(Alignment));
 
   // Add the section content to the fragment.
@@ -728,13 +728,13 @@ DispatcherCollectionType RepoObjectWriter::buildFragmentData(
     switch (Content->kind) {
     case pstore::repo::section_kind::bss:
       Dispatcher =
-          std::make_unique<pstore::repo::bss_section_creation_dispatcher>(
+          llvm::make_unique<pstore::repo::bss_section_creation_dispatcher>(
               Content.get());
       break;
     case pstore::repo::section_kind::debug_line:
       // TODO: record the CU's debug line header first, then point this section
       // to it.
-      Dispatcher = std::make_unique<
+      Dispatcher = llvm::make_unique<
           pstore::repo::debug_line_section_creation_dispatcher>(
           DebugLineHeaderExtent, Content.get());
       break;
@@ -743,7 +743,7 @@ DispatcherCollectionType RepoObjectWriter::buildFragmentData(
       break;
     default:
       Dispatcher =
-          std::make_unique<pstore::repo::generic_section_creation_dispatcher>(
+          llvm::make_unique<pstore::repo::generic_section_creation_dispatcher>(
               Content->kind, Content.get());
     }
     Dispatchers.emplace_back(std::move(Dispatcher));
@@ -974,7 +974,7 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
           LLVM_DEBUG(dbgs()
                      << "Adding a fake fragment llvm.global_ctors with Key"
                      << Key << '\n');
-          auto Content = make_unique<pstore::repo::section_content>(
+          auto Content = llvm::make_unique<pstore::repo::section_content>(
               pstore::repo::section_kind::read_only, std::uint8_t{8});
           std::vector<
               std::unique_ptr<pstore::repo::section_creation_dispatcher>>
