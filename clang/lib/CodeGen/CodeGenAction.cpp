@@ -36,6 +36,7 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/YAMLTraits.h"
@@ -227,6 +228,7 @@ namespace clang {
 
     void HandleTranslationUnit(ASTContext &C) override {
       {
+        llvm::TimeTraceScope TimeScope("Frontend", StringRef(""));
         PrettyStackTraceString CrashInfo("Per-file LLVM IR generation");
         if (FrontendTimesIsEnabled) {
           LLVMIRGenerationRefCount += 1;
