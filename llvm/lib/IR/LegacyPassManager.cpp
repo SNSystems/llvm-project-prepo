@@ -1815,6 +1815,8 @@ MPPassManager::runOnModule(Module &M) {
     ModulePass *MP = getContainedPass(Index);
     bool LocalChanged = false;
 
+    llvm::TimeTraceScope PassScope("RunPass", MP->getPassName());
+
     dumpPassInfo(MP, EXECUTION_MSG, ON_MODULE_MSG, M.getModuleIdentifier());
     dumpRequiredSet(MP);
 
