@@ -1,11 +1,11 @@
-#*                        *
-#*  _ __ ___ _ __   ___   *
-#* | '__/ _ \ '_ \ / _ \  *
-#* | | |  __/ |_) | (_) | *
-#* |_|  \___| .__/ \___/  *
-#*          |_|           *
-#===- elf.cmake ----------------------------------------------------------===//
-# Copyright (c) 2017-2018 by Sony Interactive Entertainment, Inc.
+#*       _  __  *
+#*   ___| |/ _| *
+#*  / _ \ | |_  *
+#* |  __/ |  _| *
+#*  \___|_|_|   *
+#*              *
+#===- elf.cmake -----------------------------------------------------------===//
+# Copyright (c) 2017-2019 by Sony Interactive Entertainment, Inc.
 # All rights reserved.
 #
 # Developed by:
@@ -55,4 +55,3 @@ SET (CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -fno-exceptions -fno-rt
 SET (CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -fno-exceptions -fno-rtti" CACHE STRING "Default CXX Flags Release")
 set (CMAKE_C_COMPILER_TARGET ${triple})
 set (CMAKE_CXX_COMPILER_TARGET ${triple})
-# eof: elf.cmake
