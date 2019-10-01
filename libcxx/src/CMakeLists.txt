@@ -221,9 +221,6 @@ if (LIBCXX_ENABLE_SHARED)
       endif()
     endif()
 
-    if (NOT LIBCXX_ENABLE_NEW_DELETE_DEFINITIONS)
-      target_link_libraries(cxx_shared PRIVATE "-Wl,-reexported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/../lib/libc++abi-new-delete.exp")
-    endif()
   endif()
 
   # Generate a linker script in place of a libc++.so symlink.
