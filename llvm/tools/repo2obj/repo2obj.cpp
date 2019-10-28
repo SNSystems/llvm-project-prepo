@@ -395,8 +395,8 @@ int main(int argc, char *argv[]) {
                 OutputSection<ELFT>::SectionInfo{});
 
       auto const IsLinkOnce =
-          CM.linkage == pstore::repo::linkage_type::link_once_any ||
-          CM.linkage == pstore::repo::linkage_type::link_once_odr;
+          CM.linkage == pstore::repo::linkage::link_once_any ||
+          CM.linkage == pstore::repo::linkage::link_once_odr;
 
       auto const Fragment = pstore::repo::fragment::load(Db, CM.fext);
 
@@ -427,7 +427,7 @@ int main(int argc, char *argv[]) {
         HeaderLength += Size;
       }
 
-      if (CM.linkage == pstore::repo::linkage_type::common) {
+      if (CM.linkage == pstore::repo::linkage::common) {
         auto const Name = pstore::indirect_string::read(Db, CM.name);
         assert(Name.is_in_store());
 

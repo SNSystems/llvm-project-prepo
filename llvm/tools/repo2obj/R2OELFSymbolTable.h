@@ -34,18 +34,17 @@ public:
     /// \param Size_  The object's size (in bytes).
     /// \param Linkage_  The symbol's linkage.
     SymbolTarget(OutputSection<ELFT> const *Section_, std::uint64_t Offset_,
-                 std::uint64_t Size_, pstore::repo::linkage_type Linkage_,
+                 std::uint64_t Size_, pstore::repo::linkage Linkage_,
                  pstore::repo::visibility_type Visibility_)
         : Section{Section_}, Offset{Offset_}, Size{Size_}, Linkage{Linkage_},
           Visibility{Visibility_} {
-      assert(Linkage_ == pstore::repo::linkage_type::common ||
-             Section != nullptr);
+      assert(Linkage_ == pstore::repo::linkage::common || Section != nullptr);
     }
 
     OutputSection<ELFT> const *Section;
     std::uint64_t Offset;
     std::uint64_t Size;
-    pstore::repo::linkage_type Linkage;
+    pstore::repo::linkage Linkage;
     pstore::repo::visibility_type Visibility;
   };
 
@@ -54,9 +53,9 @@ public:
     Value(std::uint64_t NameOffset_, llvm::Optional<SymbolTarget> Target_)
         : NameOffset{NameOffset_}, Target{std::move(Target_)} {}
 
-    pstore::repo::linkage_type linkage() const {
+    pstore::repo::linkage linkage() const {
       return Target ? Target.getValue().Linkage
-                    : pstore::repo::linkage_type::external;
+                    : pstore::repo::linkage::external;
     }
 
     /// The offset of the name of this symbol in the symbol names string table.
@@ -89,7 +88,7 @@ public:
   /// name in the symbol table.
   Value *insertSymbol(pstore::indirect_string const &Name,
                       OutputSection<ELFT> const *Section, std::uint64_t Offset,
-                      std::uint64_t Size, pstore::repo::linkage_type Linkage,
+                      std::uint64_t Size, pstore::repo::linkage Linkage,
                       pstore::repo::visibility_type Visibility);
 
   /// If not already in the symbol table, an undef entry is created. This may be
@@ -120,7 +119,7 @@ public:
   static unsigned firstNonLocal(std::vector<Value *> const &OrderedSymbols);
 
 private:
-  static unsigned linkageToELFBinding(pstore::repo::linkage_type L);
+  static unsigned linkageToELFBinding(pstore::repo::linkage L);
   static unsigned char visibilityToELFOther(pstore::repo::visibility_type SV);
   static unsigned sectionToSymbolType(ELFSectionType T);
   static bool isTLSRelocation(pstore::repo::relocation_type Type);
@@ -135,15 +134,15 @@ private:
 };
 
 template <typename ELFT>
-unsigned SymbolTable<ELFT>::linkageToELFBinding(pstore::repo::linkage_type L) {
+unsigned SymbolTable<ELFT>::linkageToELFBinding(pstore::repo::linkage L) {
   switch (L) {
-  case pstore::repo::linkage_type::internal_no_symbol:
-  case pstore::repo::linkage_type::internal:
+  case pstore::repo::linkage::internal_no_symbol:
+  case pstore::repo::linkage::internal:
     return llvm::ELF::STB_LOCAL;
-  case pstore::repo::linkage_type::link_once_any:
-  case pstore::repo::linkage_type::link_once_odr:
-  case pstore::repo::linkage_type::weak_any:
-  case pstore::repo::linkage_type::weak_odr:
+  case pstore::repo::linkage::link_once_any:
+  case pstore::repo::linkage::link_once_odr:
+  case pstore::repo::linkage::weak_any:
+  case pstore::repo::linkage::weak_odr:
     return llvm::ELF::STB_WEAK;
   default:
     return llvm::ELF::STB_GLOBAL;
@@ -227,12 +226,12 @@ template <typename ELFT>
 auto SymbolTable<ELFT>::insertSymbol(pstore::indirect_string const &Name,
                                      OutputSection<ELFT> const *Section,
                                      std::uint64_t Offset, std::uint64_t Size,
-                                     pstore::repo::linkage_type Linkage,
+                                     pstore::repo::linkage Linkage,
                                      pstore::repo::visibility_type Visibility)
     -> Value * {
   auto SV = this->insertSymbol(
       Name, SymbolTarget(Section, Offset, Size, Linkage, Visibility));
-  if (Linkage == pstore::repo::linkage_type::common) {
+  if (Linkage == pstore::repo::linkage::common) {
     SV->IsCommon = true;
   } else {
     SV->IsTLS = sectionToSymbolType(Section->getType()) == llvm::ELF::STT_TLS;
@@ -340,10 +339,10 @@ auto SymbolTable<ELFT>::sort() -> std::vector<Value *> {
       [](Value const *const A, Value const *const B) {
         const auto ALinkage = A->linkage();
         const auto BLinkage = B->linkage();
-        return (ALinkage == pstore::repo::linkage_type::internal ||
-                ALinkage == pstore::repo::linkage_type::internal_no_symbol) &&
-               (BLinkage != pstore::repo::linkage_type::internal &&
-                BLinkage != pstore::repo::linkage_type::internal_no_symbol);
+        return (ALinkage == pstore::repo::linkage::internal ||
+                ALinkage == pstore::repo::linkage::internal_no_symbol) &&
+               (BLinkage != pstore::repo::linkage::internal &&
+                BLinkage != pstore::repo::linkage::internal_no_symbol);
       });
 
   // Finally tell the symbols about their indices.
@@ -370,8 +369,8 @@ SymbolTable<ELFT>::firstNonLocal(std::vector<Value *> const &OrderedSymbols) {
     std::advance(It, Step);
 
     const auto Linkage = (*It)->linkage();
-    if (Linkage == pstore::repo::linkage_type::internal ||
-        Linkage == pstore::repo::linkage_type::internal_no_symbol) {
+    if (Linkage == pstore::repo::linkage::internal ||
+        Linkage == pstore::repo::linkage::internal_no_symbol) {
       First = ++It;
       Count -= Step + 1;
     } else {

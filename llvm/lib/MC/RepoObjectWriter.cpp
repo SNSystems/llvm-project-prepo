@@ -173,8 +173,7 @@ public:
       ModuleNamesContainer &Names, NamesWithPrefixContainer &Symbols,
       const ContentsType &Fragments, StringRef OutputFile, StringRef Triple);
 
-  static pstore::repo::linkage_type
-  toPstoreLinkage(GlobalValue::LinkageTypes L);
+  static pstore::repo::linkage toPstoreLinkage(GlobalValue::LinkageTypes L);
 
   static pstore::repo::visibility_type
   toPstoreVisibility(GlobalValue::VisibilityTypes V);
@@ -576,27 +575,27 @@ void RepoObjectWriter::buildDependents(ContentsType &Fragments,
   }
 }
 
-pstore::repo::linkage_type
+pstore::repo::linkage
 RepoObjectWriter::toPstoreLinkage(GlobalValue::LinkageTypes L) {
   switch (L) {
   case GlobalValue::ExternalLinkage:
-    return pstore::repo::linkage_type::external;
+    return pstore::repo::linkage::external;
   case GlobalValue::LinkOnceAnyLinkage:
-    return pstore::repo::linkage_type::link_once_any;
+    return pstore::repo::linkage::link_once_any;
   case GlobalValue::LinkOnceODRLinkage:
-    return pstore::repo::linkage_type::link_once_odr;
+    return pstore::repo::linkage::link_once_odr;
   case GlobalValue::WeakAnyLinkage:
-    return pstore::repo::linkage_type::weak_any;
+    return pstore::repo::linkage::weak_any;
   case GlobalValue::WeakODRLinkage:
-    return pstore::repo::linkage_type::weak_odr;
+    return pstore::repo::linkage::weak_odr;
   case GlobalValue::PrivateLinkage:
-    return pstore::repo::linkage_type::internal_no_symbol;
+    return pstore::repo::linkage::internal_no_symbol;
   case GlobalValue::InternalLinkage:
-    return pstore::repo::linkage_type::internal;
+    return pstore::repo::linkage::internal;
   case GlobalValue::CommonLinkage:
-    return pstore::repo::linkage_type::common;
+    return pstore::repo::linkage::common;
   case GlobalValue::AppendingLinkage:
-    return pstore::repo::linkage_type::append;
+    return pstore::repo::linkage::append;
   default:
     report_fatal_error("Unsupported linkage type");
   }

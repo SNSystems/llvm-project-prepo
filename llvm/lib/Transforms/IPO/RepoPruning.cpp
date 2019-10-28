@@ -64,25 +64,25 @@ INITIALIZE_PASS(RepoPruning, "prepo-pruning",
 
 ModulePass *llvm::createRepoPruningPass() { return new RepoPruning(); }
 
-GlobalValue::LinkageTypes toGVLinkage(pstore::repo::linkage_type L) {
+GlobalValue::LinkageTypes toGVLinkage(pstore::repo::linkage L) {
   switch (L) {
-  case pstore::repo::linkage_type::external:
+  case pstore::repo::linkage::external:
     return GlobalValue::ExternalLinkage;
-  case pstore::repo::linkage_type::link_once_any:
+  case pstore::repo::linkage::link_once_any:
     return GlobalValue::LinkOnceAnyLinkage;
-  case pstore::repo::linkage_type::link_once_odr:
+  case pstore::repo::linkage::link_once_odr:
     return GlobalValue::LinkOnceODRLinkage;
-  case pstore::repo::linkage_type::weak_any:
+  case pstore::repo::linkage::weak_any:
     return GlobalValue::WeakAnyLinkage;
-  case pstore::repo::linkage_type::weak_odr:
+  case pstore::repo::linkage::weak_odr:
     return GlobalValue::WeakODRLinkage;
-  case pstore::repo::linkage_type::internal_no_symbol:
+  case pstore::repo::linkage::internal_no_symbol:
     return GlobalValue::PrivateLinkage;
-  case pstore::repo::linkage_type::internal:
+  case pstore::repo::linkage::internal:
     return GlobalValue::InternalLinkage;
-  case pstore::repo::linkage_type::common:
+  case pstore::repo::linkage::common:
     return GlobalValue::CommonLinkage;
-  case pstore::repo::linkage_type::append:
+  case pstore::repo::linkage::append:
     return GlobalValue::AppendingLinkage;
   }
   llvm_unreachable("Unsupported linkage type");

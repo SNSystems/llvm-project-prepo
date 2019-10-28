@@ -240,10 +240,9 @@ OutputSection<ELFT>::SectionInfo::symbol(SymbolTable<ELFT> &Symbols,
     static auto PrivateSymbolCount = 0U;
 
     auto Name = Generated.add(".LR" + std::to_string(PrivateSymbolCount++));
-    Symbol_ =
-        Symbols.insertSymbol(Name, Section_, Offset_, 0 /*size*/,
-                             pstore::repo::linkage_type::internal,
-                             pstore::repo::visibility_type::default_visibility);
+    Symbol_ = Symbols.insertSymbol(
+        Name, Section_, Offset_, 0 /*size*/, pstore::repo::linkage::internal,
+        pstore::repo::visibility_type::default_visibility);
 
     LLVM_DEBUG(dbgs() << "  created symbol:" << Name
                       << " for internal fixup (offset:" << Offset_
@@ -365,7 +364,7 @@ void OutputSection<ELFT>::append(pstore::repo::compilation_member const &CM,
   // symbols are mapped to the .init_array/.fini_array sections and we don't
   // actually need a symbol which references the data.
 
-  if (CM.linkage != pstore::repo::linkage_type::append) {
+  if (CM.linkage != pstore::repo::linkage::append) {
     Symbols.insertSymbol(pstore::indirect_string::read(Db_, CM.name), this,
                          SectionSize_, ObjectSize, CM.linkage, CM.visibility);
   }
