@@ -8,4 +8,5 @@
     --install-target install-repo-ticket-dump \
     --install-target install-clang-headers \
     -- \
-    -D CMAKE_BUILD_TYPE=Release
+    -D CMAKE_BUILD_TYPE=Release \
+    -D LLVM_PARALLEL_LINK_JOBS=1
