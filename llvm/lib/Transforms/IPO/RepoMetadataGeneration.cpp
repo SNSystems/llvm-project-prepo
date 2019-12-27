@@ -28,10 +28,7 @@ using namespace llvm;
 
 STATISTIC(NumFunctions, "Number of functions hashed");
 STATISTIC(NumVariables, "Number of variables hashed");
-#if 0
-// TODO: enable the code once support alias.
 STATISTIC(NumAliases, "Number of aliases hashed");
-#endif
 
 namespace {
 
@@ -71,21 +68,26 @@ bool RepoMetadataGeneration::runOnModule(Module &M) {
   auto Result = ticketmd::generateTicketMDs(M);
   NumVariables += std::get<1>(Result);
   NumFunctions += std::get<2>(Result);
+
+  // Enable the program repo support for alias.
+  for (GlobalAlias &GA : M.aliases()) {
+    if (auto *GO = GA.getBaseObject()) {
+      TicketNode *TN =
+          dyn_cast<TicketNode>(GO->getMetadata(LLVMContext::MD_repo_ticket));
+      assert(TN && "TN should not be NULL!");
+      auto GATN = TicketNode::get(M.getContext(), GA.getName(), TN->getDigest(),
+                                  GA.getLinkage(), GA.getVisibility(), true);
+      NamedMDNode *NMD = M.getOrInsertNamedMetadata("repo.tickets");
+      assert(NMD && "NamedMDNode cannot be NULL!");
+      NMD->addOperand(GATN);
+      ++NumAliases;
+    }
+  }
+
   LLVM_DEBUG(dbgs() << "Size of module: " << M.size() << '\n');
   LLVM_DEBUG(dbgs() << "Number of hashed functions: " << NumFunctions << '\n');
   LLVM_DEBUG(dbgs() << "Number of hashed variables: " << NumVariables << '\n');
+  LLVM_DEBUG(dbgs() << "Number of hashed aliases: " << NumAliases << '\n');
 
-#if 0
-  // TODO: enable the code once support alias.
-  std::map<const GlobalValue *, ticketmd::DigestType> DigestMap;
-  for (GlobalAlias &GA : M.aliases()) {
-    auto GAAliasee = dyn_cast<GlobalValue>(ticketmd::getAliasee(&GA));
-    auto GADigest = DigestMap[GAAliasee];
-    DigestMap.emplace(&GA, GADigest);
-    Changed = true;
-    ++NumAliases;
-  }
-  DEBUG(dbgs() << "size of hashed aliases: " << NumAliases << '\n');
-#endif
   return std::get<0>(Result);
 }

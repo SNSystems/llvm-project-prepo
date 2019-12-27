@@ -35,6 +35,7 @@ using namespace llvm;
 
 STATISTIC(NumFunctions, "Number of functions removed");
 STATISTIC(NumVariables, "Number of variables removed");
+STATISTIC(NumAliases, "Number of aliases removed");
 
 namespace {
 
@@ -295,6 +296,15 @@ static bool eliminateUnreferencedAndPrunedGOs(Module &M) {
   return Changed;
 }
 
+static llvm::Value *createDeclararion(Module &M, llvm::Type *Ty,
+                                      const Module::alias_iterator &It) {
+  if (FunctionType *FTy = dyn_cast<FunctionType>(Ty))
+    return Function::Create(FTy, GlobalValue::ExternalLinkage,
+                            It->getAddressSpace(), It->getName(), &M);
+  return new GlobalVariable(M, Ty, false, GlobalValue::ExternalLinkage, nullptr,
+                            It->getName());
+}
+
 bool RepoPruning::runOnModule(Module &M) {
   assert(Triple(M.getTargetTriple()).isOSBinFormatRepo() &&
          "This pass should be only run on the Repo target");
@@ -314,9 +324,29 @@ bool RepoPruning::runOnModule(Module &M) {
     } while (IsEliminated);
   }
 
+  // Enable this pass support for alias.
+  for (Module::alias_iterator I = M.alias_begin(), E = M.alias_end(); I != E;) {
+    Module::alias_iterator CurI = I;
+    ++I;
+    // TODO: An Alias doesn't have an aliasee, for example:
+    // @v = alias i32, inttoptr(i32 42 to i32*)
+    if (auto *Aliasee = CurI->getBaseObject()) {
+      if (wasPruned(*Aliasee)) {
+        Type *Ty = CurI->getValueType();
+        // Delete the alias from Module if its aliasee is pruned.
+        CurI->removeFromParent();
+        // Replace the alias by a declaration.
+        CurI->replaceAllUsesWith(createDeclararion(M, Ty, CurI));
+        delete &*CurI;
+        ++NumAliases;
+      }
+    }
+  }
+
   LLVM_DEBUG(dbgs() << "Size of module: " << M.size() << '\n');
   LLVM_DEBUG(dbgs() << "Number of removed functions: " << NumFunctions << '\n');
   LLVM_DEBUG(dbgs() << "Number of removed variables: " << NumVariables << '\n');
+  LLVM_DEBUG(dbgs() << "Number of removed aliases: " << NumAliases << '\n');
 
   return IsPruned;
 }
