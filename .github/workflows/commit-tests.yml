@@ -8,7 +8,7 @@ on:
 
 jobs:
   build_llvm:
-    name: check-all llvm/clang/lld
+    name: check-all llvm/clang/pstore
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -35,4 +35,4 @@ jobs:
     - name: Test LLVM
       uses: llvm/actions/build-test-llvm-project@master
       with:
-        cmake_args: -G Ninja -DLLVM_ENABLE_PROJECTS="clang;pstore" -DLLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD=OFF -DCMAKE_BUILD_TYPE=Release
+        cmake_args: -G Ninja -DLLVM_ENABLE_PROJECTS="clang;pstore" -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD=OFF
