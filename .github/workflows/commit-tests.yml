@@ -43,7 +43,7 @@ jobs:
       with:
         cmake_args: -G Ninja -DLLVM_ENABLE_PROJECTS="clang;pstore" -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD=OFF
     - name: Test LLVM MacOS
-      if: ${{ !startsWith(matrix.os, 'macOS') }}
+      if: startsWith(matrix.os, 'macOS')
       uses: llvm/actions/build-test-llvm-project@master
       with:
         cmake_args: -G Ninja -DLLVM_ENABLE_PROJECTS="clang;pstore" -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD=OFF
