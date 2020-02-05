@@ -31,14 +31,15 @@ jobs:
       uses: actions/checkout@v2
       with:
         repository: SNSystems/pstore
+        ref: rgallop/master/disable_assert_blocking_ci
         path: pstore
     - name: Test LLVM Linux
       if: startsWith(matrix.os, 'ubuntu')
       uses: llvm/actions/build-test-llvm-project@master
       with:
-        cmake_args: -G Ninja -DLLVM_ENABLE_PROJECTS="clang;pstore" -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD=OFF -DLLVM_USE_LINKER=gold -DLLVM_PARALLEL_LINK_JOBS=1
+        cmake_args: -G Ninja -DLLVM_ENABLE_PROJECTS="clang;pstore" -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD=OFF -DLLVM_USE_LINKER=gold -DLLVM_PARALLEL_LINK_JOBS=1 -DCLANG_ENABLE_STATIC_ANALYZER=OFF -DCLANG_ENABLE_ARCMT=OFF
     - name: Test LLVM Windows and MacOS
       if: startsWith(matrix.os, 'ubuntu') == false
       uses: llvm/actions/build-test-llvm-project@master
       with:
-        cmake_args: -G Ninja -DLLVM_ENABLE_PROJECTS="clang;pstore" -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD=OFF
+        cmake_args: -G Ninja -DLLVM_ENABLE_PROJECTS="clang;pstore" -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD=OFF -DCLANG_ENABLE_STATIC_ANALYZER=OFF -DCLANG_ENABLE_ARCMT=OFF 
