@@ -24,7 +24,6 @@ jobs:
       uses: actions/checkout@v2
       with:
         repository: SNSystems/pstore
-        ref: rgallop/master/add_check_pstore 
         path: pstore
     - name: Test LLVM
       uses: llvm/actions/build-test-llvm-project@master
