@@ -133,6 +133,18 @@ if(LLVM_BUILD_EXAMPLES)
     )
 endif()
 
+if(LLVM_TOOL_PSTORE_BUILD)
+  set(LLVM_TEST_DEPENDS ${LLVM_TEST_DEPENDS} pstore-dump)
+endif()
+
+if(LLVM_TOOL_REPO2OBJ_BUILD)
+  set(LLVM_TEST_DEPENDS ${LLVM_TEST_DEPENDS} repo2obj)
+endif()
+
+if(LLVM_TOOL_REPO_TICKET_DUMP_BUILD)
+  set(LLVM_TEST_DEPENDS ${LLVM_TEST_DEPENDS} repo-ticket-dump)
+endif()
+
 if(TARGET ocaml_llvm)
   # Clear all non-OCaml cross-target dependencies when building out-of-tree.
   if(LLVM_OCAML_OUT_OF_TREE)
