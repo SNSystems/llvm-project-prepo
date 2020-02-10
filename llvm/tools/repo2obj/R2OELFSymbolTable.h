@@ -189,6 +189,7 @@ unsigned SymbolTable<ELFT>::sectionToSymbolType(ELFSectionType T) {
   case ELFSectionType::debug_line:
   case ELFSectionType::debug_ranges:
   case ELFSectionType::debug_string:
+  case ELFSectionType::interp:
     return llvm::ELF::STT_NOTYPE;
   }
   llvm_unreachable("invalid section type");

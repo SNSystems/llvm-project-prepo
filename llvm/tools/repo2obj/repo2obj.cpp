@@ -287,23 +287,24 @@ getELFSectionType(pstore::repo::section_kind Kind,
 #define REPO_TO_ELF_SECTION(a)  case (pstore::repo::section_kind::a): return (ELFSectionType::a);
 
   switch (Kind) {
-    REPO_TO_ELF_SECTION(text)
     REPO_TO_ELF_SECTION(bss)
     REPO_TO_ELF_SECTION(data)
-    REPO_TO_ELF_SECTION(rel_ro)
+    REPO_TO_ELF_SECTION(debug_line)
+    REPO_TO_ELF_SECTION(debug_ranges)
+    REPO_TO_ELF_SECTION(debug_string)
+    REPO_TO_ELF_SECTION(interp)
     REPO_TO_ELF_SECTION(mergeable_1_byte_c_string)
     REPO_TO_ELF_SECTION(mergeable_2_byte_c_string)
     REPO_TO_ELF_SECTION(mergeable_4_byte_c_string)
-    REPO_TO_ELF_SECTION(mergeable_const_4)
-    REPO_TO_ELF_SECTION(mergeable_const_8)
     REPO_TO_ELF_SECTION(mergeable_const_16)
     REPO_TO_ELF_SECTION(mergeable_const_32)
+    REPO_TO_ELF_SECTION(mergeable_const_4)
+    REPO_TO_ELF_SECTION(mergeable_const_8)
     REPO_TO_ELF_SECTION(read_only)
+    REPO_TO_ELF_SECTION(rel_ro)
+    REPO_TO_ELF_SECTION(text)
     REPO_TO_ELF_SECTION(thread_bss)
     REPO_TO_ELF_SECTION(thread_data)
-    REPO_TO_ELF_SECTION(debug_line)
-    REPO_TO_ELF_SECTION(debug_string)
-    REPO_TO_ELF_SECTION(debug_ranges)
   case pstore::repo::section_kind::dependent:
   case pstore::repo::section_kind::last:
     break;

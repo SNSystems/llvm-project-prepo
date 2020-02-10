@@ -12,25 +12,26 @@
 #include "pstore/mcrepo/fragment.hpp"
 
 #define LLVM_REPO2OBJ_ELF_SECTION_TYPE                                         \
-  X(text)                                                                      \
   X(bss)                                                                       \
   X(data)                                                                      \
-  X(rel_ro)                                                                    \
+  X(debug_line)                                                                \
+  X(debug_ranges)                                                              \
+  X(debug_string)                                                              \
+  X(fini_array)                                                                \
+  X(init_array)                                                                \
+  X(interp)                                                                    \
   X(mergeable_1_byte_c_string)                                                 \
   X(mergeable_2_byte_c_string)                                                 \
   X(mergeable_4_byte_c_string)                                                 \
-  X(mergeable_const_4)                                                         \
-  X(mergeable_const_8)                                                         \
   X(mergeable_const_16)                                                        \
   X(mergeable_const_32)                                                        \
+  X(mergeable_const_4)                                                         \
+  X(mergeable_const_8)                                                         \
   X(read_only)                                                                 \
+  X(rel_ro)                                                                    \
+  X(text)                                                                      \
   X(thread_bss)                                                                \
-  X(thread_data)                                                               \
-  X(debug_line)                                                                \
-  X(debug_string)                                                              \
-  X(debug_ranges)                                                              \
-  X(init_array)                                                                \
-  X(fini_array)
+  X(thread_data)
 
 #define X(t) t,
 enum class ELFSectionType { LLVM_REPO2OBJ_ELF_SECTION_TYPE };
