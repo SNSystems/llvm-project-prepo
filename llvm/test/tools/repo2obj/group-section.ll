@@ -34,8 +34,8 @@ entry:
 ;CHECK:     Type: COMDAT (0x1)
 ;CHECK:     Signature: f
 ;CHECK:     Section(s) in group [
-;CHECK:      .text.f ({{[0-9]+}})
-;CHECK:      .rela.text.f ({{[0-9]+}})
-;CHECK:      .rodata.cst4.f ({{[0-9]+}})
+;CHECK-DAG:      .rela.text.f ({{[0-9]+}})
+;CHECK-DAG:      .rodata.cst4.f ({{[0-9]+}})
+;CHECK-DAG:      .text.f ({{[0-9]+}})
 ;CHECK:     ]
 ;CHECK:   }
