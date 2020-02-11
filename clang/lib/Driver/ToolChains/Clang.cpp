@@ -3948,10 +3948,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // Enable -mconstructor-aliases except on darwin, where we have to work around
   // a linker bug (see <rdar://problem/7651567>), and CUDA device code, where
   // aliases aren't supported.
-  // The program repo's digest-generation and pruning passes don't currently
-  // support aliases, so disable them here.
-  if (!RawTriple.isOSDarwin() && !RawTriple.isNVPTX() &&
-      !RawTriple.isOSBinFormatRepo())
+  if (!RawTriple.isOSDarwin() && !RawTriple.isNVPTX())
     CmdArgs.push_back("-mconstructor-aliases");
 
   // Darwin's kernel doesn't support guard variables; just die if we
