@@ -1,4 +1,4 @@
-# Pstore Tests
+# pstore Tests
 
 A utility which automatically tests the built llvm-prepo toolchain using the pstore unit and system tests.
 
