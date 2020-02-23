@@ -105,11 +105,20 @@ public:
   Value *insertSymbol(pstore::indirect_string const &Name,
                       pstore::repo::relocation_type Type);
 
-  /// \returns A tuple of two values, the first of which is the file offset at
+  /// Writes the symbol table.
+  /// \param OS The stream to which the symbol table is written.
+  /// \param OrderedSymbols  The symbols to be written, ordered such that
+  /// symbols with STB_LOCAL binding precede the weak and global symbols.
+  /// \returns A tuple of three values, the first of which is the file offset at
   /// which the section data was written; the second is the number of bytes that
-  /// were written.
-  std::tuple<std::uint64_t, std::uint64_t>
+  /// were written; the third is true if we must also write an SHT_SYMTAB_SHNDX
+  /// section.
+  std::tuple<std::uint64_t, std::uint64_t, bool>
   write(llvm::raw_ostream &OS, std::vector<Value *> const &OrderedSymbols);
+
+  std::tuple<std::uint64_t, std::uint64_t>
+  writeSymtabShndx(llvm::raw_ostream &OS,
+                   std::vector<Value *> const &OrderedSymbols);
 
   /// As a side effect, sets the Index field on the symbol entries to allow the
   /// index of any symbol to be quickly discovered.
@@ -122,12 +131,19 @@ private:
   static unsigned linkageToELFBinding(pstore::repo::linkage L);
   static unsigned char visibilityToELFOther(pstore::repo::visibility SV);
   static unsigned sectionToSymbolType(ELFSectionType T);
+  static unsigned valueToSymbolType(const Value &SV);
+
   static bool isTLSRelocation(pstore::repo::relocation_type Type);
+
+  using Elf_Sym = typename llvm::object::ELFFile<ELFT>::Elf_Sym;
+  using Elf_Half = typename ELFT::Half;
+  using Elf_Word = typename ELFT::Word;
+
+  /// Given a symbol value, returns the value for the symbols st_shndx.
+  static Elf_Half getTargetShndx(Value const &SV);
 
   Value *insertSymbol(pstore::indirect_string const &Name,
                       llvm::Optional<SymbolTarget> const &Target);
-
-  typedef typename llvm::object::ELFFile<ELFT>::Elf_Sym Elf_Sym;
 
   std::map<pstore::indirect_string, Value> SymbolMap_;
   StringTable &Strings_;
@@ -193,6 +209,26 @@ unsigned SymbolTable<ELFT>::sectionToSymbolType(ELFSectionType T) {
     return llvm::ELF::STT_NOTYPE;
   }
   llvm_unreachable("invalid section type");
+}
+
+template <typename ELFT>
+unsigned SymbolTable<ELFT>::valueToSymbolType(const Value &SV) {
+  if (SV.Target) {
+    OutputSection<ELFT> const *const Section = SV.Target->Section;
+    const auto ST = Section != nullptr
+                        ? sectionToSymbolType(Section->getType())
+                        : static_cast<unsigned>(llvm::ELF::STT_OBJECT);
+    assert(SV.IsTLS == (ST == llvm::ELF::STT_TLS));
+    return ST;
+  }
+
+  if (SV.IsTLS) {
+    return llvm::ELF::STT_TLS;
+  }
+  if (SV.IsCommon) {
+    return llvm::ELF::STT_OBJECT;
+  }
+  return llvm::ELF::STT_NOTYPE;
 }
 
 template <typename ELFT>
@@ -272,16 +308,33 @@ auto SymbolTable<ELFT>::insertSymbol(pstore::indirect_string const &Name,
   return &Pos->second;
 }
 
+// getTargetShndx
+// ~~~~~~~~~~~~~~
+template <typename ELFT>
+auto SymbolTable<ELFT>::getTargetShndx(Value const &SV) -> Elf_Half {
+  if (SV.IsCommon) {
+    return Elf_Half{llvm::ELF::SHN_COMMON};
+  }
+  if (!SV.Target) {
+    return Elf_Half{llvm::ELF::SHN_UNDEF};
+  }
+  size_t const TargetSectionIndex = SV.Target->Section->getIndex();
+  return TargetSectionIndex < llvm::ELF::SHN_LORESERVE
+             ? static_cast<Elf_Half>(TargetSectionIndex)
+             : Elf_Half{llvm::ELF::SHN_XINDEX};
+}
+
 // write
 // ~~~~~
 template <typename ELFT>
-std::tuple<std::uint64_t, std::uint64_t>
+std::tuple<std::uint64_t, std::uint64_t, bool>
 SymbolTable<ELFT>::write(llvm::raw_ostream &OS,
                          std::vector<Value *> const &OrderedSymbols) {
   using namespace llvm;
   writeAlignmentPadding<Elf_Sym>(OS);
 
   uint64_t const StartOffset = OS.tell();
+  bool NeedsExtendedIndices = false;
 
   // Write the reserved zeroth symbol table entry.
   Elf_Sym Symbol;
@@ -289,38 +342,60 @@ SymbolTable<ELFT>::write(llvm::raw_ostream &OS,
   Symbol.st_shndx = ELF::SHN_UNDEF;
   writeRaw(OS, Symbol);
 
-  for (Value const *SV : OrderedSymbols) {
+  for (const Value *const SV : OrderedSymbols) {
     zero(Symbol);
     Symbol.st_name = SV->NameOffset;
 
     if (SV->Target) {
       SymbolTarget const &T = SV->Target.getValue();
       Symbol.st_value = T.Offset;
-      auto const ST = T.Section ? sectionToSymbolType(T.Section->getType())
-                                : static_cast<unsigned>(ELF::STT_OBJECT);
-      assert(SV->IsTLS == (ST == llvm::ELF::STT_TLS));
-      Symbol.setBindingAndType(linkageToELFBinding(T.Linkage), ST);
+      Symbol.setBindingAndType(linkageToELFBinding(T.Linkage),
+                               valueToSymbolType(*SV));
       Symbol.st_other = visibilityToELFOther(T.Visibility);
       // The section (header table index) in which this value is defined.
-      Symbol.st_shndx = SV->IsCommon ? static_cast<unsigned>(ELF::SHN_COMMON)
-                                     : T.Section->getIndex();
+      Symbol.st_shndx = getTargetShndx(*SV);
       Symbol.st_size = T.Size;
+      if (Symbol.st_shndx == ELF::SHN_XINDEX) {
+        NeedsExtendedIndices = true;
+      }
     } else {
       // There's no definition for this name.
-      unsigned char Type;
-      if (SV->IsTLS) {
-        Type = ELF::STT_TLS;
-      } else if (SV->IsCommon) {
-        Type = ELF::STT_OBJECT;
-      } else {
-        Type = ELF::STT_NOTYPE;
-      }
-      Symbol.setBindingAndType(ELF::STB_GLOBAL, Type);
-      Symbol.st_shndx = SV->IsCommon ? ELF::SHN_COMMON : ELF::SHN_UNDEF;
+      Symbol.setBindingAndType(ELF::STB_GLOBAL, valueToSymbolType(*SV));
+      Symbol.st_shndx = getTargetShndx(*SV);
     }
 
     writeRaw(OS, Symbol);
   }
+  return std::make_tuple(StartOffset, OS.tell() - StartOffset,
+                         NeedsExtendedIndices);
+}
+
+// writeSymtabShndx
+// ~~~~~~~~~~~~~~~~
+// Writes the contents of an SHT_SYMTAB_SHNDX section. It contains an array of
+// Elf32_Word values. This array contains one entry for every entry in the
+// associated symbol table entry. The values represent the section header
+// indexes against which the symbol table entries are defined. Only if
+// corresponding symbol table entry's st_shndx field contains the escape value
+// SHN_XINDEX will the matching Elf32_Word hold the actual section header index.
+// Otherwise, the entry must be SHN_UNDEF (0).
+template <typename ELFT>
+std::tuple<std::uint64_t, std::uint64_t> SymbolTable<ELFT>::writeSymtabShndx(
+    llvm::raw_ostream &OS, std::vector<Value *> const &OrderedSymbols) {
+  writeAlignmentPadding<Elf_Word>(OS);
+
+  uint64_t const StartOffset = OS.tell();
+  // The reserved zeroth entry.
+  std::uint64_t Size = writeRaw(OS, Elf_Word{llvm::ELF::SHN_UNDEF});
+
+  for (const Value *const SV : OrderedSymbols) {
+    const Elf_Half shndx = SymbolTable<ELFT>::getTargetShndx(*SV);
+    Size += writeRaw(
+        OS, shndx == llvm::ELF::SHN_XINDEX
+                ? static_cast<Elf_Word>(SV->Target->Section->getIndex())
+                : Elf_Word{llvm::ELF::SHN_UNDEF});
+  }
+  assert(Size == OS.tell() - StartOffset);
   return std::make_tuple(StartOffset, OS.tell() - StartOffset);
 }
 

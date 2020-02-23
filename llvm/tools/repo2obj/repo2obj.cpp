@@ -69,16 +69,14 @@ class SpecialNames {
 public:
   void initialize(const pstore::database &Db, GeneratedNames &Names);
 
-  pstore::typed_address<pstore::indirect_string> CtorName =
-      pstore::typed_address<pstore::indirect_string>::null();
-  pstore::typed_address<pstore::indirect_string> DtorName =
-      pstore::typed_address<pstore::indirect_string>::null();
+  using istring = pstore::typed_address<pstore::indirect_string>;
+  istring CtorName = istring::null();
+  istring DtorName = istring::null();
 
 private:
-  static pstore::typed_address<pstore::indirect_string>
-  findString(pstore::database const &Db,
-             pstore::index::name_index const &NameIndex,
-             pstore::indirect_string const &Str);
+  static istring findString(pstore::database const &Db,
+                            pstore::index::name_index const &NameIndex,
+                            pstore::indirect_string const &Str);
 };
 
 // initialize
@@ -99,18 +97,13 @@ void SpecialNames::initialize(const pstore::database &Db, GeneratedNames &Names)
 
 // findString
 // ~~~~~~~~~~
-pstore::typed_address<pstore::indirect_string>
-SpecialNames::findString(pstore::database const &Db,
-                         pstore::index::name_index const &NameIndex,
-                         pstore::indirect_string const &Str) {
-
-  auto Pos = NameIndex.find(Db, Str);
-  return (Pos != NameIndex.end(Db))
-             ? pstore::typed_address<pstore::indirect_string>(Pos.get_address())
-             : pstore::typed_address<pstore::indirect_string>::null();
+auto SpecialNames::findString(pstore::database const &Db,
+                              pstore::index::name_index const &NameIndex,
+                              pstore::indirect_string const &Str) -> istring {
+  auto const Pos = NameIndex.find(Db, Str);
+  return (Pos != NameIndex.end(Db)) ? istring{Pos.get_address()}
+                                    : istring::null();
 }
-
-} // end anonymous namespace
 
 template <class ELFT> struct ELFState {
   using Elf_Word = typename object::ELFFile<ELFT>::Elf_Word;
@@ -146,8 +139,18 @@ template <class ELFT> struct ELFState {
   /// buildGroupSection(). The group section headers are updated to record the
   /// location and and size of this data.
   void writeGroupSections(raw_ostream &OS);
+
+  /// Creates the section for extended symbol table section indices.
+  size_t addSymtabShndxSection();
+
+  /// Correctly sets the e_shnum field of the ELF header, potentially modifying
+  /// the zeroth section header.
+  /// \p Header The structure representing the ELF header.
+  void setEShNum(Elf_Ehdr &Header);
 };
 
+// initELFHeader
+// ~~~~~~~~~~~~~
 template <class ELFT> void ELFState<ELFT>::initELFHeader(Elf_Ehdr &Header) {
   using namespace llvm::ELF;
   Header.e_ident[EI_MAG0] = 0x7f;
@@ -162,7 +165,7 @@ template <class ELFT> void ELFState<ELFT>::initELFHeader(Elf_Ehdr &Header) {
   Header.e_ident[EI_ABIVERSION] = 0;
   Header.e_type = ET_REL;
   Header.e_machine =
-      EM_X86_64; // FIXME: where do we represent the machine type?
+      EM_X86_64; // FIXME: derive this from the compilation's triple.
   Header.e_version = EV_CURRENT;
   Header.e_entry = 0;
   Header.e_phoff = 0;
@@ -176,6 +179,8 @@ template <class ELFT> void ELFState<ELFT>::initELFHeader(Elf_Ehdr &Header) {
   Header.e_shstrndx = SectionIndices::StringTab;
 }
 
+// initStandardSections
+// ~~~~~~~~~~~~~~~~~~~~
 template <typename ELFT> void ELFState<ELFT>::initStandardSections() {
   // null section
   Elf_Shdr SH;
@@ -201,6 +206,8 @@ template <typename ELFT> void ELFState<ELFT>::initStandardSections() {
   SectionHeaders.push_back(SH);
 }
 
+// writeSectionHeaders
+// ~~~~~~~~~~~~~~~~~~~
 template <typename ELFT>
 uint64_t ELFState<ELFT>::writeSectionHeaders(raw_ostream &OS) {
   writeAlignmentPadding<Elf_Shdr>(OS);
@@ -210,6 +217,41 @@ uint64_t ELFState<ELFT>::writeSectionHeaders(raw_ostream &OS) {
   return Offset;
 }
 
+// addSymtabShndxSection
+// ~~~~~~~~~~~~~~~~~~~~~
+template <typename ELFT> size_t ELFState<ELFT>::addSymtabShndxSection() {
+  Elf_Shdr SH;
+  zero(SH);
+  SH.sh_name = Strings.insert(Generated.add(".symtab_shndx"));
+  SH.sh_type = ELF::SHT_SYMTAB_SHNDX;
+  SH.sh_link = SectionIndices::SymTab;
+  SH.sh_entsize = sizeof(ELFState<ELFT>::Elf_Word);
+  SH.sh_addralign = alignof(ELFState<ELFT>::Elf_Word);
+  const size_t Index = SectionHeaders.size();
+  SectionHeaders.push_back(SH);
+  return Index;
+}
+
+// setEhNum
+// ~~~~~~~~
+template <typename ELFT> void ELFState<ELFT>::setEShNum(Elf_Ehdr &Header) {
+  auto const NumberOfSections = SectionHeaders.size();
+  // If the number of sections is greater than or equal to SHN_LORESERVE
+  // (0xff00), e_shnum has the value zero. The actual number of section header
+  // table entries is contained in the sh_size field of the section header at
+  // index 0. Otherwise, the sh_size member of the initial section header entry
+  // contains the value zero.
+  if (NumberOfSections < llvm::ELF::SHN_LORESERVE) {
+    Header.e_shnum = NumberOfSections;
+    assert(SectionHeaders[0].sh_size == 0);
+  } else {
+    Header.e_shnum = 0;
+    SectionHeaders[0].sh_size = NumberOfSections;
+  }
+}
+
+// buildGroupSection
+// ~~~~~~~~~~~~~~~~~
 // The ELF spec. requires the groups sections to appear before the sections that
 // they contain in the section header table. For this reason, we have to create
 // them in two passes: the first creates the headers; later, once we know the
@@ -240,10 +282,13 @@ void ELFState<ELFT>::buildGroupSection(pstore::database const &Db,
     SH.sh_addralign = alignof(ELF::Elf32_Word);
 
     GI.SectionIndex = SectionHeaders.size();
+    assert(GI.SectionIndex != 0U);
     SectionHeaders.push_back(SH);
   }
 }
 
+// writeGroupSections
+// ~~~~~~~~~~~~~~~~~~
 template <typename ELFT>
 void ELFState<ELFT>::writeGroupSections(raw_ostream &OS) {
   for (auto const &G : Groups) {
@@ -252,13 +297,21 @@ void ELFState<ELFT>::writeGroupSections(raw_ostream &OS) {
     auto NumWords = 1U;
     writeRaw(OS, ELF::Elf32_Word{ELF::GRP_COMDAT});
 
-    for (OutputSection<ELFT> const *GroupMember : G.second.Members) {
-      auto SectionIndex = GroupMember->getIndex();
+    for (const OutputSection<ELFT> *const GroupMember : G.second.Members) {
+      assert(GroupMember->getIndex() <= std::numeric_limits<uint32_t>::max());
+      auto SectionIndex = static_cast<uint32_t>(GroupMember->getIndex());
+      assert(SectionHeaders.at(SectionIndex).sh_type != ELF::SHT_GROUP &&
+             SectionHeaders.at(SectionIndex).sh_type != ELF::SHT_RELA);
       writeRaw(OS, ELF::Elf32_Word{SectionIndex});
       ++NumWords;
 
       if (GroupMember->numRelocations() > 0) {
-        writeRaw(OS, ELF::Elf32_Word{SectionIndex + 1});
+        // If the target section contains relocations then add that section to
+        // the group as well. We know that it will always follow it immediately
+        // in the section header table.
+        ++SectionIndex;
+        assert(SectionHeaders.at(SectionIndex).sh_type == ELF::SHT_RELA);
+        writeRaw(OS, ELF::Elf32_Word{SectionIndex});
         ++NumWords;
       }
     }
@@ -273,6 +326,8 @@ void ELFState<ELFT>::writeGroupSections(raw_ostream &OS) {
     SH.sh_size = SectionSize;
   }
 }
+
+} // end anonymous namespace
 
 static ELFSectionType
 getELFSectionType(pstore::repo::section_kind Kind,
@@ -539,23 +594,34 @@ int main(int argc, char *argv[]) {
 
   State.writeGroupSections(OS);
 
-  // Write the string table (and patch its section header)
-  {
-    auto &S = State.SectionHeaders[SectionIndices::StringTab];
-    std::tie(S.sh_offset, S.sh_size) = State.Strings.write(OS);
-  }
   // Now do the same for the symbol table.
   {
     auto &S = State.SectionHeaders[SectionIndices::SymTab];
     // st_info should be one greater than the symbol table index of the last
     // local symbol (binding STB_LOCAL).
     S.sh_info = SymbolTable<ELFT>::firstNonLocal(OrderedSymbols);
-    std::tie(S.sh_offset, S.sh_size) = State.Symbols.write(OS, OrderedSymbols);
+    bool NeedsExtendedShdnx = false;
+    std::tie(S.sh_offset, S.sh_size, NeedsExtendedShdnx) =
+        State.Symbols.write(OS, OrderedSymbols);
+    if (NeedsExtendedShdnx) {
+      // extended symbol table section indices
+      size_t const SymtabShndx = State.addSymtabShndxSection();
+      auto &SymtabShndxSection = State.SectionHeaders[SymtabShndx];
+      std::tie(SymtabShndxSection.sh_offset, SymtabShndxSection.sh_size) =
+          State.Symbols.writeSymtabShndx(OS, OrderedSymbols);
+    }
   }
 
-  uint64_t SectionHeadersOffset = State.writeSectionHeaders(OS);
-  Header.e_shoff = SectionHeadersOffset;
-  Header.e_shnum = State.SectionHeaders.size();
+  // Write the string table (and patch its section header)
+  {
+    auto &S = State.SectionHeaders[SectionIndices::StringTab];
+    std::tie(S.sh_offset, S.sh_size) = State.Strings.write(OS);
+  }
+
+  State.setEShNum(Header);
+  Header.e_shoff = State.writeSectionHeaders(OS);
+  static_assert(SectionIndices::StringTab < llvm::ELF::SHN_LORESERVE,
+                "String table index should be less than LORESERVE");
   Header.e_shstrndx = SectionIndices::StringTab;
 
   OS.seek(0);

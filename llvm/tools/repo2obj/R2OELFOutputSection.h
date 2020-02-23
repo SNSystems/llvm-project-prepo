@@ -151,11 +151,11 @@ public:
                  GeneratedNames &Generated, OutputIt OutShdr) const;
 
   ELFSectionType getType() const { return std::get<0>(Id_); }
-  unsigned getIndex() const {
+  size_t getIndex() const {
     assert(Index_ != UnknownIndex);
-    return static_cast<unsigned>(Index_);
+    return Index_;
   }
-  void setIndex(unsigned Index) {
+  void setIndex(size_t Index) {
     assert(Index != UnknownIndex && Index_ == UnknownIndex);
     Index_ = Index;
   }
@@ -166,8 +166,8 @@ private:
   llvm::Optional<std::vector<uint8_t>> const &Prefix_;
   GroupInfo<ELFT> *Group_ = nullptr;
 
-  static constexpr auto UnknownIndex = std::numeric_limits<unsigned>::max();
-  unsigned Index_ = UnknownIndex; // The section header table index
+  static constexpr auto UnknownIndex = std::numeric_limits<size_t>::max();
+  size_t Index_ = UnknownIndex; // The section header table index
   uint8_t Align_ = 0;
 
   // TODO: We have no a priori knowledge of the number of text contributions to
