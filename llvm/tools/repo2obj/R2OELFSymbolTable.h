@@ -106,7 +106,7 @@ public:
                       pstore::repo::relocation_type Type);
 
   /// Writes the symbol table.
-  /// \param OS The stream to which the symbol table is written.
+  /// \param OS The stream to which the symbol table is to be written.
   /// \param OrderedSymbols  The symbols to be written, ordered such that
   /// symbols with STB_LOCAL binding precede the weak and global symbols.
   /// \returns A tuple of three values, the first of which is the file offset at
@@ -116,6 +116,13 @@ public:
   std::tuple<std::uint64_t, std::uint64_t, bool>
   write(llvm::raw_ostream &OS, std::vector<Value *> const &OrderedSymbols);
 
+  /// Writes the contents of an SHT_SYMTAB_SHNDX section.
+  /// \param OS The stream to which the extended section indices table is to be
+  /// written.
+  /// \param OrderedSymbols  The symbols to be written, ordered such that
+  /// symbols with STB_LOCAL binding precede the weak and global symbols.
+  /// \returns A tuple of two values: the first is the file offset of the start
+  /// of the table; the second is the number of bytes that were written.
   std::tuple<std::uint64_t, std::uint64_t>
   writeSymtabShndx(llvm::raw_ostream &OS,
                    std::vector<Value *> const &OrderedSymbols);
@@ -131,6 +138,7 @@ private:
   static unsigned linkageToELFBinding(pstore::repo::linkage L);
   static unsigned char visibilityToELFOther(pstore::repo::visibility SV);
   static unsigned sectionToSymbolType(ELFSectionType T);
+  /// Returns the ELF symbol type for a symbol value.
   static unsigned valueToSymbolType(const Value &SV);
 
   static bool isTLSRelocation(pstore::repo::relocation_type Type);
@@ -396,7 +404,7 @@ std::tuple<std::uint64_t, std::uint64_t> SymbolTable<ELFT>::writeSymtabShndx(
                 : Elf_Word{llvm::ELF::SHN_UNDEF});
   }
   assert(Size == OS.tell() - StartOffset);
-  return std::make_tuple(StartOffset, OS.tell() - StartOffset);
+  return std::make_tuple(StartOffset, Size);
 }
 
 template <typename ELFT>
