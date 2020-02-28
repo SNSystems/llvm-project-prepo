@@ -146,8 +146,10 @@ static bool updateDigestUseDependenciesAndContributions(
            make_range(GOContributions.begin(), GOContributions.end()),
            make_range(GODependencies.begin(), GODependencies.end()))) {
     const llvm::Function *const Fn = dyn_cast<const llvm::Function>(G);
-    // if function will not be inlined, skip it
-    if (Fn && Fn->hasFnAttribute(Attribute::NoInline))
+    // if function will not be inlined and not be discarded if it is not used,
+    // skip it.
+    if (Fn && Fn->hasFnAttribute(Attribute::NoInline) &&
+        !Fn->isDiscardableIfUnused())
       continue;
     Changed = updateDigestUseDependenciesAndContributions(
                   G, GOHash, Visited, GOIMap, AccumulateGODigest) ||
