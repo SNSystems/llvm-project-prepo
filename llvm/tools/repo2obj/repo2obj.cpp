@@ -69,14 +69,16 @@ class SpecialNames {
 public:
   void initialize(const pstore::database &Db, GeneratedNames &Names);
 
-  using istring = pstore::typed_address<pstore::indirect_string>;
-  istring CtorName = istring::null();
-  istring DtorName = istring::null();
+  pstore::typed_address<pstore::indirect_string> CtorName =
+      pstore::typed_address<pstore::indirect_string>::null();
+  pstore::typed_address<pstore::indirect_string> DtorName =
+      pstore::typed_address<pstore::indirect_string>::null();
 
 private:
-  static istring findString(pstore::database const &Db,
-                            pstore::index::name_index const &NameIndex,
-                            pstore::indirect_string const &Str);
+  static pstore::typed_address<pstore::indirect_string>
+  findString(pstore::database const &Db,
+             pstore::index::name_index const &NameIndex,
+             pstore::indirect_string const &Str);
 };
 
 // initialize
@@ -97,12 +99,14 @@ void SpecialNames::initialize(const pstore::database &Db, GeneratedNames &Names)
 
 // findString
 // ~~~~~~~~~~
-auto SpecialNames::findString(pstore::database const &Db,
-                              pstore::index::name_index const &NameIndex,
-                              pstore::indirect_string const &Str) -> istring {
+pstore::typed_address<pstore::indirect_string>
+SpecialNames::findString(pstore::database const &Db,
+                         pstore::index::name_index const &NameIndex,
+                         pstore::indirect_string const &Str) {
   auto const Pos = NameIndex.find(Db, Str);
-  return (Pos != NameIndex.end(Db)) ? istring{Pos.get_address()}
-                                    : istring::null();
+  return (Pos != NameIndex.end(Db))
+             ? pstore::typed_address<pstore::indirect_string>(Pos.get_address())
+             : pstore::typed_address<pstore::indirect_string>::null();
 }
 
 template <class ELFT> struct ELFState {
