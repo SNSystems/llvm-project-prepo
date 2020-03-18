@@ -54,6 +54,11 @@ cl::opt<std::string> OutputFilename("o", cl::desc("Output filename"),
                                     cl::value_desc("filename"),
                                     cl::init("./a.out"));
 
+cl::opt<bool> NoSubsections(
+    "no-subsections",
+    cl::desc("Disable use of subsections for each code or data object"),
+    cl::init(false));
+
 constexpr auto program_name = "[repo2obj] ";
 
 } // end anonymous namespace
@@ -387,6 +392,22 @@ raw_ostream &operator<<(raw_ostream &OS, pstore::index::digest const &Digest) {
   return OS << Digest.to_hex_string();
 }
 
+static constexpr bool
+shouldCreateSubsection(bool IsLinkOnce,
+                       pstore::repo::section_kind const Section) {
+  switch (Section) {
+  case pstore::repo::section_kind::debug_line:
+  case pstore::repo::section_kind::debug_string:
+  case pstore::repo::section_kind::debug_ranges:
+    // Don't split the debug sections into subsections.
+    return false;
+
+  default:
+    // Link-once always uses subsections; all other section types use them
+    // unless disabled by the --no-subsections switch.
+    return IsLinkOnce ? true : !NoSubsections;
+  }
+}
 
 int main(int argc, char *argv[]) {
   cl::ParseCommandLineOptions(argc, argv);
@@ -515,14 +536,13 @@ int main(int argc, char *argv[]) {
 
       for (pstore::repo::section_kind const Section : SectionRange) {
         assert (pstore::repo::is_target_section (Section));
-        // TODO: enable the name discriminator if "function/data sections mode"
-        // is enabled.
-        auto const Discriminator =
-            IsLinkOnce && Section != pstore::repo::section_kind::debug_line
-                ? CM.name
-                : pstore::typed_address<pstore::indirect_string>::null();
+
         // The section type and "discriminator" together identify the ELF output
         // section to which this fragment's section data will be appended.
+        auto const Discriminator =
+            shouldCreateSubsection(IsLinkOnce, Section)
+                ? CM.name
+                : pstore::typed_address<pstore::indirect_string>::null();
         auto const Id = std::make_tuple(
             getELFSectionType(Section, CM.name, State.Magics), Discriminator);
 
