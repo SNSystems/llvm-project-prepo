@@ -1,9 +1,8 @@
 //===- MCAsmBackend.cpp - Target MC Assembly Backend ----------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -18,6 +17,7 @@
 #include "llvm/MC/MCRepoObjectWriter.h"
 #include "llvm/MC/MCWasmObjectWriter.h"
 #include "llvm/MC/MCWinCOFFObjectWriter.h"
+#include "llvm/MC/MCXCOFFObjectWriter.h"
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -48,6 +48,9 @@ MCAsmBackend::createObjectWriter(raw_pwrite_stream &OS) const {
   case Triple::Repo:
     return createRepoObjectWriter(cast<MCRepoObjectTargetWriter>(std::move(TW)),
                                   OS, Endian == support::little);
+  case Triple::XCOFF:
+    return createXCOFFObjectWriter(
+        cast<MCXCOFFObjectTargetWriter>(std::move(TW)), OS);
   default:
     llvm_unreachable("unexpected object format");
   }
@@ -69,6 +72,7 @@ Optional<MCFixupKind> MCAsmBackend::getFixupKind(StringRef Name) const {
 
 const MCFixupKindInfo &MCAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
   static const MCFixupKindInfo Builtins[] = {
+      {"FK_NONE", 0, 0, 0},
       {"FK_Data_1", 0, 8, 0},
       {"FK_Data_2", 0, 16, 0},
       {"FK_Data_4", 0, 32, 0},

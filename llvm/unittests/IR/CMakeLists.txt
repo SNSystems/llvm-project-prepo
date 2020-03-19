@@ -13,11 +13,11 @@ add_llvm_unittest(IRTests
   CFGBuilder.cpp
   ConstantRangeTest.cpp
   ConstantsTest.cpp
+  DataLayoutTest.cpp
   DebugInfoTest.cpp
   DebugTypeODRUniquingTest.cpp
   DominatorTreeTest.cpp
   DominatorTreeBatchUpdatesTest.cpp
-  DomTreeUpdaterTest.cpp
   FunctionTest.cpp
   PassBuilderCallbacksTest.cpp
   IRBuilderTest.cpp
@@ -32,12 +32,14 @@ add_llvm_unittest(IRTests
   PatternMatch.cpp
   RepoModuleHashTest.cpp
   RepoTicketMDTest.cpp
+  TimePassesTest.cpp
   TypesTest.cpp
   UseTest.cpp
   UserTest.cpp
   ValueHandleTest.cpp
   ValueMapTest.cpp
   ValueTest.cpp
+  VectorTypesTest.cpp
   VerifierTest.cpp
   WaymarkTest.cpp
   )

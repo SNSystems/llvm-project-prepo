@@ -1,9 +1,8 @@
 //===- Support/TargetRegistry.h - Target Registration -----------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -101,6 +100,11 @@ MCStreamer *createWasmStreamer(MCContext &Ctx,
                                std::unique_ptr<MCObjectWriter> &&OW,
                                std::unique_ptr<MCCodeEmitter> &&CE,
                                bool RelaxAll);
+MCStreamer *createXCOFFStreamer(MCContext &Ctx,
+                                std::unique_ptr<MCAsmBackend> &&TAB,
+                                std::unique_ptr<MCObjectWriter> &&OW,
+                                std::unique_ptr<MCCodeEmitter> &&CE,
+                                bool RelaxAll);
 
 MCStreamer *createRepoStreamer(MCContext &Ctx,
                                std::unique_ptr<MCAsmBackend> &&TAB,
@@ -484,7 +488,7 @@ public:
                                      bool DWARFMustBeAtTheEnd) const {
     MCStreamer *S;
     switch (T.getObjectFormat()) {
-    default:
+    case Triple::UnknownObjectFormat:
       llvm_unreachable("Unknown object format");
     case Triple::COFF:
       assert(T.isOSWindows() && "only Windows COFF is supported");
@@ -510,6 +514,14 @@ public:
         S = createELFStreamer(Ctx, std::move(TAB), std::move(OW),
                               std::move(Emitter), RelaxAll);
       break;
+    case Triple::Repo:
+      if (RepoStreamerCtorFn)
+        S = RepoStreamerCtorFn(T, Ctx, std::move(TAB), std::move(OW),
+                               std::move(Emitter), RelaxAll);
+      else
+        S = createRepoStreamer(Ctx, std::move(TAB), std::move(OW),
+                               std::move(Emitter), RelaxAll);
+      break;
     case Triple::Wasm:
       if (WasmStreamerCtorFn)
         S = WasmStreamerCtorFn(T, Ctx, std::move(TAB), std::move(OW),
@@ -518,13 +530,9 @@ public:
         S = createWasmStreamer(Ctx, std::move(TAB), std::move(OW),
                                std::move(Emitter), RelaxAll);
       break;
-    case Triple::Repo:
-      if (RepoStreamerCtorFn)
-        S = RepoStreamerCtorFn(T, Ctx, std::move(TAB), std::move(OW),
-                               std::move(Emitter), RelaxAll);
-      else
-        S = createRepoStreamer(Ctx, std::move(TAB), std::move(OW),
-                               std::move(Emitter), RelaxAll);
+    case Triple::XCOFF:
+        S = createXCOFFStreamer(Ctx, std::move(TAB), std::move(OW),
+                                std::move(Emitter), RelaxAll);
       break;
     }
     if (ObjectTargetStreamerCtorFn)

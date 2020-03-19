@@ -9,6 +9,7 @@ add_llvm_library(LLVMMC
   MCAsmInfoELF.cpp
   MCAsmInfoRepo.cpp
   MCAsmInfoWasm.cpp
+  MCAsmInfoXCOFF.cpp
   MCAsmMacro.cpp
   MCAsmStreamer.cpp
   MCAssembler.cpp
@@ -44,6 +45,7 @@ add_llvm_library(LLVMMC
   MCSectionMachO.cpp
   MCSectionRepo.cpp
   MCSectionWasm.cpp
+  MCSectionXCOFF.cpp
   MCStreamer.cpp
   MCSubtargetInfo.cpp
   MCSymbol.cpp
@@ -55,12 +57,15 @@ add_llvm_library(LLVMMC
   MCWin64EH.cpp
   MCWinCOFFStreamer.cpp
   MCWinEH.cpp
+  MCXCOFFObjectTargetWriter.cpp
+  MCXCOFFStreamer.cpp
   MachObjectWriter.cpp
   RepoObjectWriter.cpp
   StringTableBuilder.cpp
   SubtargetFeature.cpp
   WasmObjectWriter.cpp
   WinCOFFObjectWriter.cpp
+  XCOFFObjectWriter.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/MC

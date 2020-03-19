@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include <omp.h>
-#include <ompt.h>
+#include <omp-tools.h>
 
 static ompt_set_callback_t ompt_set_callback;
 static ompt_get_callback_t ompt_get_callback;
@@ -57,12 +57,12 @@ int main() {
 
   printf("%" PRIu64 ": ompt_get_state()=%d\n", tvalue, ompt_get_state(NULL));
 
-  int state = omp_state_undefined;
+  int state = ompt_state_undefined;
   const char *state_name;
   printf("%" PRIu64 ": ompt_enumerate_states()=%d\n", tvalue,
          ompt_enumerate_states(state, &state, &state_name));
 
-  int impl = ompt_mutex_impl_unknown;
+  int impl = ompt_mutex_impl_none;
   const char *impl_name;
   printf("%" PRIu64 ": ompt_enumerate_mutex_impls()=%d\n", tvalue,
          ompt_enumerate_mutex_impls(impl, &impl, &impl_name));

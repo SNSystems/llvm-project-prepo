@@ -1,9 +1,8 @@
 //===-- TargetMachine.cpp - General Target Information ---------------------==//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -145,6 +144,12 @@ bool TargetMachine::shouldAssumeDSOLocal(const Module &M,
       isa<GlobalVariable>(GV))
     return false;
 
+  // On COFF, don't mark 'extern_weak' symbols as DSO local. If these symbols
+  // remain unresolved in the link, they can be resolved to zero, which is
+  // outside the current DSO.
+  if (TT.isOSBinFormatCOFF() && GV && GV->hasExternalWeakLinkage())
+    return false;
+
   // Every other GV is local on COFF.
   // Make an exception for windows OS in the triple: Some firmware builds use
   // *-win32-macho triples. This (accidentally?) produced windows relocations
@@ -168,8 +173,13 @@ bool TargetMachine::shouldAssumeDSOLocal(const Module &M,
     return GV && GV->isStrongDefinitionForLinker();
   }
 
+  // Due to the AIX linkage model, any global with default visibility is
+  // considered non-local.
+  if (TT.isOSBinFormatXCOFF())
+    return false;
+
   // Repo: tying the DSO model to the file format doesn't seem quite right.
-  assert(TT.isOSBinFormatELF() || TT.isOSBinFormatRepo());
+  assert(TT.isOSBinFormatELF() || TT.isOSBinFormatRepo() || TT.isOSBinFormatWasm());
   assert(RM != Reloc::DynamicNoPIC);
 
   bool IsExecutable =
@@ -197,7 +207,7 @@ bool TargetMachine::shouldAssumeDSOLocal(const Module &M,
       return true;
   }
 
-  // ELF supports preemption of other symbols.
+  // ELF & wasm support preemption of other symbols.
   return false;
 }
 

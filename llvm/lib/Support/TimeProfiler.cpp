@@ -24,38 +24,29 @@ using namespace std::chrono;
 
 namespace llvm {
 
+static cl::opt<unsigned> TimeTraceGranularity(
+    "time-trace-granularity",
+    cl::desc(
+        "Minimum time granularity (in microseconds) traced by time profiler"),
+    cl::init(500));
+
 TimeTraceProfiler *TimeTraceProfilerInstance = nullptr;
 
 typedef duration<steady_clock::rep, steady_clock::period> DurationType;
-typedef time_point<steady_clock> TimePointType;
 typedef std::pair<size_t, DurationType> CountAndDurationType;
 typedef std::pair<std::string, CountAndDurationType>
     NameAndCountAndDurationType;
 
 struct Entry {
-  TimePointType Start;
-  TimePointType End;
+  time_point<steady_clock> Start;
+  DurationType Duration;
   std::string Name;
   std::string Detail;
 
-  Entry(TimePointType &&S, TimePointType &&E, std::string &&N, std::string &&Dt)
-      : Start(std::move(S)), End(std::move(E)), Name(std::move(N)),
+  Entry(time_point<steady_clock> &&S, DurationType &&D, std::string &&N,
+        std::string &&Dt)
+      : Start(std::move(S)), Duration(std::move(D)), Name(std::move(N)),
         Detail(std::move(Dt)){};
-
-  // Calculate timings for FlameGraph. Cast time points to microsecond precision
-  // rather than casting duration. This avoid truncation issues causing inner
-  // scopes overruning outer scopes.
-  steady_clock::rep getFlameGraphStartUs(TimePointType StartTime) const {
-    return (time_point_cast<microseconds>(Start) -
-            time_point_cast<microseconds>(StartTime))
-        .count();
-  }
-
-  steady_clock::rep getFlameGraphDurUs() const {
-    return (time_point_cast<microseconds>(End) -
-            time_point_cast<microseconds>(Start))
-        .count();
-  }
 };
 
 struct TimeTraceProfiler {
@@ -64,27 +55,17 @@ struct TimeTraceProfiler {
   }
 
   void begin(std::string Name, llvm::function_ref<std::string()> Detail) {
-    Stack.emplace_back(steady_clock::now(), TimePointType(), std::move(Name),
+    Stack.emplace_back(steady_clock::now(), DurationType{}, std::move(Name),
                        Detail());
   }
 
   void end() {
     assert(!Stack.empty() && "Must call begin() first");
     auto &E = Stack.back();
-    E.End = steady_clock::now();
+    E.Duration = steady_clock::now() - E.Start;
 
-    // Check that end times monotonically increase.
-    assert((Entries.empty() ||
-            (E.getFlameGraphStartUs(StartTime) + E.getFlameGraphDurUs() >=
-             Entries.back().getFlameGraphStartUs(StartTime) +
-                 Entries.back().getFlameGraphDurUs())) &&
-           "TimeProfiler scope ended earlier than previous scope");
-
-    // Calculate duration at full precision for overall counts.
-    DurationType Duration = E.End - E.Start;
-
-    // Only include sections longer or equal to TimeTraceGranularity msec.
-    if (duration_cast<microseconds>(Duration).count() >= TimeTraceGranularity)
+    // Only include sections longer than TimeTraceGranularity msec.
+    if (duration_cast<microseconds>(E.Duration).count() > TimeTraceGranularity)
       Entries.emplace_back(E);
 
     // Track total time taken by each "name", but only the topmost levels of
@@ -97,7 +78,7 @@ struct TimeTraceProfiler {
         }) == Stack.rend()) {
       auto &CountAndTotal = CountAndTotalPerName[E.Name];
       CountAndTotal.first++;
-      CountAndTotal.second += Duration;
+      CountAndTotal.second += E.Duration;
     }
 
     Stack.pop_back();
@@ -113,8 +94,8 @@ struct TimeTraceProfiler {
 
     // Emit all events for the main flame graph.
     for (const auto &E : Entries) {
-      auto StartUs = E.getFlameGraphStartUs(StartTime);
-      auto DurUs = E.getFlameGraphDurUs();
+      auto StartUs = duration_cast<microseconds>(E.Start - StartTime).count();
+      auto DurUs = duration_cast<microseconds>(E.Duration).count();
 
       J.object([&]{
         J.attribute("pid", 1);
@@ -179,17 +160,13 @@ struct TimeTraceProfiler {
   SmallVector<Entry, 16> Stack;
   SmallVector<Entry, 128> Entries;
   StringMap<CountAndDurationType> CountAndTotalPerName;
-  TimePointType StartTime;
-
-  // Minimum time granularity (in microseconds)
-  unsigned TimeTraceGranularity;
+  time_point<steady_clock> StartTime;
 };
 
-void timeTraceProfilerInitialize(unsigned TimeTraceGranularity) {
+void timeTraceProfilerInitialize() {
   assert(TimeTraceProfilerInstance == nullptr &&
          "Profiler should not be initialized");
   TimeTraceProfilerInstance = new TimeTraceProfiler();
-  TimeTraceProfilerInstance->TimeTraceGranularity = TimeTraceGranularity;
 }
 
 void timeTraceProfilerCleanup() {
