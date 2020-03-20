@@ -6,8 +6,8 @@
 
 target triple = "x86_64-pc-linux-gnu-repo"
 
-@llvm.global_ctors = appending global [1 x { i32, void ()* }] [ { i32, void ()* } { i32 65535, void ()* @__mf_init } ]
-@llvm.global_dtors = appending global [1 x { i32, void ()* }] [ { i32, void ()* } { i32 65535, void ()* @__mf_fini } ]
+@llvm.global_ctors = appending global [1 x { i32, void ()*, i8* }] [ { i32, void ()*, i8* } { i32 65535, void ()* @__mf_init, i8* null } ]
+@llvm.global_dtors = appending global [1 x { i32, void ()*, i8* }] [ { i32, void ()*, i8* } { i32 65535, void ()* @__mf_fini, i8* null } ]
 
 define void @__mf_init() {
 entry:
