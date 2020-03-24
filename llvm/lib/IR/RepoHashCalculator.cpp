@@ -76,12 +76,22 @@ void HashCalculator::hashAttribute(const Attribute &V) {
     Hash.update(
         ArrayRef<uint8_t>((uint8_t *)&EnunKind, sizeof(Attribute::AttrKind)));
     hashNumber(V.getValueAsInt());
-  } else {
+  } else if (V.isStringAttribute()) {
     // String attribute uses the attribute kind and string value to calculate
     // the hash.
     Hash.update(HashKind::TAG_AttributeString);
     hashMem(V.getKindAsString());
     hashMem(V.getValueAsString());
+  } else if (V.isTypeAttribute()) {
+    // Type attribute uses the attribute kind and TypeID value to calculate the
+    // hash.
+    Hash.update(HashKind::TAG_AttributeType);
+    auto EnunKind = V.getKindAsEnum();
+    Hash.update(
+        ArrayRef<uint8_t>((uint8_t *)&EnunKind, sizeof(Attribute::AttrKind)));
+    hashNumber(V.getValueAsType()->getTypeID());
+  } else {
+    llvm_unreachable("Unrecognised Attribute type");
   }
 }
 

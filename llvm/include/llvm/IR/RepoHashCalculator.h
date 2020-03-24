@@ -38,6 +38,7 @@ enum HashKind {
   TAG_AttributeInt,
   TAG_AttributeString,
   TAG_AttributeList,
+  TAG_AttributeType,
   TAG_InlineAsm,
   TAG_InlineAsm_SideEffects,
   TAG_InlineAsm_AlignStack,
