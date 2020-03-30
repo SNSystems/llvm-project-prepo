@@ -296,13 +296,13 @@ static bool eliminateUnreferencedAndPrunedGOs(Module &M) {
   return Changed;
 }
 
-static llvm::Value *createDeclararion(Module &M, llvm::Type *Ty,
-                                      const Module::alias_iterator &It) {
+static llvm::Value *createDeclaration(Module &M, const GlobalAlias *GA) {
+  Type *Ty = GA->getValueType();
   if (FunctionType *FTy = dyn_cast<FunctionType>(Ty))
     return Function::Create(FTy, GlobalValue::ExternalLinkage,
-                            It->getAddressSpace(), It->getName(), &M);
+                            GA->getAddressSpace(), GA->getName(), &M);
   return new GlobalVariable(M, Ty, false, GlobalValue::ExternalLinkage, nullptr,
-                            It->getName());
+                            GA->getName());
 }
 
 bool RepoPruning::runOnModule(Module &M) {
@@ -325,22 +325,43 @@ bool RepoPruning::runOnModule(Module &M) {
   }
 
   // Enable this pass support for alias.
-  for (Module::alias_iterator I = M.alias_begin(), E = M.alias_end(); I != E;) {
-    Module::alias_iterator CurI = I;
-    ++I;
+  // First, check whether a GlobalAlias references a pruned GO. If yes, record
+  // it. Second, replace all recorded aliases by the declaration. These two
+  // steps can't be merged since the second step could change the base object of
+  // the alias. For example:
+  // Assuming: 1) the aliasee of alias 'A' is alias 'B',
+  //           2) the aliasee of alias 'B' is global object 'C',
+  //           3) the global object 'C' is pruned.
+  // If merging two steps, the order in the alias list is 'B' and then 'A'.
+  // Since the global object 'C' is pruned, the alias 'B' is changed from
+  // definition to declaration. Then, since 'B' is changed to declaration, the
+  // base object of the alias 'A' will be changed from 'C' to 'B'. 'A' will not
+  // be removed because 'B' isn't a global object. However, 'A' must point to a
+  // definition but 'B' is not a definition. This will result in the backend
+  // error.
+  // Step 1. Record aliases.
+  SmallVector<GlobalAlias *, 16> Aliases;
+  for (GlobalAlias &A : M.aliases()) {
     // TODO: An Alias doesn't have an aliasee, for example:
     // @v = alias i32, inttoptr(i32 42 to i32*)
-    if (auto *Aliasee = CurI->getBaseObject()) {
-      if (wasPruned(*Aliasee)) {
-        Type *Ty = CurI->getValueType();
-        // Delete the alias from Module if its aliasee is pruned.
-        CurI->removeFromParent();
-        // Replace the alias by a declaration.
-        CurI->replaceAllUsesWith(createDeclararion(M, Ty, CurI));
-        delete &*CurI;
+    if (auto *BaseObject = A.getBaseObject()) {
+      if (wasPruned(*BaseObject)) {
+        LLVM_DEBUG(dbgs() << "Alias: " << A.getName() << ", its base object: "
+                          << BaseObject->getName() << " is pruned! \n");
+        Aliases.push_back(&A);
         ++NumAliases;
       }
     }
+  }
+  // 2. Resolve aliases.
+  for (GlobalAlias *A : Aliases) {
+    // Remove the alias from Module. If not removed, the clone name of the alias
+    // will be created in the `createDeclaration` function. This might result in
+    // a linker error.
+    A->removeFromParent();
+    // Replace the alias by a declaration.
+    A->replaceAllUsesWith(createDeclaration(M, A));
+    delete A;
   }
 
   LLVM_DEBUG(dbgs() << "Size of module: " << M.size() << '\n');

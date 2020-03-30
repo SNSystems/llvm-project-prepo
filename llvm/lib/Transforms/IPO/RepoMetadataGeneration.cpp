@@ -72,6 +72,8 @@ bool RepoMetadataGeneration::runOnModule(Module &M) {
   // Enable the program repo support for alias.
   for (GlobalAlias &GA : M.aliases()) {
     if (auto *GO = GA.getBaseObject()) {
+      LLVM_DEBUG(dbgs() << "GA: " << GA.getName()
+                        << ", its base object: " << GO->getName() << '\n');
       TicketNode *TN =
           dyn_cast<TicketNode>(GO->getMetadata(LLVMContext::MD_repo_ticket));
       assert(TN && "TN should not be NULL!");
