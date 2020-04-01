@@ -108,7 +108,8 @@ llvm::repo::getTicketIdFromFile(StringRef TicketPath) {
   }
 
   ErrorOr<std::unique_ptr<MemoryBuffer>> MemberBufferOrErr =
-      MemoryBuffer::getOpenFile(TicketFD, TicketPath, FileSize, false);
+      MemoryBuffer::getOpenFile(sys::fs::convertFDToNativeFile(TicketFD),
+                                TicketPath, FileSize, false);
   if (!MemberBufferOrErr) {
     return MemberBufferOrErr.getError();
   }
