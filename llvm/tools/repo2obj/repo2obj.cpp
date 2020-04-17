@@ -454,8 +454,11 @@ int main(int argc, char *argv[]) {
   }
 
   using ELFT = ELF64LE;
-  ELFState<ELF64LE> State(Db);
-  State.initialize(Db);
+  // Use of "naked" new here is a deliberate choice. The various maintained in
+  // ELFState<> take measurable time to destroy. This is unnecessary because we
+  // can simply leave the OS to release the memory when the process exits.
+  auto *const State = new ELFState<ELFT>(Db);
+  State->initialize(Db);
 
   std::array<llvm::Optional<std::vector<std::uint8_t>>,
              static_cast<std::size_t>(pstore::repo::section_kind::last)>
@@ -523,9 +526,9 @@ int main(int argc, char *argv[]) {
 
         pstore::repo::bss_section const &S =
             Fragment->at<pstore::repo::section_kind::bss>();
-        State.Symbols.insertSymbol(Name, nullptr /*no output section*/,
-                                   0 /*offset*/, S.size(), Linkage,
-                                   CM.visibility());
+        State->Symbols.insertSymbol(Name, nullptr /*no output section*/,
+                                    0 /*offset*/, S.size(), Linkage,
+                                    CM.visibility());
         continue;
       }
       // Go through the sections that this fragment contains creating the
@@ -544,11 +547,11 @@ int main(int argc, char *argv[]) {
                 ? CM.name
                 : pstore::typed_address<pstore::indirect_string>::null();
         auto const Id = std::make_tuple(
-            getELFSectionType(Section, CM.name, State.Magics), Discriminator);
+            getELFSectionType(Section, CM.name, State->Magics), Discriminator);
 
-        decltype(State.Sections)::iterator Pos;
+        decltype(State->Sections)::iterator Pos;
         bool DidInsert;
-        std::tie(Pos, DidInsert) = State.Sections.emplace(
+        std::tie(Pos, DidInsert) = State->Sections.emplace(
             Id, OutputSection<ELFT>(
                     Db, Id, Prefixes[static_cast<std::size_t>(Section)]));
 
@@ -559,12 +562,12 @@ int main(int argc, char *argv[]) {
         // linkage, then we need to make the section a member of a group
         // section.
         if (DidInsert && IsLinkOnce) {
-          decltype(State.Groups)::iterator GroupPos =
-              State.Groups.find(CM.name);
-          if (GroupPos == State.Groups.end()) {
+          decltype(State->Groups)::iterator GroupPos =
+              State->Groups.find(CM.name);
+          if (GroupPos == State->Groups.end()) {
             bool _;
             std::tie(GroupPos, _) =
-                State.Groups.emplace(CM.name, GroupInfo<ELFT>(CM.name));
+                State->Groups.emplace(CM.name, GroupInfo<ELFT>(CM.name));
           }
 
           GroupPos->second.Members.push_back(OSection);
@@ -589,61 +592,62 @@ int main(int argc, char *argv[]) {
 
       for (pstore::repo::section_kind Section : SectionRange) {
         OutputSections[static_cast<unsigned>(Section)].section()->append(
-            CM, Fragment, Section, State.Symbols, State.Generated,
+            CM, Fragment, Section, State->Symbols, State->Generated,
             OutputSections);
       }
     }
   }
 
-  LLVM_DEBUG(dbgs() << "There are " << State.Groups.size() << " groups\n");
+  LLVM_DEBUG(dbgs() << "There are " << State->Groups.size() << " groups\n");
 
-  std::vector<SymbolTable<ELFT>::Value *> OrderedSymbols = State.Symbols.sort();
+  std::vector<SymbolTable<ELFT>::Value *> OrderedSymbols =
+      State->Symbols.sort();
 
-  decltype(State)::Elf_Ehdr Header;
-  State.initELFHeader(Header);
-  State.initStandardSections();
+  ELFState<ELFT>::Elf_Ehdr Header;
+  State->initELFHeader(Header);
+  State->initStandardSections();
 
   auto &OS = Out->os();
   writeRaw(OS, Header);
 
-  for (auto &S : State.Sections) {
+  for (auto &S : State->Sections) {
     OutputSection<ELFT> &Section = S.second;
     if (GroupInfo<ELFT> *const Group = Section.group()) {
-      State.buildGroupSection(Db, *Group);
+      State->buildGroupSection(Db, *Group);
     }
-    Section.setIndex(State.SectionHeaders.size());
-    Section.write(OS, State.Strings, State.Generated,
-                  std::back_inserter(State.SectionHeaders));
+    Section.setIndex(State->SectionHeaders.size());
+    Section.write(OS, State->Strings, State->Generated,
+                  std::back_inserter(State->SectionHeaders));
   }
 
-  State.writeGroupSections(OS);
+  State->writeGroupSections(OS);
 
   // Now do the same for the symbol table.
   {
-    auto &S = State.SectionHeaders[SectionIndices::SymTab];
+    auto &S = State->SectionHeaders[SectionIndices::SymTab];
     // st_info should be one greater than the symbol table index of the last
     // local symbol (binding STB_LOCAL).
     S.sh_info = SymbolTable<ELFT>::firstNonLocal(OrderedSymbols);
     bool NeedsExtendedShdnx = false;
     std::tie(S.sh_offset, S.sh_size, NeedsExtendedShdnx) =
-        State.Symbols.write(OS, OrderedSymbols);
+        State->Symbols.write(OS, OrderedSymbols);
     if (NeedsExtendedShdnx) {
       // extended symbol table section indices
-      size_t const SymtabShndx = State.addSymtabShndxSection();
-      auto &SymtabShndxSection = State.SectionHeaders[SymtabShndx];
+      size_t const SymtabShndx = State->addSymtabShndxSection();
+      auto &SymtabShndxSection = State->SectionHeaders[SymtabShndx];
       std::tie(SymtabShndxSection.sh_offset, SymtabShndxSection.sh_size) =
-          State.Symbols.writeSymtabShndx(OS, OrderedSymbols);
+          State->Symbols.writeSymtabShndx(OS, OrderedSymbols);
     }
   }
 
   // Write the string table (and patch its section header)
   {
-    auto &S = State.SectionHeaders[SectionIndices::StringTab];
-    std::tie(S.sh_offset, S.sh_size) = State.Strings.write(OS);
+    auto &S = State->SectionHeaders[SectionIndices::StringTab];
+    std::tie(S.sh_offset, S.sh_size) = State->Strings.write(OS);
   }
 
-  State.setEShNum(Header);
-  Header.e_shoff = State.writeSectionHeaders(OS);
+  State->setEShNum(Header);
+  Header.e_shoff = State->writeSectionHeaders(OS);
   static_assert(SectionIndices::StringTab < llvm::ELF::SHN_LORESERVE,
                 "String table index should be less than LORESERVE");
   Header.e_shstrndx = SectionIndices::StringTab;
