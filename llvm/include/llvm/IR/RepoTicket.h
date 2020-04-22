@@ -135,6 +135,9 @@ void calculateGOInfo(const GlobalType *G, GOInfoMap &GOI) {
   // ====> Contributions[`g`] = [`foo`],
   //       Contributions[`q`] = [`foo`]
   for (auto &GO : Result.Contributions) {
+    assert(isa<GlobalVariable>(GO) &&
+           "Only global variables can have contributions!");
+    assert(isa<llvm::Function>(G) && "All contributions are functions!");
     GOI[GO].Contributions.emplace_back(G);
   }
   // Update G's dependencies.

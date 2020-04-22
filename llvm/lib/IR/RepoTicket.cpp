@@ -116,7 +116,41 @@ static GODigestState accumulateGOFinalDigestOrInitialDigestAndGetGODigestState(
   return accumulateGOInitialDigestAndGetGODigestState(GO, GOHash, GOIMap);
 }
 
-// Update the GO's hash value by adding the hash of its dependents.
+// Loop through the contributions and add the initial digest of each global
+// object inside of the contributions to GOHash. Return true if GOhash is
+// changed.
+static bool updateDigestUseContributions(MD5 &GOHash,
+                                         const GOVec &Contributions,
+                                         GOInfoMap &GOIMap) {
+  for (const GlobalObject *const G : Contributions) {
+    GOHash.update(GOIMap[G].InitialDigest.Bytes);
+  }
+  return !Contributions.empty();
+}
+
+// Loop through the dependences and add the final digest of each global object
+// inside of the dependences to GOHash.
+template <typename Function>
+static bool updateDigestUseDependencies(MD5 &GOHash, const GOVec &Dependencies,
+                                        GOStateMap &Visited, GOInfoMap &GOIMap,
+                                        Function AccumulateGODigest) {
+  bool Changed = false;
+  for (const GlobalObject *const G : Dependencies) {
+    const llvm::Function *const Fn = dyn_cast<const llvm::Function>(G);
+    // if function will not be inlined and not be discarded if it is not used,
+    // skip it.
+    if (Fn && Fn->hasFnAttribute(Attribute::NoInline) &&
+        !Fn->isDiscardableIfUnused())
+      continue;
+    Changed = updateDigestUseDependenciesAndContributions(
+                  G, GOHash, Visited, GOIMap, AccumulateGODigest) ||
+              Changed;
+  }
+  return Changed;
+}
+
+// Update the GO's hash value by adding the hash of its dependencies and
+// contributions.
 template <typename Function>
 static bool updateDigestUseDependenciesAndContributions(
     const GlobalObject *GO, MD5 &GOHash, GOStateMap &Visited, GOInfoMap &GOIMap,
@@ -135,26 +169,23 @@ static bool updateDigestUseDependenciesAndContributions(
     return true;
   }
 
-  bool Changed = false;
   GOHash.update('T');
   auto State = AccumulateGODigest(GO, GOHash, GOIMap);
-  Changed = Changed || State.Changed;
-  // Update the GO's hash using its contributions and dependencies.
-  auto &GOContributions = State.Contributions;
-  auto &GODependencies = State.Dependencies;
-  for (const GlobalObject *const G : llvm::concat<const GlobalObject *const>(
-           make_range(GOContributions.begin(), GOContributions.end()),
-           make_range(GODependencies.begin(), GODependencies.end()))) {
-    const llvm::Function *const Fn = dyn_cast<const llvm::Function>(G);
-    // if function will not be inlined and not be discarded if it is not used,
-    // skip it.
-    if (Fn && Fn->hasFnAttribute(Attribute::NoInline) &&
-        !Fn->isDiscardableIfUnused())
-      continue;
-    Changed = updateDigestUseDependenciesAndContributions(
-                  G, GOHash, Visited, GOIMap, AccumulateGODigest) ||
-              Changed;
-  }
+  bool Changed = State.Changed;
+  // The hashes of the GO's 'contributions' and 'dependencies' are separately
+  // added to the GO's hash since their respective arrows point are in different
+  // direction. In addition, 'contributions' cannot form loops since 1) only
+  // global variables have 'contributions' and 2) all 'contributions' are
+  // functions. Therefore, the 'contributions' can be simplified not to record
+  // 'visited' table, which avoids having two 'visited' maps. Firstly, add the
+  // GO's contributions to its hash.
+  Changed = updateDigestUseContributions(GOHash, State.Contributions, GOIMap) ||
+            Changed;
+
+  // Add the GO's dependencies to its hash.
+  Changed = updateDigestUseDependencies(GOHash, State.Dependencies, Visited,
+                                        GOIMap, AccumulateGODigest) ||
+            Changed;
 
   return Changed;
 }
