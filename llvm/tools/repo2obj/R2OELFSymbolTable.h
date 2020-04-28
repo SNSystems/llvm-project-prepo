@@ -16,7 +16,7 @@
 #include "R2OELFStringTable.h"
 #include "WriteHelpers.h"
 
-#include <map>
+#include <unordered_map>
 
 template <typename ELFT> class OutputSection;
 
@@ -153,7 +153,7 @@ private:
   Value *insertSymbol(pstore::indirect_string const &Name,
                       llvm::Optional<SymbolTarget> const &Target);
 
-  std::map<pstore::indirect_string, Value> SymbolMap_;
+  std::unordered_map<pstore::indirect_string, Value> SymbolMap_;
   StringTable &Strings_;
 };
 

@@ -50,7 +50,8 @@ public:
 
 private:
   pstore::database const &Db_;
-  std::map<pstore::shared_sstring_view, pstore::raw_sstring_view> Storage_;
+  std::unordered_map<pstore::shared_sstring_view, pstore::raw_sstring_view>
+      Storage_;
 };
 
 class StringTable {
