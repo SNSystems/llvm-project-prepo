@@ -59,7 +59,7 @@
 #include "llvm/IR/ModuleSlotTracker.h"
 #include "llvm/IR/ModuleSummaryIndex.h"
 #include "llvm/IR/Operator.h"
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/IR/Statepoint.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/TypeFinder.h"
@@ -2255,10 +2255,10 @@ static void writeDIImportedEntity(raw_ostream &Out, const DIImportedEntity *N,
   Out << ")";
 }
 
-static void writeTicketNode(raw_ostream &Out, const TicketNode *DN,
-                            TypePrinting *TypePrinter, SlotTracker *Machine,
-                            const Module *Context) {
-  Out << "!TicketNode(";
+static void writeRepoDefinition(raw_ostream &Out, const RepoDefinition *DN,
+                                TypePrinting *TypePrinter, SlotTracker *Machine,
+                                const Module *Context) {
+  Out << "!RepoDefinition(";
   MDFieldPrinter Printer(Out, TypePrinter, Machine, Context);
   Printer.printString("name", DN->getNameAsString(),
                       /* ShouldSkipNull */ false);

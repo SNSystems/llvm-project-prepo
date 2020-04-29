@@ -48,4 +48,4 @@ entry:
 !17 = !DILocation(line: 3, column: 10, scope: !9, inlinedAt: !11)
 !18 = !DILocation(line: 9, column: 1, scope: !6)
 
-;CHECK: !TicketNode(name: "test", digest: [16 x i8] c"{{.+}}", linkage: external, visibility: default, pruned: false)
+;CHECK: !RepoDefinition(name: "test", digest: [16 x i8] c"{{.+}}", linkage: external, visibility: default, pruned: false)

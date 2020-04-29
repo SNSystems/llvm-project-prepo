@@ -14,7 +14,7 @@
 #ifndef LLVM_MC_MCSECTIONREPO_H
 #define LLVM_MC_MCSECTIONREPO_H
 
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/MC/MCSection.h"
 #include "llvm/Support/MD5.h"
 
@@ -32,7 +32,7 @@ public:
 private:
   DebugSectionKind DebugKind;
   StringRef Name;
-  ticketmd::DigestType Digest;
+  repodefinition::DigestType Digest;
   /// Monotonically increases for each section.
   unsigned const Index;
   /// A dummy section is created for the assembler's initial setup. Is this the
@@ -41,7 +41,7 @@ private:
 
   friend class MCContext;
   MCSectionRepo(SectionKind K, DebugSectionKind DK, MCSymbol *Begin,
-                StringRef N, ticketmd::DigestType digest);
+                StringRef N, repodefinition::DigestType digest);
 
   void PrintSwitchToSection(const MCAsmInfo &MAI, const Triple &T,
                             raw_ostream &OS,
@@ -58,7 +58,7 @@ public:
     return this;
   }
   bool isDummy () const { return IsDummy; }
-  ticketmd::DigestType hash() const { return Digest; }
+  repodefinition::DigestType hash() const { return Digest; }
   DebugSectionKind getDebugKind() const { return DebugKind; }
   MCSection *associatedDebugLineSection(MCContext &) override;
 

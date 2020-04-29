@@ -55,7 +55,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ModuleSummaryIndex.h"
 #include "llvm/IR/OperandTraits.h"
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/IR/TrackingMDRef.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/ValueHandle.h"
@@ -876,7 +876,7 @@ MetadataLoader::MetadataLoaderImpl::lazyLoadModuleMetadataBlock() {
       case bitc::METADATA_OBJC_PROPERTY:
       case bitc::METADATA_IMPORTED_ENTITY:
       case bitc::METADATA_GLOBAL_VAR_EXPR:
-      case bitc::METADATA_TICKETNODE:
+      case bitc::METADATA_REPODEFINITION:
         // We don't expect to see any of these, if we see one, give up on
         // lazy-loading and fallback.
         MDStringRef.clear();
@@ -1917,7 +1917,7 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
       return Err;
     break;
   }
-  case bitc::METADATA_TICKETNODE: {
+  case bitc::METADATA_REPODEFINITION: {
     if (Record.size() != 6)
       return error("Invalid record");
 
@@ -1931,7 +1931,7 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
     const bool Pruned = Record[5];
 
     MetadataList.assignValue(
-        GET_OR_DISTINCT(TicketNode,
+        GET_OR_DISTINCT(RepoDefinition,
                         (Context, Name, GVHash, Linkage, Visibility, Pruned)),
         NextMetadataNo);
     NextMetadataNo++;

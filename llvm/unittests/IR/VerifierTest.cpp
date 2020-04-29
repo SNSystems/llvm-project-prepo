@@ -191,32 +191,32 @@ TEST(VerifierTest, DetectInvalidDebugInfo) {
   }
 }
 
-TEST(VerifierTest, TicketNodeVariable) {
+TEST(VerifierTest, RepoDefinitionVariable) {
   LLVMContext C;
   Module M("M", C);
   MDBuilder MDB(M.getContext());
   auto GV =
       new GlobalVariable(M, Type::getInt8Ty(C), false,
                          GlobalValue::ExternalLinkage, nullptr, "Some Global");
-  // Valid TicketNode.
-  GV->setMetadata(LLVMContext::MD_repo_ticket,
-                  MDB.createTicketNode(GV->getName(), ticketmd::DigestType(),
-                                       GV->getLinkage(), GV->getVisibility(),
-                                       false));
+  // Valid RepoDefinition.
+  GV->setMetadata(
+      LLVMContext::MD_repo_definition,
+      MDB.createRepoDefinition(GV->getName(), repodefinition::DigestType(),
+                               GV->getLinkage(), GV->getVisibility(), false));
   EXPECT_FALSE(verifyModule(M));
 }
 
-TEST(VerifierTest, TicketNodeFunction) {
+TEST(VerifierTest, RepoDefinitionFunction) {
   LLVMContext C;
   Module M("M", C);
   MDBuilder MDB(M.getContext());
   FunctionType *FTy = FunctionType::get(Type::getVoidTy(C), /*isVarArg=*/false);
   auto Func = Function::Create(FTy, GlobalValue::ExternalLinkage, "foo", &M);
   // Valid global variable name.
-  Func->setMetadata(
-      LLVMContext::MD_repo_ticket,
-      MDB.createTicketNode(Func->getName(), ticketmd::DigestType(),
-                           Func->getLinkage(), Func->getVisibility(), false));
+  Func->setMetadata(LLVMContext::MD_repo_definition,
+                    MDB.createRepoDefinition(
+                        Func->getName(), repodefinition::DigestType(),
+                        Func->getLinkage(), Func->getVisibility(), false));
   EXPECT_FALSE(verifyModule(M));
 }
 

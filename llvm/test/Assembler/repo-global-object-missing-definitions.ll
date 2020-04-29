@@ -20,8 +20,8 @@ entry:
 $_ZL4fact = comdat any
 @_ZL4fact = internal global i32 1, align 4, !fragment !0, comdat($_ZL4fact)
 
-!repo.tickets = !{!0}
+!repo.definitions = !{!0}
 
-!0 = !TicketNode(name: "_ZL4fact", digest: [16 x i8] c"\DC\8BWeQ\E4\03\E6\F3:\DE\D1\9F\90\AC\F7", linkage: internal, visibility: default, pruned: false)
+!0 = !RepoDefinition(name: "_ZL4fact", digest: [16 x i8] c"\DC\8BWeQ\E4\03\E6\F3:\DE\D1\9F\90\AC\F7", linkage: internal, visibility: default, pruned: false)
 
 

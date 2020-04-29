@@ -91,7 +91,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ModuleSlotTracker.h"
 #include "llvm/IR/PassManager.h"
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/IR/Statepoint.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Use.h"
@@ -385,7 +385,7 @@ public:
     visitModuleFlags(M);
     visitModuleIdents(M);
     visitModuleCommandLines(M);
-    visitModuleTickets(M);
+    visitModuleDefinitions(M);
 
     verifyCompileUnits();
 
@@ -414,7 +414,7 @@ private:
                        DenseMap<const MDString *, const MDNode *> &SeenIDs,
                        SmallVectorImpl<const MDNode *> &Requirements);
   void visitModuleFlagCGProfileEntry(const MDOperand &MDO);
-  void visitModuleTickets(const Module &M);
+  void visitModuleDefinitions(const Module &M);
   void visitFunction(const Function &F);
   void visitBasicBlock(BasicBlock &BB);
   void visitRangeMetadata(Instruction &I, MDNode *Range, Type *Ty);
@@ -694,15 +694,15 @@ void Verifier::visitGlobalVariable(const GlobalVariable &GV) {
                       "DIGlobalVariableExpression");
   }
 
-  // Visit any TicketNode attachments.
+  // Visit any RepoDefinition attachments.
   MDs.clear();
-  GV.getMetadata(LLVMContext::MD_repo_ticket, MDs);
+  GV.getMetadata(LLVMContext::MD_repo_definition, MDs);
   for (auto const *MD : MDs) {
-    if (auto const *GVD = dyn_cast<TicketNode>(MD))
-      visitTicketNode(*GVD);
+    if (auto const *GVD = dyn_cast<RepoDefinition>(MD))
+      visitRepoDefinition(*GVD);
     else
       AssertDI(false, "!fragment attachment of global variable must be a "
-                      "TicketNode");
+                      "RepoDefinition");
   }
 
   // Scalable vectors cannot be global variables, since we don't know
@@ -1319,26 +1319,26 @@ void Verifier::visitDIImportedEntity(const DIImportedEntity &N) {
            N.getRawEntity());
 }
 
-void Verifier::visitTicketNode(const TicketNode &N) {
+void Verifier::visitRepoDefinition(const RepoDefinition &N) {
   Assert(dyn_cast_or_null<MDString>(N.getNameAsMD()),
-         ("invalid value for TicketNode metadata entry operand"
+         ("invalid value for RepoDefinition metadata entry operand"
           "(the operand should be a string)"),
          &N);
 
   ConstantAsMetadata const *C = N.getDigestAsMDConstant();
-  Assert(
-      C && C->getType()->isArrayTy(),
-      "TicketNode has invalid the digest value type that must be array type!",
-      &N);
+  Assert(C && C->getType()->isArrayTy(),
+         "RepoDefinition has invalid the digest value type that must be array "
+         "type!",
+         &N);
 
   auto const AarryType = C->getType();
   auto const Elems = AarryType->getArrayNumElements();
-  ticketmd::DigestType D;
+  repodefinition::DigestType D;
   Assert(Elems == D.Bytes.max_size(),
-         "TicketNode has invalid the digest array size!", &N);
+         "RepoDefinition has invalid the digest array size!", &N);
 
   Assert(AarryType->getArrayElementType()->isIntegerTy(8),
-         "TicketNode has invalid the array element type which should be "
+         "RepoDefinition has invalid the array element type which should be "
          "8-bit integer type!",
          &N);
 }
@@ -1527,17 +1527,18 @@ void Verifier::visitModuleFlagCGProfileEntry(const MDOperand &MDO) {
          "expected an integer constant", Node->getOperand(2));
 }
 
-void Verifier::visitModuleTickets(const Module &M) {
-  const NamedMDNode *Tickets = M.getNamedMetadata("repo.tickets");
-  if (!Tickets)
+void Verifier::visitModuleDefinitions(const Module &M) {
+  const NamedMDNode *Definitions = M.getNamedMetadata("repo.definitions");
+  if (!Definitions)
     return;
 
-  // repo.tickets takes a list of metadata entry. Each entry has one TicketNode.
-  // Scan each repo.tickets entry and make sure that this requirement is met.
-  for (const MDNode *N : Tickets->operands()) {
-    Assert(dyn_cast_or_null<TicketNode>(N),
-           ("invalid value for repo.tickets metadata entry operand"
-            " (the operand should be a ticket node)"),
+  // repo.definitions takes a list of metadata entry. Each entry has one
+  // RepoDefinition. Scan each repo.definitions entry and make sure that this
+  // requirement is met.
+  for (const MDNode *N : Definitions->operands()) {
+    Assert(dyn_cast_or_null<RepoDefinition>(N),
+           ("invalid value for repo.definitions metadata entry operand"
+            " (the operand should be a repo definition)"),
            N);
   }
 }

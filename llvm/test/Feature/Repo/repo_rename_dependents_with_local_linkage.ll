@@ -18,4 +18,4 @@ entry:
 
 ;CHECK-NAME-IN-IR: @str = private 
 
-;CHECK-NAME-IN-DATABASE: !TicketNode(name: "str.{{.+}}"
+;CHECK-NAME-IN-DATABASE: !RepoDefinition(name: "str.{{.+}}"

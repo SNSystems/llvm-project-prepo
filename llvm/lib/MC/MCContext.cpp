@@ -461,8 +461,9 @@ MCSectionCOFF *MCContext::getCOFFSection(StringRef Section,
   return Result;
 }
 
-MCSectionRepo *MCContext::getRepoSection(RepoSection K, StringRef Name,
-                                         ticketmd::DigestType const &Digest) {
+MCSectionRepo *
+MCContext::getRepoSection(RepoSection K, StringRef Name,
+                          repodefinition::DigestType const &Digest) {
   // If the digest exists but the corresponding symbol's name is different from
   // the given 'Name',  a new RepoSection is created and marked as dummy.
   const bool IsMatchingName =
@@ -496,13 +497,13 @@ MCSectionRepo *MCContext::getRepoSection(RepoSection K, StringRef Name,
     Kind = SectionKind::getThreadData();
     break;
   case RepoSection::Mergeable1ByteCStringSection:
-    Kind = SectionKind::getMergeable1ByteCString ();
+    Kind = SectionKind::getMergeable1ByteCString();
     break;
   case RepoSection::Mergeable2ByteCStringSection:
-    Kind = SectionKind::getMergeable2ByteCString ();
+    Kind = SectionKind::getMergeable2ByteCString();
     break;
   case RepoSection::Mergeable4ByteCStringSection:
-    Kind = SectionKind::getMergeable4ByteCString ();
+    Kind = SectionKind::getMergeable4ByteCString();
     break;
   case RepoSection::MergeableConst4Section:
     Kind = SectionKind::getMergeableConst4();
@@ -548,8 +549,8 @@ MCSectionRepo *MCContext::getRepoSection(RepoSection K, StringRef Name,
 }
 
 MCSectionRepo *MCContext::getRepoSection(RepoSection K) {
-  return getRepoSection(K, StringRef(),
-                        ticketmd::DigestType{std::array<uint8_t, 16>{{0}}});
+  return getRepoSection(
+      K, StringRef(), repodefinition::DigestType{std::array<uint8_t, 16>{{0}}});
 }
 
 MCSectionCOFF *MCContext::getCOFFSection(StringRef Section,

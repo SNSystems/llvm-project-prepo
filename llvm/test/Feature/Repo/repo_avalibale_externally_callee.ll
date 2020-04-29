@@ -15,4 +15,4 @@ define void @bar() {
   ret void
 }
 
-;CHECK: !0 = !TicketNode(name: "bar", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: false)
+;CHECK: !0 = !RepoDefinition(name: "bar", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: false)

@@ -37,7 +37,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/RemarkStreamer.h"
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/IR/TrackingMDRef.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Casting.h"
@@ -463,8 +463,8 @@ template <> struct MDNodeKeyImpl<DIDerivedType> {
   }
 };
 
-/// DenseMapInfo for TicketNode.
-template <> struct MDNodeKeyImpl<TicketNode> {
+/// DenseMapInfo for RepoDefinition.
+template <> struct MDNodeKeyImpl<RepoDefinition> {
   Metadata *Name;
   Metadata *Digest;
   GlobalValue::LinkageTypes Linkage;
@@ -477,12 +477,12 @@ template <> struct MDNodeKeyImpl<TicketNode> {
       : Name(Name), Digest(Digest), Linkage(Linkage), Visibility(Visibility),
         Pruned(Pruned) {}
 
-  MDNodeKeyImpl(const TicketNode *RHS)
+  MDNodeKeyImpl(const RepoDefinition *RHS)
       : Name(RHS->getNameAsMD()), Digest(RHS->getDigestAsMD()),
         Linkage(RHS->getLinkage()), Visibility(RHS->getVisibility()),
         Pruned(RHS->getPruned()) {}
 
-  bool isKeyOf(const TicketNode *RHS) const {
+  bool isKeyOf(const RepoDefinition *RHS) const {
     return Name == RHS->getNameAsMD() && Digest == RHS->getDigestAsMD() &&
            Linkage == RHS->getLinkage() && Pruned == RHS->getPruned();
   }

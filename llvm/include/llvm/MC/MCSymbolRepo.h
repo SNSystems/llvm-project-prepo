@@ -21,20 +21,20 @@ public:
 
   static bool classof(const MCSymbol *S) { return S->isRepo(); }
 
-  // A pointer to the TiketNode metadata of the corresponding GlobalObject.
-  const TicketNode *CorrespondingTicketNode = nullptr;
+  // A pointer to the RepoDefinition metadata of the corresponding GlobalObject.
+  const RepoDefinition *CorrespondingRepoDefinition = nullptr;
 
   // Get the symbol full name.
-  static const std::string getFullName(const MCContext &Ctx,
-                                       const StringRef InitialName,
-                                       const ticketmd::DigestType &Digest) {
+  static const std::string
+  getFullName(const MCContext &Ctx, const StringRef InitialName,
+              const repodefinition::DigestType &Digest) {
     std::string FullName;
     StringRef PrivateGlobalPrefix = Ctx.getAsmInfo()->getPrivateGlobalPrefix();
     FullName.reserve(PrivateGlobalPrefix.size() + InitialName.size() +
-                     ticketmd::DigestSize + 1);
+                     repodefinition::DigestSize + 1);
     FullName.append(PrivateGlobalPrefix);
     FullName.append(InitialName);
-    if (Digest != ticketmd::NullDigest) {
+    if (Digest != repodefinition::NullDigest) {
       FullName.append(".");
       FullName.append(Digest.digest().str());
     }

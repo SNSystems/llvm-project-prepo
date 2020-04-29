@@ -19,4 +19,4 @@ define void @test3() {
   ret void
 }
 
-;CHECK: !TicketNode(name: "s", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: false)
+;CHECK: !RepoDefinition(name: "s", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: false)

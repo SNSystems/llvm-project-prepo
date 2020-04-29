@@ -88,12 +88,11 @@ MDNode *MDBuilder::createRange(const APInt &Lo, const APInt &Hi) {
   return createRange(ConstantInt::get(Ty, Lo), ConstantInt::get(Ty, Hi));
 }
 
-TicketNode *MDBuilder::createTicketNode(StringRef Name,
-                                        ticketmd::DigestType const &Bytes,
-                                        GlobalValue::LinkageTypes Linkage,
-                                        GlobalValue::VisibilityTypes Visibility,
-                                        bool Pruned) {
-  return TicketNode::get(Context, Name, Bytes, Linkage, Visibility, Pruned);
+RepoDefinition *MDBuilder::createRepoDefinition(
+    StringRef Name, repodefinition::DigestType const &Bytes,
+    GlobalValue::LinkageTypes Linkage, GlobalValue::VisibilityTypes Visibility,
+    bool Pruned) {
+  return RepoDefinition::get(Context, Name, Bytes, Linkage, Visibility, Pruned);
 }
 
 MDNode *MDBuilder::createRange(Constant *Lo, Constant *Hi) {

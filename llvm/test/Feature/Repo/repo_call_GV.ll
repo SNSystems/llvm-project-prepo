@@ -18,4 +18,4 @@ define void @setto(i32* %P, i32 %V) {
 	ret void
 }
 
-;CHECK: !TicketNode(name: "Z", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: false)
+;CHECK: !RepoDefinition(name: "Z", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: false)

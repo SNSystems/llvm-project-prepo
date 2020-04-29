@@ -260,20 +260,21 @@ bool AsmPrinter::doInitialization(Module &M) {
   const Triple &TT = TM.getTargetTriple();
   // Pass global metadata 'repo.metadata' to OutContext.
   if (TT.isOSBinFormatRepo()) {
-    if (NamedMDNode *Globals = M.getNamedMetadata("repo.tickets")) {
+    if (NamedMDNode *Globals = M.getNamedMetadata("repo.definitions")) {
       for (auto MDN : Globals->operands()) {
-        if (TicketNode *TN = dyn_cast<TicketNode>(MDN)) {
-          OutContext.addTicketNode(TN);
+        if (auto *const RD = dyn_cast<RepoDefinition>(MDN)) {
+          OutContext.addRepoDefinition(RD);
         } else {
-          report_fatal_error("Failed to get TicketNode metadata!");
+          report_fatal_error("Failed to get RepoDefinition metadata!");
         }
       }
     } else {
-      // Currently 'Global Variables' and 'Functions' contain the repo_ticket
-      // metadata. If we decide that 'Aliases' and 'IFuncs' should contain the
-      // repo_ticket metadata, we need to consider alias and ifunc lists.
+      // Currently 'Global Variables' and 'Functions' contain the
+      // repo_definition metadata. If we decide that 'Aliases' and 'IFuncs'
+      // should contain the repo_definition metadata, we need to consider alias
+      // and ifunc lists.
       if (!M.global_empty() || !M.empty()) {
-        report_fatal_error("Failed to get 'repo.tickets' module metadata!");
+        report_fatal_error("Failed to get 'repo.definitions' module metadata!");
       }
     }
   }
@@ -541,7 +542,7 @@ void AsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
       Align = 0;
 
     // .comm _foo, 42, 4
-    if (GV->getMetadata((LLVMContext::MD_repo_ticket))) {
+    if (GV->getMetadata((LLVMContext::MD_repo_definition))) {
       // A common symbol should be emitted to BSS section in the repo.
       GVKind = SectionKind::getBSSExtern();
     } else {
@@ -1593,7 +1594,7 @@ bool AsmPrinter::doFinalization(Module &M) {
       auto Str = M.getModuleIdentifier();
       ArrayRef<uint8_t> SVal((const uint8_t *)Str.data(), Str.size());
       GVHC.update(SVal);
-      ticketmd::set(MoreStack, GVHC.getHashResult());
+      repodefinition::set(MoreStack, GVHC.getHashResult());
     }
     MCSection *ReadOnlySection = getObjFileLowering().getSectionForConstant(
         getDataLayout(), SectionKind::getReadOnly(),

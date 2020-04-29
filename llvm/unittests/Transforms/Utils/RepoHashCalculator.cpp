@@ -13,7 +13,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "gtest/gtest.h"
 
 using namespace llvm;
@@ -51,76 +51,76 @@ public:
 
   bool testFunctionAccess(const Function *F1) { return F1 == function(); }
 
-  ticketmd::DigestType getHash() { return getHashResult(); }
+  repodefinition::DigestType getHash() { return getHashResult(); }
 
-  ticketmd::DigestType testCalculate() {
+  repodefinition::DigestType testCalculate() {
     calculateHash();
     return getHash();
   }
 
-  ticketmd::DigestType testHashSignature() {
+  repodefinition::DigestType testHashSignature() {
     hasher().beginCalculate(*function()->getParent());
     hashSignature(function());
     return getHash();
   }
 
-  ticketmd::DigestType testHashBasicBlock(const BasicBlock *BB) {
+  repodefinition::DigestType testHashBasicBlock(const BasicBlock *BB) {
     hasher().beginCalculate(*function()->getParent());
     DIFileRecord DIFMap;
     hashBasicBlock(BB, DIFMap);
     return getHash();
   }
 
-  ticketmd::DigestType testHashConstant(const Constant *V) {
+  repodefinition::DigestType testHashConstant(const Constant *V) {
     hasher().beginCalculate(*function()->getParent());
     hasher().hashConstant(V);
     return getHash();
   }
 
-  ticketmd::DigestType testHashGlobalValue(const GlobalValue *V) {
+  repodefinition::DigestType testHashGlobalValue(const GlobalValue *V) {
     hasher().beginCalculate(*function()->getParent());
     hasher().hashGlobalValue(V);
     return getHash();
   }
 
-  ticketmd::DigestType testHashValue(const Value *V) {
+  repodefinition::DigestType testHashValue(const Value *V) {
     hasher().beginCalculate(*function()->getParent());
     hasher().hashValue(V);
     return getHash();
   }
 
-  ticketmd::DigestType testHashInstruction(const Instruction *V) {
+  repodefinition::DigestType testHashInstruction(const Instruction *V) {
     hasher().beginCalculate(*function()->getParent());
     DIFileRecord DIFMap;
     hashInstruction(V, DIFMap);
     return getHash();
   }
 
-  ticketmd::DigestType testHashType(Type *Ty) {
+  repodefinition::DigestType testHashType(Type *Ty) {
     hasher().beginCalculate(*function()->getParent());
     hasher().hashType(Ty);
     return getHash();
   }
 
-  ticketmd::DigestType testHashNumber(uint64_t V) {
+  repodefinition::DigestType testHashNumber(uint64_t V) {
     hasher().beginCalculate(*function()->getParent());
     hasher().hashNumber(V);
     return getHash();
   }
 
-  ticketmd::DigestType testHashAPInt(const APInt &V) {
+  repodefinition::DigestType testHashAPInt(const APInt &V) {
     hasher().beginCalculate(*function()->getParent());
     hasher().hashAPInt(V);
     return getHash();
   }
 
-  ticketmd::DigestType testHashAPFloat(const APFloat &V) {
+  repodefinition::DigestType testHashAPFloat(const APFloat &V) {
     hasher().beginCalculate(*function()->getParent());
     hasher().hashAPFloat(V);
     return getHash();
   }
 
-  ticketmd::DigestType testHashMem(StringRef V) {
+  repodefinition::DigestType testHashMem(StringRef V) {
     hasher().beginCalculate(*function()->getParent());
     hasher().hashMem(V);
     return getHash();

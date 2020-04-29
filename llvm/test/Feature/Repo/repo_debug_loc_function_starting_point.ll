@@ -55,5 +55,5 @@ entry:
 !11 = !DILocation(line: 8, column: 3, scope: !10)
 
 ; TODO: Change pruned from false to true for both functions once support the relative line in the debug line info.
-;CHECK: !TicketNode(name: "Bar", digest: [16 x i8] c"{{.+}}", linkage: external, visibility: default, pruned: false)
-;CHECK: !TicketNode(name: "Foo", digest: [16 x i8] c"{{.+}}", linkage: external, visibility: default, pruned: false)
+;CHECK: !RepoDefinition(name: "Bar", digest: [16 x i8] c"{{.+}}", linkage: external, visibility: default, pruned: false)
+;CHECK: !RepoDefinition(name: "Foo", digest: [16 x i8] c"{{.+}}", linkage: external, visibility: default, pruned: false)

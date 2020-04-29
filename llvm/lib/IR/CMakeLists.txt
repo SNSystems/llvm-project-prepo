@@ -51,7 +51,7 @@ add_llvm_library(LLVMCore
   ProfileSummary.cpp
   RepoGlobals.cpp
   RepoHashCalculator.cpp
-  RepoTicket.cpp
+  RepoDefinition.cpp
   Statepoint.cpp
   Type.cpp
   TypeFinder.cpp

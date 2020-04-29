@@ -37,7 +37,7 @@
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/ValueSymbolTable.h"
@@ -5062,9 +5062,10 @@ bool LLParser::ParseDIImportedEntity(MDNode *&Result, bool IsDistinct) {
   return false;
 }
 
-/// ParseTicketNode:
-///   ::= !TicketNode(name: "foo", digest: !0, linkage: external, visibility: hidden, pruned: false)
-bool LLParser::ParseTicketNode(MDNode *&Result, bool IsDistinct) {
+/// ParseRepoDefinition:
+///   ::= !RepoDefinition(name: "foo", digest: !0, linkage: external,
+///   visibility: hidden, pruned: false)
+bool LLParser::ParseRepoDefinition(MDNode *&Result, bool IsDistinct) {
 #define VISIT_MD_FIELDS(OPTIONAL, REQUIRED)                                    \
   REQUIRED(name, MDStringField, );                                             \
   REQUIRED(digest, MDField, );                                                 \
@@ -5075,7 +5076,7 @@ bool LLParser::ParseTicketNode(MDNode *&Result, bool IsDistinct) {
 #undef VISIT_MD_FIELDS
 
   Result = GET_OR_DISTINCT(
-      TicketNode,
+      RepoDefinition,
       (Context, name.Val, dyn_cast<ConstantAsMetadata>(digest.Val),
        static_cast<GlobalValue::LinkageTypes>(linkage.Val),
        static_cast<GlobalValue::VisibilityTypes>(visibility.Val), pruned.Val));

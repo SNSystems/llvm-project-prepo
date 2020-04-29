@@ -16,7 +16,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ModuleSlotTracker.h"
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/raw_ostream.h"
@@ -122,7 +122,7 @@ protected:
         FunctionType::get(Type::getVoidTy(Context), None, false),
         Function::ExternalLinkage, Name, M);
   }
-  static ticketmd::DigestType getDigest() {
+  static repodefinition::DigestType getDigest() {
     return {{{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}}};
   }
 };
@@ -2483,11 +2483,11 @@ TEST_F(DIImportedEntityTest, get) {
   EXPECT_EQ(N, MDNode::replaceWithUniqued(std::move(Temp)));
 }
 
-typedef MetadataTest TicketNodeTest;
+typedef MetadataTest RepoDefinitionTest;
 
-TEST_F(TicketNodeTest, get) {
-  ticketmd::DigestType Digest = getDigest();
-  TicketNode *D = TicketNode::get(
+TEST_F(RepoDefinitionTest, get) {
+  repodefinition::DigestType Digest = getDigest();
+  RepoDefinition *D = RepoDefinition::get(
       Context, "foo", Digest, GlobalValue::LinkageTypes::ExternalLinkage,
       GlobalValue::VisibilityTypes::DefaultVisibility, false);
   EXPECT_EQ(GlobalValue::LinkageTypes::ExternalLinkage, D->getLinkage());
@@ -2499,28 +2499,28 @@ TEST_F(TicketNodeTest, get) {
   EXPECT_TRUE(D->isUniqued());
 }
 
-TEST_F(TicketNodeTest, getDistinct) {
-  ticketmd::DigestType Digest = getDigest();
-  TicketNode *L0 = TicketNode::getDistinct(
+TEST_F(RepoDefinitionTest, getDistinct) {
+  repodefinition::DigestType Digest = getDigest();
+  RepoDefinition *L0 = RepoDefinition::getDistinct(
       Context, "foo", Digest, GlobalValue::LinkageTypes::InternalLinkage,
       GlobalValue::VisibilityTypes::HiddenVisibility, true);
   EXPECT_TRUE(L0->isDistinct());
   EXPECT_EQ(GlobalValue::VisibilityTypes::HiddenVisibility,
             L0->getVisibility());
-  TicketNode *L1 = TicketNode::get(
+  RepoDefinition *L1 = RepoDefinition::get(
       Context, "foo", Digest, GlobalValue::LinkageTypes::InternalLinkage,
       GlobalValue::VisibilityTypes::HiddenVisibility, true);
   EXPECT_FALSE(L1->isDistinct());
   EXPECT_NE(L1, L0);
-  EXPECT_EQ(L1, TicketNode::get(Context, "foo", Digest,
-                                GlobalValue::LinkageTypes::InternalLinkage,
-                                GlobalValue::VisibilityTypes::HiddenVisibility,
-                                true));
+  EXPECT_EQ(L1, RepoDefinition::get(
+                    Context, "foo", Digest,
+                    GlobalValue::LinkageTypes::InternalLinkage,
+                    GlobalValue::VisibilityTypes::HiddenVisibility, true));
 }
 
-TEST_F(TicketNodeTest, getTemporary) {
-  ticketmd::DigestType Digest = getDigest();
-  auto L = TicketNode::getTemporary(
+TEST_F(RepoDefinitionTest, getTemporary) {
+  repodefinition::DigestType Digest = getDigest();
+  auto L = RepoDefinition::getTemporary(
       Context, "foo", Digest, GlobalValue::LinkageTypes::InternalLinkage,
       GlobalValue::VisibilityTypes::ProtectedVisibility, true);
   EXPECT_TRUE(L->isTemporary());
@@ -2529,9 +2529,9 @@ TEST_F(TicketNodeTest, getTemporary) {
             L->getVisibility());
 }
 
-TEST_F(TicketNodeTest, cloneTemporary) {
-  ticketmd::DigestType Digest = getDigest();
-  auto L = TicketNode::getTemporary(
+TEST_F(RepoDefinitionTest, cloneTemporary) {
+  repodefinition::DigestType Digest = getDigest();
+  auto L = RepoDefinition::getTemporary(
       Context, "foo", Digest, GlobalValue::LinkageTypes::InternalLinkage,
       GlobalValue::VisibilityTypes::DefaultVisibility, true);
   EXPECT_TRUE(L->isTemporary());

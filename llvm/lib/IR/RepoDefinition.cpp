@@ -1,4 +1,4 @@
-//===---- RepoTicket.cpp -  Implement digest data structure. ----*- C++ -*-===//
+//===- RepoDefinition.cpp - Implement Repo definition metadata. -*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,11 +7,11 @@
 //
 //===----------------------------------------------------------------------===//
 //
-//  This file implements the digest data structure.
+//  This file implements the Repo definition data structure.
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "LLVMContextImpl.h"
 #include "MetadataImpl.h"
 #include "llvm/IR/Constants.h"
@@ -27,41 +27,42 @@ using namespace llvm;
 
 namespace llvm {
 
-namespace ticketmd {
+namespace repodefinition {
 
-void set(GlobalObject *GO, ticketmd::DigestType const &D) {
+void set(GlobalObject *GO, DigestType const &D) {
   auto M = GO->getParent();
   MDBuilder MDB(M->getContext());
-  auto MD = MDB.createTicketNode(GO->getName(), D, GO->getLinkage(),
-                                 GO->getVisibility());
-  assert(MD && "TicketNode cannot be NULL!");
-  GO->setMetadata(LLVMContext::MD_repo_ticket, MD);
-  NamedMDNode *NMD = M->getOrInsertNamedMetadata("repo.tickets");
+  auto MD = MDB.createRepoDefinition(GO->getName(), D, GO->getLinkage(),
+                                     GO->getVisibility());
+  assert(MD && "RepoDefinition cannot be NULL!");
+  GO->setMetadata(LLVMContext::MD_repo_definition, MD);
+  NamedMDNode *NMD = M->getOrInsertNamedMetadata("repo.definitions");
   assert(NMD && "NamedMDNode cannot be NULL!");
-  // Add GO's TicketNode metadata to the module's repo.tickets metadata if the
-  // GO will be emitted to the object file.
+  // Add GO's RepoDefinition metadata to the module's repo.definitions metadata
+  // if the GO will be emitted to the object file.
   if (!GO->hasAvailableExternallyLinkage())
     NMD->addOperand(MD);
 }
 
-const TicketNode *getTicket(const GlobalObject *GO) {
-  if (const auto *const T = GO->getMetadata(LLVMContext::MD_repo_ticket)) {
-    if (const TicketNode *const MD = dyn_cast<TicketNode>(T)) {
+const RepoDefinition *getDefinition(const GlobalObject *GO) {
+  if (const auto *const D = GO->getMetadata(LLVMContext::MD_repo_definition)) {
+    if (const RepoDefinition *const MD = dyn_cast<RepoDefinition>(D)) {
       return MD;
     }
   }
-  report_fatal_error("Failed to get TicketNode metadata!");
+  report_fatal_error("Failed to get RepoDefinition metadata!");
 }
 
-auto get(const GlobalObject *GO) -> std::pair<ticketmd::DigestType, bool> {
+auto get(const GlobalObject *GO) -> std::pair<DigestType, bool> {
 
-  if (const auto *const T = GO->getMetadata(LLVMContext::MD_repo_ticket)) {
-    if (const TicketNode *const MD = dyn_cast<TicketNode>(T)) {
+  if (const auto *const D = GO->getMetadata(LLVMContext::MD_repo_definition)) {
+    if (const RepoDefinition *const MD = dyn_cast<RepoDefinition>(D)) {
       return std::make_pair(MD->getDigest(), false);
     }
     // If invalid, report the error with report_fatal_error.
-    report_fatal_error("Failed to get TicketNode metadata for global object '" +
-                       GO->getName() + "'.");
+    report_fatal_error(
+        "Failed to get RepoDefinition metadata for global object '" +
+        GO->getName() + "'.");
   }
 
   return {calculateDigest(GO), true};
@@ -101,16 +102,17 @@ accumulateGOInitialDigestAndGetGODigestState(const GlobalObject *GO,
 
 static GODigestState accumulateGOFinalDigestOrInitialDigestAndGetGODigestState(
     const GlobalObject *GO, MD5 &GOHash, GOInfoMap &GOIMap) {
-  if (const auto *const GOMD = GO->getMetadata(LLVMContext::MD_repo_ticket)) {
-    if (const TicketNode *const TN = dyn_cast<TicketNode>(GOMD)) {
-      DigestType D = TN->getDigest();
+  if (const auto *const GOMD =
+          GO->getMetadata(LLVMContext::MD_repo_definition)) {
+    if (const RepoDefinition *const RD = dyn_cast<RepoDefinition>(GOMD)) {
+      DigestType D = RD->getDigest();
       GOHash.update(D.Bytes);
       const GOInfo &GOInformation =
           GOIMap.try_emplace(GO, std::move(D), GOVec(), GOVec()).first->second;
       return GODigestState(GOInformation.Contributions,
                            GOInformation.Dependencies, true);
     }
-    report_fatal_error("Failed to get TicketNode metadata!");
+    report_fatal_error("Failed to get RepoDefinition metadata!");
   }
   calculateGOInfo(GO, GOIMap);
   return accumulateGOInitialDigestAndGetGODigestState(GO, GOHash, GOIMap);
@@ -210,7 +212,7 @@ std::pair<GOInfoMap, GONumber> calculateGONumAndGOIMap(Module &M) {
   return std::make_pair(std::move(GOIMap), std::move(GONum));
 }
 
-std::tuple<bool, unsigned, unsigned> generateTicketMDs(Module &M) {
+std::tuple<bool, unsigned, unsigned> generateRepoDefinitions(Module &M) {
   bool Changed = false;
   GONumber GONum;
   GOStateMap Visited;
@@ -260,23 +262,23 @@ DigestType calculateDigest(const GlobalObject *GO) {
   return Digest;
 }
 
-} // namespace ticketmd
+} // namespace repodefinition
 #ifndef NDEBUG
 static bool isCanonical(const MDString *S) {
   return !S || !S->getString().empty();
 }
 #endif
 
-TicketNode *TicketNode::getImpl(LLVMContext &Context, MDString *Name,
-                                ConstantAsMetadata *Digest,
-                                GlobalValue::LinkageTypes Linkage,
-                                GlobalValue::VisibilityTypes Visibility,
-                                bool Pruned, StorageType Storage,
-                                bool ShouldCreate) {
+RepoDefinition *RepoDefinition::getImpl(LLVMContext &Context, MDString *Name,
+                                        ConstantAsMetadata *Digest,
+                                        GlobalValue::LinkageTypes Linkage,
+                                        GlobalValue::VisibilityTypes Visibility,
+                                        bool Pruned, StorageType Storage,
+                                        bool ShouldCreate) {
   if (Storage == Uniqued) {
-    if (auto *N = getUniqued(
-            Context.pImpl->TicketNodes,
-            TicketNodeInfo::KeyTy(Linkage, Visibility, Pruned, Name, Digest)))
+    if (auto *N = getUniqued(Context.pImpl->RepoDefinitions,
+                             RepoDefinitionInfo::KeyTy(Linkage, Visibility,
+                                                       Pruned, Name, Digest)))
       return N;
     if (!ShouldCreate)
       return nullptr;
@@ -286,22 +288,22 @@ TicketNode *TicketNode::getImpl(LLVMContext &Context, MDString *Name,
 
   assert(isCanonical(Name) && "Expected canonical MDString");
   Metadata *Ops[] = {Name, Digest};
-  return storeImpl(new (array_lengthof(Ops)) TicketNode(
+  return storeImpl(new (array_lengthof(Ops)) RepoDefinition(
                        Context, Storage, Linkage, Visibility, Pruned, Ops),
-                   Storage, Context.pImpl->TicketNodes);
+                   Storage, Context.pImpl->RepoDefinitions);
 }
 
-TicketNode *TicketNode::getImpl(LLVMContext &Context, StringRef Name,
-                                ticketmd::DigestType const &Digest,
-                                GlobalValue::LinkageTypes Linkage,
-                                GlobalValue::VisibilityTypes Visibility,
-                                bool Pruned, StorageType Storage,
-                                bool ShouldCreate) {
+RepoDefinition *
+RepoDefinition::getImpl(LLVMContext &Context, StringRef Name,
+                        repodefinition::DigestType const &Digest,
+                        GlobalValue::LinkageTypes Linkage,
+                        GlobalValue::VisibilityTypes Visibility, bool Pruned,
+                        StorageType Storage, bool ShouldCreate) {
   MDString *MDName = nullptr;
   if (!Name.empty())
     MDName = MDString::get(Context, Name);
   MDBuilder MDB(Context);
-  const auto Size = ticketmd::DigestSize;
+  const auto Size = repodefinition::DigestSize;
   llvm::Constant *Field[Size];
   Type *Int8Ty = Type::getInt8Ty(Context);
   for (unsigned Idx = 0; Idx < Size; ++Idx) {
@@ -314,11 +316,11 @@ TicketNode *TicketNode::getImpl(LLVMContext &Context, StringRef Name,
                  Storage, ShouldCreate);
 }
 
-ticketmd::DigestType TicketNode::getDigest() const {
+repodefinition::DigestType RepoDefinition::getDigest() const {
   ConstantAsMetadata const *C = getDigestAsMDConstant();
   auto const ArrayType = C->getType();
   auto const Elems = ArrayType->getArrayNumElements();
-  ticketmd::DigestType D;
+  repodefinition::DigestType D;
 
   assert(Elems == D.Bytes.max_size() &&
          "Global object has invalid digest array size.");

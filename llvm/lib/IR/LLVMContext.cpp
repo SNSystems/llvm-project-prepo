@@ -64,7 +64,7 @@ LLVMContext::LLVMContext() : pImpl(new LLVMContextImpl(*this)) {
     {MD_access_group, "llvm.access.group"},
     {MD_callback, "callback"},
     {MD_preserve_access_index, "llvm.preserve.access.index"},
-    {MD_repo_ticket, "repo_ticket"},
+    {MD_repo_definition, "repo_definition"},
   };
 
   for (auto &MDKind : MDKinds) {

@@ -75,12 +75,13 @@ private:
   DenseMap<const MCSectionRepo *, std::vector<RepoRelocationEntry>> Relocations;
 
   // A mapping of a fragment digest to its dependent fragments (saved in the
-  // TicketNode metadata).
-  std::map<ticketmd::DigestType, DenseSet<const TicketNode *>> Dependents;
+  // RepoDefinition metadata).
+  std::map<repodefinition::DigestType, DenseSet<const RepoDefinition *>>
+      Dependents;
 
-  // A mapping of a dependent TicketNode to its new symbol name which is used in
-  // the string index, compilation member and fragment in the database.
-  DenseMap<const TicketNode *, std::string> RenamesTN;
+  // A mapping of a dependent RepoDefinition to its new symbol name which is
+  // used in the string index, compilation member and fragment in the database.
+  DenseMap<const RepoDefinition *, std::string> RenamesTN;
 
   // Note that I don't use StringMap because we take pointers into this
   // structure that must survive insertion.
@@ -107,7 +108,8 @@ private:
 
   // A mapping of a fragment digest to its contents (which include the
   // section contents and dependent fragments).
-  using ContentsType = std::map<ticketmd::DigestType, FragmentContentsType>;
+  using ContentsType =
+      std::map<repodefinition::DigestType, FragmentContentsType>;
 
   using TicketType = std::vector<pstore::repo::compilation_member>;
   TicketType CompilationMembers;
@@ -163,7 +165,7 @@ public:
   void buildDependents(ContentsType &Contents, const TicketType &Tickets) const;
 
   pstore::raw_sstring_view getSymbolName(const MCAssembler &Asm,
-                                         const TicketNode &TicketMember,
+                                         const RepoDefinition &TicketMember,
                                          const ModuleNamesContainer &Names,
                                          NamesWithPrefixContainer &Symbols);
 
@@ -305,7 +307,7 @@ void RepoObjectWriter::recordRelocation(MCAssembler &Asm,
   }
 
   StringRef UsedSymbolName = RenamedSymA->getName();
-  if (auto const *Dependent = SymA->CorrespondingTicketNode) {
+  if (auto const *Dependent = SymA->CorrespondingRepoDefinition) {
     Dependents[FixupSection.hash()].insert(Dependent);
     if (GlobalValue::isLocalLinkage(Dependent->getLinkage())) {
       const std::string SymbolName =
@@ -472,7 +474,7 @@ void RepoObjectWriter::writeSectionData(ContentsType &Fragments,
     // The default (dummy) section must have no data, no external/internal
     // fixups.
     // FIXME: repo only supports the debug_line section.
-    if (Section.hash() == ticketmd::DigestType{{0}} &&
+    if (Section.hash() == repodefinition::DigestType{{0}} &&
         (Section.getDebugKind() == MCSectionRepo::DebugSectionKind::Line ||
          Section.getKind().isText())) {
       if (Section.getFragmentList().size() != 1 ||
@@ -614,7 +616,7 @@ RepoObjectWriter::toPstoreVisibility(GlobalValue::VisibilityTypes V) {
 }
 
 pstore::raw_sstring_view RepoObjectWriter::getSymbolName(
-    const MCAssembler &Asm, const TicketNode &TicketMember,
+    const MCAssembler &Asm, const RepoDefinition &TicketMember,
     const ModuleNamesContainer &Names, NamesWithPrefixContainer &Symbols) {
 
   if (!GlobalValue::isLocalLinkage(TicketMember.getLinkage())) {
@@ -630,7 +632,7 @@ pstore::raw_sstring_view RepoObjectWriter::getSymbolName(
     if (RenamesIt == RenamesTN.end()) {
       SymbolName = MCSymbolRepo::getFullName(Asm.getContext(),
                                              TicketMember.getNameAsString(),
-                                             ticketmd::NullDigest);
+                                             repodefinition::NullDigest);
     } else {
       SymbolName = RenamesIt->second;
     }
@@ -664,7 +666,7 @@ StringRef streamPath(raw_fd_ostream &Stream, StringStorage &ResultPath) {
   std::error_code ErrorCode =
       sys::fs::getPathFromOpenFD(Stream.get_fd(), ResultPath);
   if (ErrorCode) {
-    report_fatal_error("TicketNode: Invalid output file path: " +
+    report_fatal_error("RepoDefinition: Invalid output file path: " +
                        ErrorCode.message() + ".");
   }
   llvm::sys::path::remove_filename(ResultPath);
@@ -692,13 +694,13 @@ pstore::index::digest RepoObjectWriter::buildCompilationRecord(
   CompilationHash.update(Triple);
 
   // Only record all compilation members one time.
-  DenseSet<TicketNode *> SeenCompilationMembers;
-  auto Tickets = Asm.getContext().getTickets();
-  CompilationMembers.reserve(Tickets.size());
-  for (const auto Symbol : Tickets) {
+  DenseSet<RepoDefinition *> SeenCompilationMembers;
+  auto Definitions = Asm.getContext().getDefinitions();
+  CompilationMembers.reserve(Definitions.size());
+  for (const auto Symbol : Definitions) {
     if (!SeenCompilationMembers.insert(Symbol).second)
       continue;
-    ticketmd::DigestType const D = Symbol->getDigest();
+    repodefinition::DigestType const D = Symbol->getDigest();
     // Insert this name into the module-wide string set. This set is later
     // added to the whole-program string set and the ticket name addresses
     // corrected at that time.
@@ -726,9 +728,9 @@ pstore::index::digest RepoObjectWriter::buildCompilationRecord(
           Linkage, Visibility);
       // Update the Ticket node to remember the corrresponding ticket member.
       Symbol->CorrespondingCompilationMember = &CompilationMembers.back();
-      // If this TicketNode was created by the backend, it will be put into
+      // If this RepoDefinition was created by the backend, it will be put into
       // dependent list of a fragment. If this fragment is pruned, its dependent
-      // tickets will be pruned and contributed to the ticket hash.
+      // definitions will be pruned and contributed to the ticket hash.
       CompilationHash.update(makeByteArrayRef(DigestVal));
       CompilationHash.update(makeByteArrayRef(Linkage));
       CompilationHash.update(makeByteArrayRef(Visibility));
@@ -827,7 +829,7 @@ pstore::uint128 get_hash_key(ArrayRef<uint8_t> const &arr) {
 pstore::extent<std::uint8_t>
 RepoObjectWriter::writeDebugLineHeader(TransactionType &Transaction,
                                        ContentsType &Fragments) {
-  auto NullFragmentPos = Fragments.find(ticketmd::NullDigest);
+  auto NullFragmentPos = Fragments.find(repodefinition::NullDigest);
   if (NullFragmentPos != Fragments.end()) {
     auto End = NullFragmentPos->second.Sections.end();
     // TODO: is there a reason why these aren't keyed on the section type?

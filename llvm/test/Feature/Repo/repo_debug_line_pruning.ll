@@ -25,4 +25,4 @@ entry:
 !7 = !DISubroutineType(types: !2)
 !8 = !DILocation(line: 2, column: 3, scope: !6)
 
-;CHECK: !TicketNode(name: "Test", digest: [16 x i8] c"{{.+}}", linkage: external, visibility: default, pruned: true)
+;CHECK: !RepoDefinition(name: "Test", digest: [16 x i8] c"{{.+}}", linkage: external, visibility: default, pruned: true)

@@ -23,7 +23,7 @@ unsigned idx = 0;
 
 MCSectionRepo::MCSectionRepo(SectionKind K, DebugSectionKind DK,
                              MCSymbol *Begin, StringRef N,
-                             ticketmd::DigestType Digest)
+                             repodefinition::DigestType Digest)
     : MCSection(SV_Repo, K, Begin), DebugKind{DK}, Name{N},
       Digest{std::move(Digest)}, Index{++idx} {
 

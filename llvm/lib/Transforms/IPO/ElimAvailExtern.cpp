@@ -18,7 +18,7 @@
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Module.h"
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/Pass.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/Utils/GlobalStatus.h"
@@ -31,8 +31,8 @@ STATISTIC(NumFunctions, "Number of functions removed");
 STATISTIC(NumVariables, "Number of global variables removed");
 
 static bool skipGlobalObject(const GlobalObject &GO) {
-  if (const MDNode *const T = GO.getMetadata(LLVMContext::MD_repo_ticket)) {
-    if (const TicketNode *const MD = dyn_cast<TicketNode>(T)) {
+  if (const MDNode *const D = GO.getMetadata(LLVMContext::MD_repo_definition)) {
+    if (const RepoDefinition *const MD = dyn_cast<RepoDefinition>(D)) {
       return MD->getLinkage() != GlobalValue::AvailableExternallyLinkage;
     }
   }

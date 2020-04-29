@@ -18,4 +18,4 @@ define weak_odr hidden %class.foo* @_ZTW12foo_instance(){
   ret %class.foo* @foo_instance
 }
 
-;CHECK: !TicketNode(name: "_ZTH12foo_instance", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: true)
+;CHECK: !RepoDefinition(name: "_ZTH12foo_instance", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: true)

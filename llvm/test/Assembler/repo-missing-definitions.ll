@@ -3,7 +3,7 @@
 target triple = "x86_64-pc-linux-gnu-repo"
 
 ; Function Attrs: noinline nounwind optnone uwtable
-define i32 @sum(i32 %a, i32 %b) #0 !repo_ticket !0 {
+define i32 @sum(i32 %a, i32 %b) #0 !repo_definition !0 {
 entry:
   %a.addr = alloca i32, align 4
   %b.addr = alloca i32, align 4
@@ -15,7 +15,7 @@ entry:
   ret i32 %add
 }
 
-!0 = !TicketNode(name: "sum", digest: [16 x i8] c"qd\BD6r\8A=\BB\05\8B\D8.\AA\BA\04P", linkage: external, visibility: default, pruned: false)
+!0 = !RepoDefinition(name: "sum", digest: [16 x i8] c"qd\BD6r\8A=\BB\05\8B\D8.\AA\BA\04P", linkage: external, visibility: default, pruned: false)
 
-; CHECK: Failed to get 'repo.tickets' module metadata!
+; CHECK: Failed to get 'repo.definitions' module metadata!
 

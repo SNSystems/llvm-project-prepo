@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements the FunctionHash and  VariableHash Calculator which
-// are used as 'ticket' item by the RepoMetadataGeneration passes.
+// This file implements the FunctionHash and VariableHash Calculator which are
+// used as 'definition' item by the RepoMetadataGeneration passes.
 //
 //===----------------------------------------------------------------------===//
 
@@ -18,7 +18,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/IR/ValueMap.h"
 #include "llvm/Support/AtomicOrdering.h"
 #include "llvm/Transforms/Utils/FunctionComparator.h"
@@ -176,9 +176,9 @@ public:
   /// Return the computed hash as a string.
   std::string &get(MD5::MD5Result &HashRes);
 
-  ticketmd::GOVec &getDependencies() { return Dependencies; }
+  repodefinition::GOVec &getDependencies() { return Dependencies; }
 
-  ticketmd::GOVec &getContributedToGVs() {
+  repodefinition::GOVec &getContributedToGVs() {
     return ContributedToGVs;
   }
 
@@ -188,10 +188,10 @@ private:
   MD5 Hash;
 
   // Vector of global objects which the function/variable references.
-  ticketmd::GOVec Dependencies;
+  repodefinition::GOVec Dependencies;
 
   // Vector of global objects to which the function/variable has contributed.
-  ticketmd::GOVec ContributedToGVs;
+  repodefinition::GOVec ContributedToGVs;
 
   /// Assign serial numbers to values from the function.
   /// Explanation:
@@ -366,7 +366,7 @@ struct DigestCalculator<Function> {
 };
 
 template <typename T>
-ticketmd::GOInfo
+repodefinition::GOInfo
 calculateDigestAndDependenciesAndContributedToGVs(const T *GO) {
   // Calculate the initial global object hash value, Dependencies and
   // ContributedToGVs.

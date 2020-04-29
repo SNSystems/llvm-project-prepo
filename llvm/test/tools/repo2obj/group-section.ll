@@ -13,7 +13,7 @@ target triple = "x86_64-pc-linux-gnu-repo"
 
 $f = comdat any
 
-define linkonce_odr void @f(%class.btVector3* %this, float* dereferenceable(4) %s) comdat align 2 !repo_ticket !0 {
+define linkonce_odr void @f(%class.btVector3* %this, float* dereferenceable(4) %s) comdat align 2 !repo_definition !0 {
 entry:
   %s.addr = alloca float*, align 8
   %ref.tmp = alloca float, align 4
@@ -24,9 +24,9 @@ entry:
   ret void
 }
 
-!repo.tickets = !{!0}
+!repo.definitions = !{!0}
 
-!0 = !TicketNode(name: "f", digest: [16 x i8] c"C\8A\B2\B7\D7=\EA\DA\91\CAhn\0A\C3B\82", linkage: linkonce_odr, visibility: default, pruned: false)
+!0 = !RepoDefinition(name: "f", digest: [16 x i8] c"C\8A\B2\B7\D7=\EA\DA\91\CAhn\0A\C3B\82", linkage: linkonce_odr, visibility: default, pruned: false)
 
 ;CHECK:   Group {
 ;CHECK:     Name: .group ({{[0-9]+}})

@@ -20,7 +20,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/RepoGlobals.h"
 #include "llvm/IR/RepoHashCalculator.h"
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/FileSystem.h"
@@ -115,8 +115,8 @@ static bool isSafeToPrune(const GlobalObject &GO) {
   return !isIntrinsicGV(GO) || isSafeToPruneIntrinsicGV(GO);
 }
 
-ticketmd::DigestType toDigestType(pstore::index::digest D) {
-  ticketmd::DigestType Digest;
+repodefinition::DigestType toDigestType(pstore::index::digest D) {
+  repodefinition::DigestType Digest;
   support::endian::write64le(&Digest, D.low());
   support::endian::write64le(&(Digest.Bytes[8]), D.high());
   return Digest;
@@ -139,19 +139,19 @@ static void addDependentFragments(
       StringRef MDName =
           toStringRef(pstore::get_sstring_view(Repository, CM->name).second);
       LLVM_DEBUG(dbgs() << "    Prunning dependent name: " << MDName << '\n');
-      auto DMD = TicketNode::get(
+      auto DMD = RepoDefinition::get(
           M.getContext(), MDName, toDigestType(CM->digest),
           toGVLinkage(CM->linkage()), toGVVisibility(CM->visibility()), true);
       // If functions 'A' and 'B' are dependent on function 'C', only add a
-      // single TicketNode of 'C' to the 'repo.tickets' in order to avoid
-      // multiple compilation_members of function 'C' in the compilation.
+      // single RepoDefinition of 'C' to the 'repo.definitions' in order to
+      // avoid multiple compilation_members of function 'C' in the compilation.
       if (DependentFragments.insert(MDName).second) {
-        NamedMDNode *const NMD = M.getOrInsertNamedMetadata("repo.tickets");
+        NamedMDNode *const NMD = M.getOrInsertNamedMetadata("repo.definitions");
         assert(NMD && "NamedMDNode cannot be NULL!");
         NMD->addOperand(DMD);
         // If function 'A' is dependent on function 'B' and 'B' is dependent on
-        // function 'C', both TickeNodes of 'B' and 'C' need to be added into in
-        // the 'repo.tickets' during the pruning.
+        // function 'C', both RepoDefinition of 'B' and 'C' need to be added
+        // into in the 'repo.definitions' during the pruning.
         addDependentFragments(M, DependentFragments, Fragments, Repository,
                               CM->digest);
       }
@@ -198,7 +198,7 @@ static bool doPruning(Module &M) {
   std::shared_ptr<const pstore::index::fragment_index> const Fragments =
       pstore::index::get_index<pstore::trailer::indices::fragment>(Repository,
                                                                    false);
-  if (!Fragments && !M.getNamedMetadata("repo.tickets")) {
+  if (!Fragments && !M.getNamedMetadata("repo.definitions")) {
     return false;
   }
 
@@ -212,9 +212,10 @@ static bool doPruning(Module &M) {
     if (GO.isDeclaration() || GO.hasAvailableExternallyLinkage() ||
         !isSafeToPrune(GO))
       return false;
-    auto const Result = ticketmd::get(&GO);
-    assert(!Result.second && "The repo_ticket metadata should be created by "
-                             "the RepoMetadataGeneration pass!");
+    auto const Result = repodefinition::get(&GO);
+    assert(!Result.second &&
+           "The repo_definition metadata should be created by "
+           "the RepoMetadataGeneration pass!");
 
     auto const Key =
         pstore::index::digest{Result.first.high(), Result.first.low()};
@@ -251,8 +252,8 @@ static bool doPruning(Module &M) {
 
     GO.setComdat(nullptr);
     GO.setDSOLocal(false);
-    TicketNode *MD =
-        dyn_cast<TicketNode>(GO.getMetadata(LLVMContext::MD_repo_ticket));
+    RepoDefinition *MD = dyn_cast<RepoDefinition>(
+        GO.getMetadata(LLVMContext::MD_repo_definition));
     MD->setPruned(true);
 
     if (isSafeToPruneIntrinsicGV(GO) || GO.use_empty()) {
@@ -275,9 +276,10 @@ static bool doPruning(Module &M) {
 }
 
 static bool wasPruned(const GlobalObject &GO) {
-  if (const MDNode *const MD = GO.getMetadata(LLVMContext::MD_repo_ticket)) {
-    if (const TicketNode *const TN = dyn_cast<TicketNode>(MD)) {
-      return TN->getPruned();
+  if (const MDNode *const MD =
+          GO.getMetadata(LLVMContext::MD_repo_definition)) {
+    if (const RepoDefinition *const RD = dyn_cast<RepoDefinition>(MD)) {
+      return RD->getPruned();
     }
   }
   return false;

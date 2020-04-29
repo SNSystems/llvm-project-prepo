@@ -13,7 +13,7 @@ target triple = "x86_64-pc-linux-gnu-elf"
 
 @bar2 = alias i32, i32* @foo2
 
-;CHECK: !TicketNode(name: "foo", digest: [16 x i8] c"{{.*}}", linkage: weak, visibility: default, pruned: false)
-;CHECK: !TicketNode(name: "foo2", digest: [16 x i8] c"{{.*}}", linkage: weak, visibility: default, pruned: true)
-;CHECK: !TicketNode(name: "bar", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: true)
-;CHECK: !TicketNode(name: "bar2", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: true)
+;CHECK: !RepoDefinition(name: "foo", digest: [16 x i8] c"{{.*}}", linkage: weak, visibility: default, pruned: false)
+;CHECK: !RepoDefinition(name: "foo2", digest: [16 x i8] c"{{.*}}", linkage: weak, visibility: default, pruned: true)
+;CHECK: !RepoDefinition(name: "bar", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: true)
+;CHECK: !RepoDefinition(name: "bar2", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: true)

@@ -16,7 +16,7 @@
 ; }
 ;
 ; The testcase includes three steps:
-; Step 1: Generate the repo IR code which contains the TicketNode metadata (Inputs/Foo,Bar);
+; Step 1: Generate the repo IR code which contains the RepoDefinition metadata (Inputs/Foo,Bar);
 ; Step 2: Create the database 'clang.db' which contains all Tickets.
 ; Step 3: Run 'opt' cmd for this file, check the funciton 'Fn' is not optimised;
 
@@ -61,4 +61,4 @@ entry:
 !13 = !DILocation(line: 8, column: 1, scope: !6)
 
 
-;CHECK: !TicketNode(name: "Bar", digest: [16 x i8] c"{{.+}}", linkage: external, visibility: default, pruned: false)
+;CHECK: !RepoDefinition(name: "Bar", digest: [16 x i8] c"{{.+}}", linkage: external, visibility: default, pruned: false)

@@ -53,5 +53,5 @@ entry:
 !10 = !DILocation(line: 6, column: 3, scope: !9)
 !11 = !DILocation(line: 7, column: 1, scope: !9)
 
-;CHECK: !TicketNode(name: "Foo", digest: [16 x i8] c"{{.+}}", linkage: external, visibility: default, pruned: false)
-;CHECK: !TicketNode(name: "Bar", digest: [16 x i8] c"{{.+}}", linkage: external, visibility: default, pruned: false)
+;CHECK: !RepoDefinition(name: "Foo", digest: [16 x i8] c"{{.+}}", linkage: external, visibility: default, pruned: false)
+;CHECK: !RepoDefinition(name: "Bar", digest: [16 x i8] c"{{.+}}", linkage: external, visibility: default, pruned: false)

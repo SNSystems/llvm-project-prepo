@@ -67,9 +67,9 @@ namespace llvm {
   class MCContext {
   public:
     using SymbolTable = StringMap<MCSymbol *, BumpPtrAllocator &>;
-    /// A container which contains all TicketNodes created by the
+    /// A container which contains all RepoDefinitions created by the
     /// RepoMetadataGeneration Pass or by the backend.
-    using RepoTicketContainer = SmallVector<TicketNode *, 4>;
+    using RepoDefinitionContainer = SmallVector<RepoDefinition *, 4>;
 
   private:
     /// The SourceMgr for this object, if any.
@@ -296,14 +296,14 @@ namespace llvm {
 
   private:
     using RepoSectionKey =
-        std::tuple<ticketmd::DigestType, RepoSection, StringRef>;
+        std::tuple<repodefinition::DigestType, RepoSection, StringRef>;
     std::map<RepoSectionKey, MCSectionRepo *> RepoUniquingMap;
-    std::map<ticketmd::DigestType, StringRef> RepoSymbolMap;
+    std::map<repodefinition::DigestType, StringRef> RepoSymbolMap;
     std::map<WasmSectionKey, MCSectionWasm *> WasmUniquingMap;
     std::map<XCOFFSectionKey, MCSectionXCOFF *> XCOFFUniquingMap;
     StringMap<bool> RelSecNames;
 
-    RepoTicketContainer TicketNodes;
+    RepoDefinitionContainer RepoDefinitions;
 
     SpecificBumpPtrAllocator<MCSubtargetInfo> MCSubtargetAllocator;
 
@@ -414,16 +414,18 @@ namespace llvm {
 
     /// @}
 
-    /// \name TicketNode Management
+    /// \name RepoDefinition Management
     /// @{
 
-    /// Add a Ticket node to the ticket table.
-    void addTicketNode(TicketNode *Ticket) {
-      TicketNodes.emplace_back(Ticket);
+    /// Add a repo definition to the Definition table.
+    void addRepoDefinition(RepoDefinition *Definition) {
+      RepoDefinitions.emplace_back(Definition);
     }
 
-    /// getTickets - Get a reference for the ticket table.
-    const RepoTicketContainer &getTickets() const { return TicketNodes; }
+    /// getDefinitions - Get a reference for the definition table.
+    const RepoDefinitionContainer &getDefinitions() const {
+      return RepoDefinitions;
+    }
 
     /// @}
 
@@ -452,7 +454,7 @@ namespace llvm {
     }
 
     MCSectionRepo *getRepoSection(RepoSection K, StringRef Name,
-                                  ticketmd::DigestType const &Digest);
+                                  repodefinition::DigestType const &Digest);
 
     MCSectionRepo *getRepoSection(RepoSection K);
 

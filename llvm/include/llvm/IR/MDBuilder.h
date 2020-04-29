@@ -17,7 +17,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/GlobalValue.h"
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/Support/DataTypes.h"
 #include <utility>
 
@@ -98,12 +98,13 @@ public:
   // Fragment metadata.
   //===------------------------------------------------------------------===//
 
-  /// \brief Return metadata containing global object ticket information.
-  TicketNode *createTicketNode(StringRef Name,
-                               ticketmd::DigestType const &Bytes,
-                               GlobalValue::LinkageTypes Linkage,
-                               GlobalValue::VisibilityTypes Visibility,
-                               bool Pruned = false);
+  /// \brief Return metadata containing global object repo definition
+  /// information.
+  RepoDefinition *createRepoDefinition(StringRef Name,
+                                       repodefinition::DigestType const &Bytes,
+                                       GlobalValue::LinkageTypes Linkage,
+                                       GlobalValue::VisibilityTypes Visibility,
+                                       bool Pruned = false);
   //===------------------------------------------------------------------===//
   // Callback metadata.
   //===------------------------------------------------------------------===//

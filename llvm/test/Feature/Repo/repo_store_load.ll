@@ -18,5 +18,5 @@ entry:
   ret void
 }
 
-;CHECK: !TicketNode(name: "a", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: false)
-;CHECK: !TicketNode(name: "b", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: false)
+;CHECK: !RepoDefinition(name: "a", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: false)
+;CHECK: !RepoDefinition(name: "b", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: false)

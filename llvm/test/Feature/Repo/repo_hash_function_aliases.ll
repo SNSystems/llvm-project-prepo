@@ -19,4 +19,4 @@ entry:
   ret i32 %0
 }
 
-;CHECK: !TicketNode(name: "test", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: false)
+;CHECK: !RepoDefinition(name: "test", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: false)

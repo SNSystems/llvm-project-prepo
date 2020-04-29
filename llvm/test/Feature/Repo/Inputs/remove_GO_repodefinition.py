@@ -2,7 +2,7 @@ import argparse
 import re
 
 def filter_definition (line, GOList):
-  filterStr = ",? !repo_ticket ![0-9]+"
+  filterStr = ",? !repo_definition ![0-9]+"
   for i in GOList:
     matchedFunction = re.compile(r'define .* @{0}.*'.format(i) + filterStr)
     matchedVariable = re.compile(r'@{0} = .*'.format(i) + filterStr)

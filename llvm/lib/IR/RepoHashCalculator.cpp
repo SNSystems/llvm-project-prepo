@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements the FunctionHash and  VariableHash Calculator which
-// are used as 'ticket' item by the RepoMetadataGeneration passes.
+// This file implements the FunctionHash and VariableHash Calculator which are
+// used as 'definition' item by the RepoMetadataGeneration passes.
 //
 //===----------------------------------------------------------------------===//
 
@@ -17,7 +17,7 @@
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/IR/InlineAsm.h"
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"

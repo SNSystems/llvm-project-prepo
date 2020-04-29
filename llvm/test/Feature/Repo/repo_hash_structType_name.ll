@@ -20,4 +20,4 @@ define %"OMP"* @_Write(%"OMPWrite"* readnone) align 2 {
 }
 
 
-;CHECK: !TicketNode(name: "_Write", digest: [16 x i8] c"{{.+}}", linkage: external, visibility: default, pruned: false)
+;CHECK: !RepoDefinition(name: "_Write", digest: [16 x i8] c"{{.+}}", linkage: external, visibility: default, pruned: false)

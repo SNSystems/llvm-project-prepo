@@ -32,7 +32,7 @@
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Operator.h"
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/User.h"
 #include "llvm/IR/Value.h"
@@ -126,8 +126,9 @@ isSimpleEnoughValueToCommit(Constant *C,
 
 static bool wasPruned(const GlobalVariable &GV) {
   if (const GlobalObject *const GO = GV.getBaseObject()) {
-    if (const MDNode *const T = GO->getMetadata(LLVMContext::MD_repo_ticket)) {
-      if (const TicketNode *const MD = dyn_cast<TicketNode>(T)) {
+    if (const MDNode *const T =
+            GO->getMetadata(LLVMContext::MD_repo_definition)) {
+      if (const RepoDefinition *const MD = dyn_cast<RepoDefinition>(T)) {
         return MD->getPruned();
       }
     }
@@ -139,10 +140,10 @@ static GlobalValue::LinkageTypes getOriginalLinkage(const GlobalVariable &GV,
                                                     bool WasPruned) {
   if (WasPruned) {
     assert(GV.getBaseObject() != nullptr);
-    assert(GV.getBaseObject()->getMetadata(LLVMContext::MD_repo_ticket) !=
+    assert(GV.getBaseObject()->getMetadata(LLVMContext::MD_repo_definition) !=
            nullptr);
-    return (dyn_cast<TicketNode>(
-                GV.getBaseObject()->getMetadata(LLVMContext::MD_repo_ticket)))
+    return (dyn_cast<RepoDefinition>(GV.getBaseObject()->getMetadata(
+                LLVMContext::MD_repo_definition)))
         ->getLinkage();
   }
   return GV.getLinkage();

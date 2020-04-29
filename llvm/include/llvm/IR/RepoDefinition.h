@@ -1,4 +1,4 @@
-//===- RepoTicket.h - Program repository digest data structure. -*- C++ --===//
+//===- RepoDefinition.h - Program repository definition metadata structure-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,8 +7,8 @@
 //
 //===---------------------------------------------------------------------===//
 
-#ifndef LLVM_IR_REPO_TICKET_H
-#define LLVM_IR_REPO_TICKET_H
+#ifndef LLVM_IR_REPODEFINITION_H
+#define LLVM_IR_REPODEFINITION_H
 
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/GlobalObject.h"
@@ -28,27 +28,24 @@ class dependents;
 
 namespace llvm {
 
-struct Ticket;
-
-/// Global value ticket metadata description.
-namespace ticketmd {
+/// Global object repo definition metadata description.
+namespace repodefinition {
 using DigestType = MD5::MD5Result;
 static constexpr size_t DigestSize =
     std::tuple_size<decltype(DigestType::Bytes)>::value;
-static constexpr ticketmd::DigestType NullDigest{
-    std::array<uint8_t, DigestSize>{{0}}};
+static constexpr DigestType NullDigest{std::array<uint8_t, DigestSize>{{0}}};
 using GOVec = SmallVector<const GlobalObject *, 1>;
 /// Map GO to a unique number in the function call graph.
 using GOStateMap = llvm::DenseMap<const GlobalObject *, unsigned>;
 
 const Constant *getAliasee(const GlobalAlias *GA);
-/// Set global object ticket metadata value and add this to the module level
-/// metadata named repo.tickets.
+/// Set repo definition metadata value and add this to the module level
+/// metadata named repo.definitions.
 void set(GlobalObject *GO, DigestType const &D);
 /// Get global object digest metadata value.
 /// \param GO The global object.
 /// \return A pair of the global object's hash value and a bool which is true if
-/// GO does not contain the ticket metadata.
+/// GO does not contain the RepoDefinition metadata.
 std::pair<DigestType, bool> get(const GlobalObject *GO);
 
 struct GONumber {
@@ -153,22 +150,22 @@ void calculateGOInfo(const GlobalType *G, GOInfoMap &GOI) {
 /// holding the number of hashed global variables and functions.
 std::pair<GOInfoMap, GONumber> calculateGONumAndGOIMap(Module &M);
 
-/// Compute the hash value and set the ticket metadata for all global objects
-/// inside of the Module M.
+/// Compute the hash value and set the RepoDefinition metadata for all global
+/// objects inside of the Module M.
 /// \param M Called module.
 /// \returns a tuple containing a global object information map which include if
 /// the module M has been changed, and two unsigned values which are the number
 /// of global variables and functions respectively.
-std::tuple<bool, unsigned, unsigned> generateTicketMDs(Module &M);
+std::tuple<bool, unsigned, unsigned> generateRepoDefinitions(Module &M);
 
 /// Compute the hash value for the given global object GO.
 /// \param GO The global object.
 /// \return The global object's digest value.
 DigestType calculateDigest(const GlobalObject *GO);
-} // namespace ticketmd
+} // namespace repodefinition
 
-/// Global value ticket node description.
-class TicketNode : public MDNode {
+/// Global object repo definition.
+class RepoDefinition : public MDNode {
   friend class LLVMContextImpl;
   friend class MDNode;
 
@@ -201,11 +198,11 @@ class TicketNode : public MDNode {
     }
   };
 
-  TicketNode(LLVMContext &C, StorageType Storage,
-             GlobalValue::LinkageTypes Linkage,
-             GlobalValue::VisibilityTypes Visibility, bool Pruned,
-             ArrayRef<Metadata *> MDs)
-      : MDNode(C, TicketNodeKind, Storage, MDs) {
+  RepoDefinition(LLVMContext &C, StorageType Storage,
+                 GlobalValue::LinkageTypes Linkage,
+                 GlobalValue::VisibilityTypes Visibility, bool Pruned,
+                 ArrayRef<Metadata *> MDs)
+      : MDNode(C, RepoDefinitionKind, Storage, MDs) {
     assert(MDs.size() == 2 && "Expected a hash and name.");
     assert((CheckType<4, GlobalValue::LinkageTypes>::isSafeCast(Linkage)) &&
            "Linkage type will overflow!");
@@ -215,100 +212,101 @@ class TicketNode : public MDNode {
     SubclassData32 = Data32::combine(Visibility, Linkage);
     SubclassData16 = static_cast<unsigned short>(Pruned);
   }
-  ~TicketNode() { dropAllReferences(); }
+  ~RepoDefinition() { dropAllReferences(); }
 
-  static TicketNode *getImpl(LLVMContext &Context, MDString *Name,
-                             ConstantAsMetadata *GVHash,
-                             GlobalValue::LinkageTypes Linkage,
-                             GlobalValue::VisibilityTypes Visibility,
-                             bool Pruned, StorageType Storage,
-                             bool ShouldCreate = true);
+  static RepoDefinition *getImpl(LLVMContext &Context, MDString *Name,
+                                 ConstantAsMetadata *GVHash,
+                                 GlobalValue::LinkageTypes Linkage,
+                                 GlobalValue::VisibilityTypes Visibility,
+                                 bool Pruned, StorageType Storage,
+                                 bool ShouldCreate = true);
 
-  static TicketNode *getImpl(LLVMContext &Context, StringRef Name,
-                             ticketmd::DigestType const &Digest,
-                             GlobalValue::LinkageTypes Linkage,
-                             GlobalValue::VisibilityTypes Visibility,
-                             bool Pruned, StorageType Storage,
-                             bool ShouldCreate = true);
+  static RepoDefinition *getImpl(LLVMContext &Context, StringRef Name,
+                                 repodefinition::DigestType const &Digest,
+                                 GlobalValue::LinkageTypes Linkage,
+                                 GlobalValue::VisibilityTypes Visibility,
+                                 bool Pruned, StorageType Storage,
+                                 bool ShouldCreate = true);
 
-  TempTicketNode cloneImpl() const {
+  TempRepoDefinition cloneImpl() const {
     // Get the raw name/hash since it is possible to invoke this on
-    // a TicketNode containing temporary metadata.
+    // a RepoDefinition containing temporary metadata.
     return getTemporary(getContext(), getNameAsString(), getDigest(),
                         getLinkage(), getVisibility(), getPruned());
   }
 
 public:
-  static TicketNode *get(LLVMContext &Context, MDString *Name,
-                         ConstantAsMetadata *GVHash,
-                         GlobalValue::LinkageTypes Linkage,
-                         GlobalValue::VisibilityTypes Visibility, bool Pruned) {
+  static RepoDefinition *get(LLVMContext &Context, MDString *Name,
+                             ConstantAsMetadata *GVHash,
+                             GlobalValue::LinkageTypes Linkage,
+                             GlobalValue::VisibilityTypes Visibility,
+                             bool Pruned) {
     return getImpl(Context, Name, GVHash, Linkage, Visibility, Pruned, Uniqued);
   }
 
-  static TicketNode *get(LLVMContext &Context, StringRef Name,
-                         ticketmd::DigestType const &Digest,
-                         GlobalValue::LinkageTypes Linkage,
-                         GlobalValue::VisibilityTypes Visibility, bool Pruned) {
+  static RepoDefinition *get(LLVMContext &Context, StringRef Name,
+                             repodefinition::DigestType const &Digest,
+                             GlobalValue::LinkageTypes Linkage,
+                             GlobalValue::VisibilityTypes Visibility,
+                             bool Pruned) {
     return getImpl(Context, Name, Digest, Linkage, Visibility, Pruned, Uniqued);
   }
 
-  static TicketNode *getIfExists(LLVMContext &Context, MDString *Name,
-                                 ConstantAsMetadata *GVHash,
-                                 GlobalValue::LinkageTypes Linkage,
-                                 GlobalValue::VisibilityTypes Visibility,
-                                 bool Pruned) {
-    return getImpl(Context, Name, GVHash, Linkage, Visibility, Pruned, Uniqued,
-                   /* ShouldCreate */ false);
-  }
-
-  static TicketNode *getIfExists(LLVMContext &Context, StringRef Name,
-                                 ticketmd::DigestType const &Digest,
-                                 GlobalValue::LinkageTypes Linkage,
-                                 GlobalValue::VisibilityTypes Visibility,
-                                 bool Pruned) {
-    return getImpl(Context, Name, Digest, Linkage, Visibility, Pruned, Uniqued,
-                   /* ShouldCreate */ false);
-  }
-
-  static TicketNode *getDistinct(LLVMContext &Context, MDString *Name,
-                                 ConstantAsMetadata *GVHash,
-                                 GlobalValue::LinkageTypes Linkage,
-                                 GlobalValue::VisibilityTypes Visibility,
-                                 bool Pruned) {
-    return getImpl(Context, Name, GVHash, Linkage, Visibility, Pruned,
-                   Distinct);
-  }
-
-  static TicketNode *getDistinct(LLVMContext &Context, StringRef Name,
-                                 ticketmd::DigestType const &Digest,
-                                 GlobalValue::LinkageTypes Linkage,
-                                 GlobalValue::VisibilityTypes Visibility,
-                                 bool Pruned) {
-    return getImpl(Context, Name, Digest, Linkage, Visibility, Pruned,
-                   Distinct);
-  }
-
-  static TempTicketNode getTemporary(LLVMContext &Context, MDString *Name,
+  static RepoDefinition *getIfExists(LLVMContext &Context, MDString *Name,
                                      ConstantAsMetadata *GVHash,
                                      GlobalValue::LinkageTypes Linkage,
                                      GlobalValue::VisibilityTypes Visibility,
                                      bool Pruned) {
-    return TempTicketNode(
-        getImpl(Context, Name, GVHash, Linkage, Visibility, Pruned, Temporary));
+    return getImpl(Context, Name, GVHash, Linkage, Visibility, Pruned, Uniqued,
+                   /* ShouldCreate */ false);
   }
 
-  static TempTicketNode getTemporary(LLVMContext &Context, StringRef Name,
-                                     ticketmd::DigestType const &Digest,
+  static RepoDefinition *getIfExists(LLVMContext &Context, StringRef Name,
+                                     repodefinition::DigestType const &Digest,
                                      GlobalValue::LinkageTypes Linkage,
                                      GlobalValue::VisibilityTypes Visibility,
                                      bool Pruned) {
-    return TempTicketNode(
+    return getImpl(Context, Name, Digest, Linkage, Visibility, Pruned, Uniqued,
+                   /* ShouldCreate */ false);
+  }
+
+  static RepoDefinition *getDistinct(LLVMContext &Context, MDString *Name,
+                                     ConstantAsMetadata *GVHash,
+                                     GlobalValue::LinkageTypes Linkage,
+                                     GlobalValue::VisibilityTypes Visibility,
+                                     bool Pruned) {
+    return getImpl(Context, Name, GVHash, Linkage, Visibility, Pruned,
+                   Distinct);
+  }
+
+  static RepoDefinition *getDistinct(LLVMContext &Context, StringRef Name,
+                                     repodefinition::DigestType const &Digest,
+                                     GlobalValue::LinkageTypes Linkage,
+                                     GlobalValue::VisibilityTypes Visibility,
+                                     bool Pruned) {
+    return getImpl(Context, Name, Digest, Linkage, Visibility, Pruned,
+                   Distinct);
+  }
+
+  static TempRepoDefinition
+  getTemporary(LLVMContext &Context, MDString *Name, ConstantAsMetadata *GVHash,
+               GlobalValue::LinkageTypes Linkage,
+               GlobalValue::VisibilityTypes Visibility, bool Pruned) {
+    return TempRepoDefinition(
+        getImpl(Context, Name, GVHash, Linkage, Visibility, Pruned, Temporary));
+  }
+
+  static TempRepoDefinition
+  getTemporary(LLVMContext &Context, StringRef Name,
+               repodefinition::DigestType const &Digest,
+               GlobalValue::LinkageTypes Linkage,
+               GlobalValue::VisibilityTypes Visibility, bool Pruned) {
+    return TempRepoDefinition(
         getImpl(Context, Name, Digest, Linkage, Visibility, Pruned, Temporary));
   }
 
   /// Return a (temporary) clone of this.
-  TempTicketNode clone() const { return cloneImpl(); }
+  TempRepoDefinition clone() const { return cloneImpl(); }
 
   GlobalValue::LinkageTypes getLinkage() const {
     return Data32::linkage(SubclassData32);
@@ -331,18 +329,18 @@ public:
   ConstantAsMetadata *getDigestAsMDConstant() const {
     return cast<ConstantAsMetadata>(getDigestAsMD());
   }
-  ticketmd::DigestType getDigest() const;
+  repodefinition::DigestType getDigest() const;
 
   static bool classof(const Metadata *MD) {
-    return MD->getMetadataID() == TicketNodeKind;
+    return MD->getMetadataID() == RepoDefinitionKind;
   }
 
   // A pointer to the corresponding compilation member in the repository. It is
-  // updated when the ticket member is generated by the object writer.
+  // updated when the compilation member is generated by the object writer.
   const pstore::repo::compilation_member *CorrespondingCompilationMember =
       nullptr;
 };
 
 } // end namespace llvm
 
-#endif // LLVM_IR_REPO_TICKET_H
+#endif // LLVM_IR_REPODEFINITION_H

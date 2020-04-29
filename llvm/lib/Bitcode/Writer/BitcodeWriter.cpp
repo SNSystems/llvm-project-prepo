@@ -53,7 +53,7 @@
 #include "llvm/IR/ModuleSummaryIndex.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/IR/Type.h"
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/IR/UseListOrder.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/ValueSymbolTable.h"
@@ -352,8 +352,8 @@ private:
   void writeDIImportedEntity(const DIImportedEntity *N,
                              SmallVectorImpl<uint64_t> &Record,
                              unsigned Abbrev);
-  void writeTicketNode(const TicketNode *N, SmallVectorImpl<uint64_t> &Record,
-                       unsigned Abbrev);
+  void writeRepoDefinition(const RepoDefinition *N,
+                           SmallVectorImpl<uint64_t> &Record, unsigned Abbrev);
   unsigned createNamedMetadataAbbrev();
   void writeNamedMetadata(SmallVectorImpl<uint64_t> &Record);
   unsigned createMetadataStringsAbbrev();
@@ -1925,9 +1925,9 @@ void ModuleBitcodeWriter::writeDIImportedEntity(
   Record.clear();
 }
 
-void ModuleBitcodeWriter::writeTicketNode(const TicketNode *N,
-                                          SmallVectorImpl<uint64_t> &Record,
-                                          unsigned Abbrev) {
+void ModuleBitcodeWriter::writeRepoDefinition(const RepoDefinition *N,
+                                              SmallVectorImpl<uint64_t> &Record,
+                                              unsigned Abbrev) {
   Record.push_back(N->isDistinct());
   Record.push_back(VE.getMetadataID(N->getNameAsMD()));
   Record.push_back(VE.getMetadataID(N->getDigestAsMD()));
@@ -1935,7 +1935,7 @@ void ModuleBitcodeWriter::writeTicketNode(const TicketNode *N,
   Record.push_back(N->getVisibility());
   Record.push_back(N->getPruned());
 
-  Stream.EmitRecord(bitc::METADATA_TICKETNODE, Record, Abbrev);
+  Stream.EmitRecord(bitc::METADATA_REPODEFINITION, Record, Abbrev);
   Record.clear();
 }
 

@@ -48,5 +48,5 @@ entry:
   ret i32 2
 }
 
-;CHECK: !TicketNode(name: "q", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: false)
-;CHECK: !TicketNode(name: "callee", digest: [16 x i8] c"{{.*}}", linkage: internal, visibility: default, pruned: false)
+;CHECK: !RepoDefinition(name: "q", digest: [16 x i8] c"{{.*}}", linkage: external, visibility: default, pruned: false)
+;CHECK: !RepoDefinition(name: "callee", digest: [16 x i8] c"{{.*}}", linkage: internal, visibility: default, pruned: false)

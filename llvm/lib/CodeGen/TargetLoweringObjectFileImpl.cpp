@@ -36,7 +36,7 @@
 #include "llvm/IR/Mangler.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
-#include "llvm/IR/RepoTicket.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/IR/Type.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
@@ -864,15 +864,15 @@ MCSection *TargetLoweringObjectFileRepo::getStaticDtorSection(
 
 MCSection *TargetLoweringObjectFileRepo::createXXtorsSection(MCContext &Ctx,
                                                              char const *Name) {
-  const MCContext::RepoTicketContainer &Tickets = Ctx.getTickets();
-  auto End = std::end(Tickets);
+  const MCContext::RepoDefinitionContainer &Definitions = Ctx.getDefinitions();
+  auto End = std::end(Definitions);
   // TODO: this is a linear search through a potentially large collection of
   // metatdata nodes.
-  auto CtorsPos =
-      std::find_if(std::begin(Tickets), End,
-                   [Name](const MCContext::RepoTicketContainer::value_type &P) {
-                     return P->getNameAsString() == Name;
-                   });
+  auto CtorsPos = std::find_if(
+      std::begin(Definitions), End,
+      [Name](const MCContext::RepoDefinitionContainer::value_type &P) {
+        return P->getNameAsString() == Name;
+      });
   if (CtorsPos == End) {
     return nullptr;
   }
@@ -892,25 +892,27 @@ static MCSectionRepo *selectRepoSectionForGlobal(MCContext &Ctx,
                                                  const GlobalObject *GO,
                                                  SectionKind Kind,
                                                  MCSymbolRepo *Sym) {
-  const std::pair<ticketmd::DigestType, bool> Result = ticketmd::get(GO);
+  const std::pair<repodefinition::DigestType, bool> Result =
+      repodefinition::get(GO);
   if (Result.second) {
-    // Add new created digest to the TicketNodes.
-    assert(!GO->getMetadata(LLVMContext::MD_repo_ticket) &&
-           "TicketNode should be NULL!");
-    const std::string SymbolName = MCSymbolRepo::getFullName(
-        Ctx, GO->getName(),
-        GlobalValue::isLocalLinkage(GO->getLinkage()) ? Result.first
-                                                      : ticketmd::NullDigest);
-    auto TN = TicketNode::getIfExists(
+    // Add new created digest to the RepoDefinition.
+    assert(!GO->getMetadata(LLVMContext::MD_repo_definition) &&
+           "RepoDefinition should be NULL!");
+    const std::string SymbolName =
+        MCSymbolRepo::getFullName(Ctx, GO->getName(),
+                                  GlobalValue::isLocalLinkage(GO->getLinkage())
+                                      ? Result.first
+                                      : repodefinition::NullDigest);
+    auto RD = RepoDefinition::getIfExists(
         GO->getParent()->getContext(), std::move(SymbolName), Result.first,
         GO->getLinkage(), GO->getVisibility(), true);
-    if (!TN) {
+    if (!RD) {
       MDBuilder MDB(GO->getParent()->getContext());
-      TN = MDB.createTicketNode(GO->getName(), Result.first, GO->getLinkage(),
-                                GO->getVisibility());
-      Ctx.addTicketNode(TN);
+      RD = MDB.createRepoDefinition(GO->getName(), Result.first,
+                                    GO->getLinkage(), GO->getVisibility());
+      Ctx.addRepoDefinition(RD);
     }
-    Sym->CorrespondingTicketNode = TN;
+    Sym->CorrespondingRepoDefinition = RD;
   }
 
   // Repo: the repo sections are keyed off the global value. This gets us the

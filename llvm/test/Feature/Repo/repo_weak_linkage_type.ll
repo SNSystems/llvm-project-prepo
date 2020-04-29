@@ -3,9 +3,9 @@
 
 target triple = "x86_64-pc-linux-gnu-repo"
 
-@WeakData = weak global i32 0, align 4, !repo_ticket !0
+@WeakData = weak global i32 0, align 4, !repo_definition !0
 
-!repo.tickets = !{!0}
+!repo.definitions = !{!0}
 
-!0 = !TicketNode(name: "WeakData", digest: [16 x i8] c"W6c\E4\A2\C0\0BH\D2_\C7\E5\91\E9\13\C9", linkage: weak, visibility: default, pruned: false)
+!0 = !RepoDefinition(name: "WeakData", digest: [16 x i8] c"W6c\E4\A2\C0\0BH\D2_\C7\E5\91\E9\13\C9", linkage: weak, visibility: default, pruned: false)
 

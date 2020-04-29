@@ -1,4 +1,4 @@
-//===- llvm/unittest/IR/RepoTicketMDTest.cpp - Ticket Metadata tests ------===//
+//===-llvm/unittest/IR/RepoDefinitionTest.cpp - Definition Metadata tests-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,25 +7,25 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/AsmParser/Parser.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/RepoHashCalculator.h"
-#include "llvm/IR/RepoTicket.h"
 #include "llvm/Support/SourceMgr.h"
 #include "gmock/gmock.h"
 
 using namespace llvm;
 
-// Basic ticket metadate test fixture named TicketMDTest.
+// Basic definition metadate test fixture named RepoDefinitionTest.
 namespace {
-class TicketMDTest : public testing::Test {
+class RepoDefinitionTest : public testing::Test {
 protected:
   LLVMContext Ctx;
   IRBuilder<> Builder;
 
-  TicketMDTest() : Builder(Ctx) {}
+  RepoDefinitionTest() : Builder(Ctx) {}
 
   std::unique_ptr<Module> parseAssembly(StringRef Assembly) {
     SMDiagnostic Error;
@@ -42,19 +42,20 @@ protected:
     return M;
   }
 
-  const TicketNode *getTicket(const GlobalObject *F) {
-    return dyn_cast<TicketNode>(F->getMetadata(LLVMContext::MD_repo_ticket));
+  const RepoDefinition *getDefinition(const GlobalObject *F) {
+    return dyn_cast<RepoDefinition>(
+        F->getMetadata(LLVMContext::MD_repo_definition));
   }
 
   bool isEqualDigest(const GlobalObject *F1, const GlobalObject *F2) {
-    return getTicket(F1)->getDigest() == getTicket(F2)->getDigest();
+    return getDefinition(F1)->getDigest() == getDefinition(F2)->getDigest();
   }
 };
 } // namespace
 
-// The ticket metadate fixture for single module.
+// The definition metadate fixture for single module.
 namespace {
-class SingleModule : public TicketMDTest {
+class SingleModule : public RepoDefinitionTest {
 protected:
   std::unique_ptr<Module> M;
 };
@@ -74,14 +75,14 @@ TEST_F(SingleModule, NoCalleeSame) {
   const char *ModuleString = "define internal i32 @foo() { ret i32 1 }\n"
                              "define internal i32 @bar() { ret i32 1 }\n";
   M = parseAssembly(ModuleString);
-  ticketmd::GOInfoMap InfoMap;
-  ticketmd::GONumber _;
-  std::tie(InfoMap, _) = ticketmd::calculateGONumAndGOIMap(*M);
+  repodefinition::GOInfoMap InfoMap;
+  repodefinition::GONumber _;
+  std::tie(InfoMap, _) = repodefinition::calculateGONumAndGOIMap(*M);
 
   const Function *Foo = M->getFunction("foo");
-  const ticketmd::GOInfo &FooInfo = InfoMap[Foo];
+  const repodefinition::GOInfo &FooInfo = InfoMap[Foo];
   const Function *Bar = M->getFunction("bar");
-  const ticketmd::GOInfo &BarInfo = InfoMap[Bar];
+  const repodefinition::GOInfo &BarInfo = InfoMap[Bar];
   EXPECT_EQ(FooInfo.InitialDigest, BarInfo.InitialDigest)
       << "Expected that functions of foo and bar have the same initial hash "
          "value";
@@ -94,14 +95,13 @@ TEST_F(SingleModule, NoCalleeSame) {
   EXPECT_TRUE(BarInfo.Dependencies.empty())
       << "Expected that the bar's dependencies list is empty.";
   // Check the GOs' final digest.
-  const auto &Result = ticketmd::generateTicketMDs(*M);
+  const auto &Result = repodefinition::generateRepoDefinitions(*M);
   EXPECT_TRUE(std::get<0>(Result)) << "Expected Module M to be changed";
   EXPECT_EQ(std::get<1>(Result), 0u) << "Expected zero global variables";
   EXPECT_EQ(std::get<2>(Result), 2u) << "Expected two global functions";
   EXPECT_TRUE(isEqualDigest(Foo, Bar))
       << "Functions of foo and bar should have the same digest";
 }
-
 
 //
 //  IR forming a following call graph for M.
@@ -116,7 +116,7 @@ TEST_F(SingleModule, NoCalleeDiff) {
   const char *ModuleString = "define internal i32 @foo() { ret i32 2 }\n"
                              "define internal i32 @bar() { ret i32 1 }\n";
   M = parseAssembly(ModuleString);
-  ticketmd::generateTicketMDs(*M);
+  repodefinition::generateRepoDefinitions(*M);
   const Function *Foo = M->getFunction("foo");
   const Function *Bar = M->getFunction("bar");
   EXPECT_FALSE(isEqualDigest(Foo, Bar))
@@ -148,13 +148,13 @@ TEST_F(SingleModule, OneCalleeSameNameSameBody) {
                              "define internal i32 @g() { ret i32 1 }\n";
   M = parseAssembly(ModuleString);
   // Check the GOs' initial digest, contributions and dependencies.
-  ticketmd::GOInfoMap InfoMap;
-  ticketmd::GONumber _;
-  std::tie(InfoMap, _) = ticketmd::calculateGONumAndGOIMap(*M);
+  repodefinition::GOInfoMap InfoMap;
+  repodefinition::GONumber _;
+  std::tie(InfoMap, _) = repodefinition::calculateGONumAndGOIMap(*M);
   const Function *Foo = M->getFunction("foo");
-  const ticketmd::GOInfo &FooInfo = InfoMap[Foo];
+  const repodefinition::GOInfo &FooInfo = InfoMap[Foo];
   const Function *Bar = M->getFunction("bar");
-  const ticketmd::GOInfo &BarInfo = InfoMap[Bar];
+  const repodefinition::GOInfo &BarInfo = InfoMap[Bar];
   const Function *G = M->getFunction("g");
   EXPECT_EQ(FooInfo.InitialDigest, BarInfo.InitialDigest)
       << "Expected that functions of foo and bar have the same initial hash "
@@ -168,7 +168,7 @@ TEST_F(SingleModule, OneCalleeSameNameSameBody) {
   EXPECT_THAT(BarInfo.Dependencies, ::testing::UnorderedElementsAre(G))
       << "Expected bar's Dependencies list is { G }";
   // Check the GOs' final digest.
-  const auto &Result = ticketmd::generateTicketMDs(*M);
+  const auto &Result = repodefinition::generateRepoDefinitions(*M);
   EXPECT_TRUE(std::get<0>(Result)) << "Expected Module M to be changed";
   EXPECT_EQ(std::get<1>(Result), 0u) << "Expected zero global variables";
   EXPECT_EQ(std::get<2>(Result), 3u) << "Expected three global functions";
@@ -203,13 +203,13 @@ TEST_F(SingleModule, OneCalleeDiffNameSameBody) {
                              "define internal i32 @p() { ret i32 1 }\n";
   M = parseAssembly(ModuleString);
   // Check the GOs' initial digest, contributions and dependencies.
-  ticketmd::GOInfoMap InfoMap;
-  ticketmd::GONumber _;
-  std::tie(InfoMap, _) = ticketmd::calculateGONumAndGOIMap(*M);
+  repodefinition::GOInfoMap InfoMap;
+  repodefinition::GONumber _;
+  std::tie(InfoMap, _) = repodefinition::calculateGONumAndGOIMap(*M);
   const Function *Foo = M->getFunction("foo");
-  const ticketmd::GOInfo &FooInfo = InfoMap[Foo];
+  const repodefinition::GOInfo &FooInfo = InfoMap[Foo];
   const Function *Bar = M->getFunction("bar");
-  const ticketmd::GOInfo &BarInfo = InfoMap[Bar];
+  const repodefinition::GOInfo &BarInfo = InfoMap[Bar];
   const Function *G = M->getFunction("g");
   const Function *P = M->getFunction("p");
   EXPECT_NE(FooInfo.InitialDigest, BarInfo.InitialDigest)
@@ -224,7 +224,7 @@ TEST_F(SingleModule, OneCalleeDiffNameSameBody) {
   EXPECT_THAT(BarInfo.Dependencies, ::testing::UnorderedElementsAre(P))
       << "Expected bar's Dependencies list is { P }";
   // Check the GOs' final digest.
-  const auto &Result = ticketmd::generateTicketMDs(*M);
+  const auto &Result = repodefinition::generateRepoDefinitions(*M);
   EXPECT_TRUE(std::get<0>(Result)) << "Expected Module M to be changed";
   EXPECT_EQ(std::get<1>(Result), 0u) << "Expected zero global variables";
   EXPECT_EQ(std::get<2>(Result), 4u) << "Expected four global functions";
@@ -258,7 +258,7 @@ TEST_F(SingleModule, OneCalleeDiffNameDiffBody) {
                              "define internal i32 @g() { ret i32 1 }\n"
                              "define internal i32 @p() { ret i32 2 }\n";
   M = parseAssembly(ModuleString);
-  ticketmd::generateTicketMDs(*M);
+  repodefinition::generateRepoDefinitions(*M);
   const Function *G = M->getFunction("g");
   const Function *P = M->getFunction("p");
   EXPECT_FALSE(isEqualDigest(G, P))
@@ -293,7 +293,7 @@ TEST_F(SingleModule, IndirectCall) {
       "declare i32 @g(...)\n"
       "declare i32 @p(...)\n";
   M = parseAssembly(ModuleString);
-  const auto &Result = ticketmd::generateTicketMDs(*M);
+  const auto &Result = repodefinition::generateRepoDefinitions(*M);
   EXPECT_TRUE(std::get<0>(Result)) << "Expected Module M to be changed";
   EXPECT_EQ(std::get<1>(Result), 0u) << "Expected zero global variables";
   EXPECT_EQ(std::get<2>(Result), 2u) << "Expected two global functions";
@@ -326,7 +326,7 @@ TEST_F(SingleModule, DirectCall) {
                              "declare i32 @g(...)\n"
                              "declare i32 @p(...)\n";
   M = parseAssembly(ModuleString);
-  ticketmd::generateTicketMDs(*M);
+  repodefinition::generateRepoDefinitions(*M);
   const Function *Foo = M->getFunction("foo");
   const Function *Bar = M->getFunction("bar");
   EXPECT_FALSE(isEqualDigest(Foo, Bar))
@@ -357,13 +357,13 @@ TEST_F(SingleModule, CallEachOther) {
                              "}\n";
   M = parseAssembly(ModuleString);
   // Check the GOs' initial digest, contributions and dependencies.
-  ticketmd::GOInfoMap InfoMap;
-  ticketmd::GONumber _;
-  std::tie(InfoMap, _) = ticketmd::calculateGONumAndGOIMap(*M);
+  repodefinition::GOInfoMap InfoMap;
+  repodefinition::GONumber _;
+  std::tie(InfoMap, _) = repodefinition::calculateGONumAndGOIMap(*M);
   const Function *Foo = M->getFunction("foo");
-  const ticketmd::GOInfo &FooInfo = InfoMap[Foo];
+  const repodefinition::GOInfo &FooInfo = InfoMap[Foo];
   const Function *Bar = M->getFunction("bar");
-  const ticketmd::GOInfo &BarInfo = InfoMap[Bar];
+  const repodefinition::GOInfo &BarInfo = InfoMap[Bar];
   EXPECT_NE(FooInfo.InitialDigest, BarInfo.InitialDigest)
       << "Expected that functions of foo and bar have the different initial "
          "hash value";
@@ -376,7 +376,7 @@ TEST_F(SingleModule, CallEachOther) {
   EXPECT_THAT(BarInfo.Dependencies, ::testing::ElementsAre(Foo))
       << "Expected bar's Dependencies list is {foo}";
   // Check the GOs' final digest.
-  const auto &Result = ticketmd::generateTicketMDs(*M);
+  const auto &Result = repodefinition::generateRepoDefinitions(*M);
   EXPECT_TRUE(std::get<0>(Result)) << "Expected Module M to be changed";
   EXPECT_EQ(std::get<1>(Result), 0u) << "Expected zero global variables";
   EXPECT_EQ(std::get<2>(Result), 2u) << "Expected two global functions";
@@ -414,15 +414,15 @@ TEST_F(SingleModule, OneCalleeLoop) {
                              "}\n";
   M = parseAssembly(ModuleString);
   // Check the GOs' initial digest, contributions and dependencies.
-  ticketmd::GOInfoMap InfoMap;
-  ticketmd::GONumber _;
-  std::tie(InfoMap, _) = ticketmd::calculateGONumAndGOIMap(*M);
+  repodefinition::GOInfoMap InfoMap;
+  repodefinition::GONumber _;
+  std::tie(InfoMap, _) = repodefinition::calculateGONumAndGOIMap(*M);
   const Function *Foo = M->getFunction("foo");
-  const ticketmd::GOInfo &FooInfo = InfoMap[Foo];
+  const repodefinition::GOInfo &FooInfo = InfoMap[Foo];
   const Function *Bar = M->getFunction("bar");
-  const ticketmd::GOInfo &BarInfo = InfoMap[Bar];
+  const repodefinition::GOInfo &BarInfo = InfoMap[Bar];
   const Function *P = M->getFunction("p");
-  const ticketmd::GOInfo &PInfo = InfoMap[P];
+  const repodefinition::GOInfo &PInfo = InfoMap[P];
   EXPECT_EQ(FooInfo.InitialDigest, BarInfo.InitialDigest)
       << "Expected that functions of foo and bar have the same initial hash "
          "value";
@@ -439,7 +439,7 @@ TEST_F(SingleModule, OneCalleeLoop) {
   EXPECT_THAT(PInfo.Dependencies, ::testing::ElementsAre(Bar))
       << "Expected p's Dependencies list is {bar}";
   // Check the GOs' final digest.
-  ticketmd::generateTicketMDs(*M);
+  repodefinition::generateRepoDefinitions(*M);
   EXPECT_FALSE(isEqualDigest(Foo, Bar))
       << "Expected that functions of foo and bar have the different final "
          "hash value";
@@ -493,19 +493,19 @@ TEST_F(SingleModule, TwolevelsCall) {
                              "}\n";
   M = parseAssembly(ModuleString);
   // Check the GOs' initial digest, contributions and dependencies.
-  ticketmd::GOInfoMap InfoMap;
-  ticketmd::GONumber _;
-  std::tie(InfoMap, _) = ticketmd::calculateGONumAndGOIMap(*M);
+  repodefinition::GOInfoMap InfoMap;
+  repodefinition::GONumber _;
+  std::tie(InfoMap, _) = repodefinition::calculateGONumAndGOIMap(*M);
   const Function *Foo = M->getFunction("foo");
-  const ticketmd::GOInfo &FooInfo = InfoMap[Foo];
+  const repodefinition::GOInfo &FooInfo = InfoMap[Foo];
   const Function *Bar = M->getFunction("bar");
-  const ticketmd::GOInfo &BarInfo = InfoMap[Bar];
+  const repodefinition::GOInfo &BarInfo = InfoMap[Bar];
   const Function *P = M->getFunction("p");
-  const ticketmd::GOInfo &PInfo = InfoMap[P];
+  const repodefinition::GOInfo &PInfo = InfoMap[P];
   const Function *Q = M->getFunction("q");
-  const ticketmd::GOInfo &QInfo = InfoMap[Q];
+  const repodefinition::GOInfo &QInfo = InfoMap[Q];
   const Function *Z = M->getFunction("z");
-  const ticketmd::GOInfo &ZInfo = InfoMap[Z];
+  const repodefinition::GOInfo &ZInfo = InfoMap[Z];
 
   EXPECT_EQ(ZInfo.InitialDigest, QInfo.InitialDigest)
       << "Expected that functions of z and q have the same initial "
@@ -535,7 +535,7 @@ TEST_F(SingleModule, TwolevelsCall) {
   EXPECT_THAT(BarInfo.Dependencies, ::testing::UnorderedElementsAre(P, Q))
       << "Expected that the bar's Dependencies list is {P, Q}";
 
-  const auto &Result = ticketmd::generateTicketMDs(*M);
+  const auto &Result = repodefinition::generateRepoDefinitions(*M);
   EXPECT_TRUE(std::get<0>(Result)) << "Expected Module M to be changed";
   EXPECT_EQ(std::get<1>(Result), 0u) << "Expected zero global variables";
   EXPECT_EQ(std::get<2>(Result), 5u) << "Expected five global functions";
@@ -571,15 +571,15 @@ TEST_F(SingleModule, SingleContribution) {
                              "}\n";
   M = parseAssembly(ModuleString);
   // Check the GOs' initial digest, contributions and dependencies.
-  ticketmd::GOInfoMap InfoMap;
-  ticketmd::GONumber _;
-  std::tie(InfoMap, _) = ticketmd::calculateGONumAndGOIMap(*M);
+  repodefinition::GOInfoMap InfoMap;
+  repodefinition::GONumber _;
+  std::tie(InfoMap, _) = repodefinition::calculateGONumAndGOIMap(*M);
   const GlobalVariable *Z = M->getGlobalVariable("Z");
-  const ticketmd::GOInfo &ZInfo = InfoMap[Z];
+  const repodefinition::GOInfo &ZInfo = InfoMap[Z];
   const Function *Test = M->getFunction("test");
-  const ticketmd::GOInfo &TestInfo = InfoMap[Test];
+  const repodefinition::GOInfo &TestInfo = InfoMap[Test];
   const Function *Setto = M->getFunction("setto");
-  const ticketmd::GOInfo &SettoInfo = InfoMap[Setto];
+  const repodefinition::GOInfo &SettoInfo = InfoMap[Setto];
 
   EXPECT_THAT(ZInfo.Contributions, ::testing::UnorderedElementsAre(Test))
       << "Expected that the Z's Contributions list is {Test}";
@@ -633,11 +633,11 @@ TEST_F(SingleModule, MultipleContribution) {
                              "}\n";
   M = parseAssembly(ModuleString);
   // Check the GOs' initial digest, contributions and dependencies.
-  ticketmd::GOInfoMap InfoMap;
-  ticketmd::GONumber _;
-  std::tie(InfoMap, _) = ticketmd::calculateGONumAndGOIMap(*M);
+  repodefinition::GOInfoMap InfoMap;
+  repodefinition::GONumber _;
+  std::tie(InfoMap, _) = repodefinition::calculateGONumAndGOIMap(*M);
   const GlobalVariable *Z = M->getGlobalVariable("Z");
-  const ticketmd::GOInfo &ZInfo = InfoMap[Z];
+  const repodefinition::GOInfo &ZInfo = InfoMap[Z];
   const Function *Test = M->getFunction("test");
   const Function *Test1 = M->getFunction("test1");
   const Function *Test2 = M->getFunction("test2");
@@ -649,9 +649,9 @@ TEST_F(SingleModule, MultipleContribution) {
       << "Expected that Z's Dependencies list is empty";
 }
 
-// The ticket metadate fixture for double modules.
+// The definition metadate fixture for double modules.
 namespace {
-class DoubleModule : public TicketMDTest {
+class DoubleModule : public RepoDefinitionTest {
 protected:
   std::unique_ptr<Module> M0;
   std::unique_ptr<Module> M1;
@@ -684,8 +684,8 @@ TEST_F(DoubleModule, OneCalleeSameNameDiffBody) {
                               "define internal i32 @g() { ret i32 2 }\n";
   M0 = parseAssembly(Module0String);
   M1 = parseAssembly(Module1String);
-  ticketmd::generateTicketMDs(*M0);
-  ticketmd::generateTicketMDs(*M1);
+  repodefinition::generateRepoDefinitions(*M0);
+  repodefinition::generateRepoDefinitions(*M1);
   const Function *Foo = M0->getFunction("foo");
   const Function *Bar = M1->getFunction("bar");
   EXPECT_FALSE(isEqualDigest(Foo, Bar))
@@ -717,8 +717,8 @@ TEST_F(DoubleModule, OneCalleeLoop) {
                               "}\n";
   M0 = parseAssembly(Module0String);
   M1 = parseAssembly(Module1String);
-  ticketmd::generateTicketMDs(*M0);
-  ticketmd::generateTicketMDs(*M1);
+  repodefinition::generateRepoDefinitions(*M0);
+  repodefinition::generateRepoDefinitions(*M1);
   const Function *Foo = M0->getFunction("foo");
   const Function *Bar = M1->getFunction("bar");
   EXPECT_FALSE(isEqualDigest(Foo, Bar))
@@ -752,13 +752,13 @@ TEST_F(DoubleModule, FrontendAndBackendHashGeneration) {
                               "define internal i32 @g() { ret i32 1 }\n";
 
   M0 = parseAssembly(Module0String);
-  ticketmd::generateTicketMDs(*M0);
+  repodefinition::generateRepoDefinitions(*M0);
   const Function *Foo = M0->getFunction("foo");
 
   M1 = parseAssembly(Module1String);
-  auto BarDigest = ticketmd::calculateDigest(M1->getFunction("bar"));
+  auto BarDigest = repodefinition::calculateDigest(M1->getFunction("bar"));
 
-  EXPECT_EQ(getTicket(Foo)->getDigest(), BarDigest)
+  EXPECT_EQ(getDefinition(Foo)->getDigest(), BarDigest)
       << "Functions of foo and bar should have the same digest";
 }
 
@@ -790,15 +790,15 @@ TEST_F(DoubleModule, MixedFrontendAndBackendHashGeneration) {
                               "define internal i32 @g() { ret i32 1 }\n";
 
   M0 = parseAssembly(Module0String);
-  ticketmd::generateTicketMDs(*M0);
+  repodefinition::generateRepoDefinitions(*M0);
   const Function *Foo = M0->getFunction("foo");
 
   M1 = parseAssembly(Module1String);
   Function *G = M1->getFunction("g");
-  ticketmd::set(G, ticketmd::calculateDigest(G));
+  repodefinition::set(G, repodefinition::calculateDigest(G));
   const Function *Bar = M1->getFunction("bar");
-  auto BarDigest = ticketmd::calculateDigest(Bar);
+  auto BarDigest = repodefinition::calculateDigest(Bar);
 
-  EXPECT_NE(getTicket(Foo)->getDigest(), BarDigest)
+  EXPECT_NE(getDefinition(Foo)->getDigest(), BarDigest)
       << "Functions of foo and bar should have the different digest";
 }
