@@ -54,7 +54,6 @@
 #include "pstore/mcrepo/compilation.hpp"
 #include "pstore/mcrepo/fragment.hpp"
 #include "pstore/support/pointee_adaptor.hpp"
-#include "pstore/support/sstring_view.hpp"
 
 using namespace llvm;
 

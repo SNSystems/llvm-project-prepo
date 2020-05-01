@@ -10,8 +10,8 @@
 #ifndef LLVM_TOOLS_REPO2OBJ_ELFSTRINGTABLE_H
 #define LLVM_TOOLS_REPO2OBJ_ELFSTRINGTABLE_H
 
+#include "pstore/adt/sstring_view.hpp"
 #include "pstore/core/indirect_string.hpp"
-#include "pstore/support/sstring_view.hpp"
 #include "llvm/Support/raw_ostream.h"
 
 #include <list>

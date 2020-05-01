@@ -14,7 +14,6 @@
 
 #include "pstore/core/sstring_view_archive.hpp"
 #include "pstore/mcrepo/compilation.hpp"
-#include "pstore/support/sstring_view.hpp"
 
 #include "R2OELFSectionType.h"
 #include "R2OELFStringTable.h"
