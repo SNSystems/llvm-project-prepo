@@ -48,11 +48,6 @@ void set(GlobalObject *GO, DigestType const &D);
 /// GO does not contain the RepoDefinition metadata.
 std::pair<DigestType, bool> get(const GlobalObject *GO);
 
-struct GONumber {
-  unsigned FuncNum = 0;
-  unsigned VarNum = 0;
-};
-
 /// A structure of a global object (GO) information.
 struct GOInfo {
   /// The InitialDigest is the hash of an object itself (a function or global
@@ -98,6 +93,7 @@ struct GOInfo {
 #endif
 };
 using GOInfoMap = DenseMap<const GlobalObject *, GOInfo>;
+using MemoizedHashes = llvm::DenseMap<const GlobalObject *, DigestType>;
 
 /// A structure of a global object (GO) state.
 struct GODigestState {
@@ -107,56 +103,108 @@ struct GODigestState {
   /// A reference to an object's dependencies. The GOInfo struct takes ownership
   /// of it.
   const GOVec &Dependencies;
-  /// A bool which is true if GO's hash value has been changed.
-  bool Changed;
   GODigestState() = delete;
-  GODigestState(const GOVec &Contributions, const GOVec &Dependencies,
-                bool Changed)
-      : Contributions(Contributions), Dependencies(Dependencies),
-        Changed(Changed) {}
+  GODigestState(const GOVec &Contributions, const GOVec &Dependencies)
+      : Contributions(Contributions), Dependencies(Dependencies) {}
 };
 
-/// Calculate the initial hash value, dependencies and contributions for the
-/// global object 'G'.
-/// \param G Calculated global object.
-/// \param GOI a DenseMap containing the global object information.
-///
-template <typename GlobalType>
-void calculateGOInfo(const GlobalType *G, GOInfoMap &GOI) {
-  GOInfo Result = calculateDigestAndDependenciesAndContributedToGVs(G);
-  // ContributedToGVs of an object is used to update other objects'
-  // contributions. For example, if the ContributedToGVs of function `foo`  are
-  // global variables `g` and `q`, the function `foo` is in the contributions of
-  // `g` and `q`.
-  // ContributedToGVs[`foo`] = [`g`, `q`]
-  // ====> Contributions[`g`] = [`foo`],
-  //       Contributions[`q`] = [`foo`]
-  for (auto &GO : Result.Contributions) {
-    assert(isa<GlobalVariable>(GO) &&
-           "Only global variables can have contributions!");
-    assert(isa<llvm::Function>(G) && "All contributions are functions!");
-    GOI[GO].Contributions.emplace_back(G);
-  }
-  // Update G's dependencies.
-  GOInfo &GInfo = GOI[G];
-  GInfo.InitialDigest = std::move(Result.InitialDigest);
-  GInfo.Dependencies = std::move(Result.Dependencies);
-}
+/// Helper Class for generating the hash for each global objects on the Module.
+/// Also caches hashes for previously generated global objects (GOs).
+class ModuleHashGenerator {
 
-// Create a global object information map and calculate the number of hashed
-// functions and variable  inside of the Module M.
-/// \param M Called module.
-/// \returns a pair containing a global object information map and a structure
-/// holding the number of hashed global variables and functions.
-std::pair<GOInfoMap, GONumber> calculateGONumAndGOIMap(Module &M);
+  enum class Tags : char {
+    Backref = 'R',
+    End = 'E',
+    GO = 'T',
+  };
+
+  /// A map of GO to a unique number in the dependencies graph.
+  GOStateMap Visited;
+  /// Used to keep the GO information.
+  GOInfoMap GOIMap;
+  /// Memoize GO's hash if one of the following conditions is satisfied:
+  /// 1. GO is not in a cycle/loop.
+  /// 2. GO is in a self-loop but not if there is a loop involving another
+  /// object.
+  MemoizedHashes GOHashCache;
+  /// True if the module M is changed.
+  bool Changed = false;
+
+public:
+  ModuleHashGenerator() {}
+  /// calculate the digest for all global objects inside of the Module M.
+  void digestModule(Module &M);
+
+  /// Compute the hash value for the given global object GO.
+  /// \param GO The global object.
+  /// \param UseRepoDefinitionMD true if using the digest of GO's dependencies
+  ///        stored in the RepoDefinition metadata.
+  /// \return The global object's digest value.
+  DigestType calculateDigest(const GlobalObject *GO, bool UseRepoDefinitionMD);
+
+  bool isChanged() const { return Changed; }
+
+  const GOInfoMap &getGOInfoMap() const { return GOIMap; }
+
+  const MemoizedHashes &getGOHashCache() const { return GOHashCache; }
+
+private:
+  /// Get global object hash value from memoized hashes.
+  /// \param GO The global object.
+  /// \return A tuple of global object's hash value and a bool which is true if
+  /// GO's hash is cached.
+  std::tuple<DigestType, bool> getGOHash(const GlobalObject *GO) const {
+    const auto Iter = GOHashCache.find_as(GO);
+    return (Iter != GOHashCache.end()) ? std::make_tuple(Iter->second, true)
+                                       : std::make_tuple(NullDigest, false);
+  }
+
+  /// Construct the global object information map (GOIMap) and calculate the
+  /// number of hashed functions and variables inside of the Module M.
+  void calculateGONumAndGOIMap(const Module &M);
+
+  /// Calculate the initial hash value, dependencies and contributions for the
+  /// global object 'G' and store these informaion in the GOImap.
+  /// \param G Calculated global object.
+  template <typename GlobalType> void calculateGOInfo(const GlobalType *G);
+  void calculateGOInfo(const GlobalObject *GO);
+
+  /// Accumulate the GO's digest and get its GODigestState.
+  /// \param GO Calculated global object.
+  /// \param GOHash A object that is used to calculate the GO's hash value.
+  /// \param UseRepoDefinitionMD true if using the digest of GO's dependencies
+  ///        stored in the RepoDefinition metadata.
+  /// \returns a structure containing the GO's state.
+  GODigestState accumulateGODigest(const GlobalObject *GO, MD5 &GOHash,
+                                   bool UseRepoDefinitionMD);
+
+  /// Add the initial digest of each contribution global object to GOHash.
+  void updateDigestUseContributions(MD5 &GOHash, const GOVec &Contributions);
+
+  /// Add the final digest of each dependencies global object to GOHash.
+  std::tuple<size_t, DigestType>
+  updateDigestUseDependencies(const GlobalObject *GO, MD5 &GOHash,
+                              unsigned GODepth, const GOVec &Dependencies,
+                              bool UseRepoDefinitionMD);
+
+  /// Update the digest of an invidual GO incorporating the hashes of all its
+  /// dependencies and contributions.
+  /// \param GO The global object whose digest is to be computed.
+  /// \param UseRepoDefinitionMD true if using the digest of GO's dependencies
+  ///        stored in the RepoDefinition metadata.
+  /// \returns a tuple containing 1) the depth of the path that we've traversed
+  ///          (or max if it reaches the end of the path). and 2) the GO's
+  ///         digest.
+  std::tuple<size_t, DigestType>
+  updateDigestUseDependenciesAndContributions(const GlobalObject *GO,
+                                              bool UseRepoDefinitionMD);
+};
 
 /// Compute the hash value and set the RepoDefinition metadata for all global
 /// objects inside of the Module M.
 /// \param M Called module.
-/// \returns a tuple containing a global object information map which include if
-/// the module M has been changed, and two unsigned values which are the number
-/// of global variables and functions respectively.
-std::tuple<bool, unsigned, unsigned> generateRepoDefinitions(Module &M);
+/// \return a bool which is true if the module M has been changed.
+bool generateRepoDefinitions(Module &M);
 
 /// Compute the hash value for the given global object GO.
 /// \param GO The global object.

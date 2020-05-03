@@ -367,10 +367,5 @@ bool RepoPruning::runOnModule(Module &M) {
     delete A;
   }
 
-  LLVM_DEBUG(dbgs() << "Size of module: " << M.size() << '\n');
-  LLVM_DEBUG(dbgs() << "Number of removed functions: " << NumFunctions << '\n');
-  LLVM_DEBUG(dbgs() << "Number of removed variables: " << NumVariables << '\n');
-  LLVM_DEBUG(dbgs() << "Number of removed aliases: " << NumAliases << '\n');
-
   return IsPruned;
 }

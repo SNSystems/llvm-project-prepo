@@ -178,9 +178,7 @@ public:
 
   repodefinition::GOVec &getDependencies() { return Dependencies; }
 
-  repodefinition::GOVec &getContributedToGVs() {
-    return ContributedToGVs;
-  }
+  repodefinition::GOVec &getContributedToGVs() { return ContributedToGVs; }
 
 private:
   // Accumulate the hash of basicblocks, instructions and variables etc in the

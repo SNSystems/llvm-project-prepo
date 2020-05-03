@@ -27,8 +27,6 @@ using namespace llvm;
 
 #define DEBUG_TYPE "prepo"
 
-STATISTIC(NumFunctions, "Number of functions hashed");
-STATISTIC(NumVariables, "Number of variables hashed");
 STATISTIC(NumAliases, "Number of aliases hashed");
 
 namespace {
@@ -67,8 +65,6 @@ bool RepoMetadataGeneration::runOnModule(Module &M) {
     return false;
 
   auto Result = repodefinition::generateRepoDefinitions(M);
-  NumVariables += std::get<1>(Result);
-  NumFunctions += std::get<2>(Result);
 
   // Enable the program repo support for alias.
   for (GlobalAlias &GA : M.aliases()) {
@@ -88,10 +84,5 @@ bool RepoMetadataGeneration::runOnModule(Module &M) {
     }
   }
 
-  LLVM_DEBUG(dbgs() << "Size of module: " << M.size() << '\n');
-  LLVM_DEBUG(dbgs() << "Number of hashed functions: " << NumFunctions << '\n');
-  LLVM_DEBUG(dbgs() << "Number of hashed variables: " << NumVariables << '\n');
-  LLVM_DEBUG(dbgs() << "Number of hashed aliases: " << NumAliases << '\n');
-
-  return std::get<0>(Result);
+  return Result;
 }
