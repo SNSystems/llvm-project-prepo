@@ -50,6 +50,19 @@ protected:
   bool isEqualDigest(const GlobalObject *F1, const GlobalObject *F2) {
     return getDefinition(F1)->getDigest() == getDefinition(F2)->getDigest();
   }
+
+  template <typename Iterator>
+  std::set<const GlobalObject *> getKeys(Iterator First, Iterator Last) {
+    std::set<const GlobalObject *> Result;
+    std::transform(First, Last, std::inserter(Result, Result.end()),
+                   [](const decltype(*First) &V) { return V.first; });
+    return Result;
+  }
+
+  template <typename Container>
+  std::set<const GlobalObject *> getKeys(const Container &C) {
+    return getKeys(std::begin(C), std::end(C));
+  }
 };
 } // namespace
 
@@ -75,9 +88,10 @@ TEST_F(SingleModule, NoCalleeSame) {
   const char *ModuleString = "define internal i32 @foo() { ret i32 1 }\n"
                              "define internal i32 @bar() { ret i32 1 }\n";
   M = parseAssembly(ModuleString);
-  repodefinition::GOInfoMap InfoMap;
-  repodefinition::GONumber _;
-  std::tie(InfoMap, _) = repodefinition::calculateGONumAndGOIMap(*M);
+  repodefinition::ModuleHashGenerator MHG;
+  MHG.digestModule(*M);
+  // Check the GOs' initial digest, contributions and dependencies.
+  repodefinition::GOInfoMap InfoMap = MHG.getGOInfoMap();
 
   const Function *Foo = M->getFunction("foo");
   const repodefinition::GOInfo &FooInfo = InfoMap[Foo];
@@ -95,10 +109,8 @@ TEST_F(SingleModule, NoCalleeSame) {
   EXPECT_TRUE(BarInfo.Dependencies.empty())
       << "Expected that the bar's dependencies list is empty.";
   // Check the GOs' final digest.
-  const auto &Result = repodefinition::generateRepoDefinitions(*M);
-  EXPECT_TRUE(std::get<0>(Result)) << "Expected Module M to be changed";
-  EXPECT_EQ(std::get<1>(Result), 0u) << "Expected zero global variables";
-  EXPECT_EQ(std::get<2>(Result), 2u) << "Expected two global functions";
+  EXPECT_TRUE(repodefinition::generateRepoDefinitions(*M))
+      << "Expected Module M to be changed";
   EXPECT_TRUE(isEqualDigest(Foo, Bar))
       << "Functions of foo and bar should have the same digest";
 }
@@ -147,10 +159,10 @@ TEST_F(SingleModule, OneCalleeSameNameSameBody) {
                              "}\n"
                              "define internal i32 @g() { ret i32 1 }\n";
   M = parseAssembly(ModuleString);
+  repodefinition::ModuleHashGenerator MHG;
+  MHG.digestModule(*M);
   // Check the GOs' initial digest, contributions and dependencies.
-  repodefinition::GOInfoMap InfoMap;
-  repodefinition::GONumber _;
-  std::tie(InfoMap, _) = repodefinition::calculateGONumAndGOIMap(*M);
+  repodefinition::GOInfoMap InfoMap = MHG.getGOInfoMap();
   const Function *Foo = M->getFunction("foo");
   const repodefinition::GOInfo &FooInfo = InfoMap[Foo];
   const Function *Bar = M->getFunction("bar");
@@ -168,10 +180,8 @@ TEST_F(SingleModule, OneCalleeSameNameSameBody) {
   EXPECT_THAT(BarInfo.Dependencies, ::testing::UnorderedElementsAre(G))
       << "Expected bar's Dependencies list is { G }";
   // Check the GOs' final digest.
-  const auto &Result = repodefinition::generateRepoDefinitions(*M);
-  EXPECT_TRUE(std::get<0>(Result)) << "Expected Module M to be changed";
-  EXPECT_EQ(std::get<1>(Result), 0u) << "Expected zero global variables";
-  EXPECT_EQ(std::get<2>(Result), 3u) << "Expected three global functions";
+  EXPECT_TRUE(repodefinition::generateRepoDefinitions(*M))
+      << "Expected Module M to be changed";
   EXPECT_TRUE(isEqualDigest(Foo, Bar))
       << "Functions of foo and bar should have the same digest";
 }
@@ -202,10 +212,10 @@ TEST_F(SingleModule, OneCalleeDiffNameSameBody) {
                              "define internal i32 @g() { ret i32 1 }\n"
                              "define internal i32 @p() { ret i32 1 }\n";
   M = parseAssembly(ModuleString);
+  repodefinition::ModuleHashGenerator MHG;
+  MHG.digestModule(*M);
   // Check the GOs' initial digest, contributions and dependencies.
-  repodefinition::GOInfoMap InfoMap;
-  repodefinition::GONumber _;
-  std::tie(InfoMap, _) = repodefinition::calculateGONumAndGOIMap(*M);
+  repodefinition::GOInfoMap InfoMap = MHG.getGOInfoMap();
   const Function *Foo = M->getFunction("foo");
   const repodefinition::GOInfo &FooInfo = InfoMap[Foo];
   const Function *Bar = M->getFunction("bar");
@@ -224,10 +234,8 @@ TEST_F(SingleModule, OneCalleeDiffNameSameBody) {
   EXPECT_THAT(BarInfo.Dependencies, ::testing::UnorderedElementsAre(P))
       << "Expected bar's Dependencies list is { P }";
   // Check the GOs' final digest.
-  const auto &Result = repodefinition::generateRepoDefinitions(*M);
-  EXPECT_TRUE(std::get<0>(Result)) << "Expected Module M to be changed";
-  EXPECT_EQ(std::get<1>(Result), 0u) << "Expected zero global variables";
-  EXPECT_EQ(std::get<2>(Result), 4u) << "Expected four global functions";
+  EXPECT_TRUE(repodefinition::generateRepoDefinitions(*M))
+      << "Expected Module M to be changed";
   EXPECT_TRUE(isEqualDigest(G, P))
       << "Functions of p and q should have the same digest";
   EXPECT_FALSE(isEqualDigest(Foo, Bar))
@@ -293,10 +301,8 @@ TEST_F(SingleModule, IndirectCall) {
       "declare i32 @g(...)\n"
       "declare i32 @p(...)\n";
   M = parseAssembly(ModuleString);
-  const auto &Result = repodefinition::generateRepoDefinitions(*M);
-  EXPECT_TRUE(std::get<0>(Result)) << "Expected Module M to be changed";
-  EXPECT_EQ(std::get<1>(Result), 0u) << "Expected zero global variables";
-  EXPECT_EQ(std::get<2>(Result), 2u) << "Expected two global functions";
+  EXPECT_TRUE(repodefinition::generateRepoDefinitions(*M))
+      << "Expected Module M to be changed";
   const Function *Foo = M->getFunction("foo");
   const Function *Bar = M->getFunction("bar");
   EXPECT_FALSE(isEqualDigest(Foo, Bar))
@@ -356,10 +362,10 @@ TEST_F(SingleModule, CallEachOther) {
                              "ret void\n"
                              "}\n";
   M = parseAssembly(ModuleString);
+  repodefinition::ModuleHashGenerator MHG;
+  MHG.digestModule(*M);
   // Check the GOs' initial digest, contributions and dependencies.
-  repodefinition::GOInfoMap InfoMap;
-  repodefinition::GONumber _;
-  std::tie(InfoMap, _) = repodefinition::calculateGONumAndGOIMap(*M);
+  repodefinition::GOInfoMap InfoMap = MHG.getGOInfoMap();
   const Function *Foo = M->getFunction("foo");
   const repodefinition::GOInfo &FooInfo = InfoMap[Foo];
   const Function *Bar = M->getFunction("bar");
@@ -376,10 +382,8 @@ TEST_F(SingleModule, CallEachOther) {
   EXPECT_THAT(BarInfo.Dependencies, ::testing::ElementsAre(Foo))
       << "Expected bar's Dependencies list is {foo}";
   // Check the GOs' final digest.
-  const auto &Result = repodefinition::generateRepoDefinitions(*M);
-  EXPECT_TRUE(std::get<0>(Result)) << "Expected Module M to be changed";
-  EXPECT_EQ(std::get<1>(Result), 0u) << "Expected zero global variables";
-  EXPECT_EQ(std::get<2>(Result), 2u) << "Expected two global functions";
+  EXPECT_TRUE(repodefinition::generateRepoDefinitions(*M))
+      << "Expected Module M to be changed";
   EXPECT_FALSE(isEqualDigest(Foo, Bar))
       << "Expected that functions of foo and bar have the different final hash "
          "value";
@@ -413,10 +417,10 @@ TEST_F(SingleModule, OneCalleeLoop) {
                              "  ret i32 %0\n"
                              "}\n";
   M = parseAssembly(ModuleString);
+  repodefinition::ModuleHashGenerator MHG;
+  MHG.digestModule(*M);
   // Check the GOs' initial digest, contributions and dependencies.
-  repodefinition::GOInfoMap InfoMap;
-  repodefinition::GONumber _;
-  std::tie(InfoMap, _) = repodefinition::calculateGONumAndGOIMap(*M);
+  repodefinition::GOInfoMap InfoMap = MHG.getGOInfoMap();
   const Function *Foo = M->getFunction("foo");
   const repodefinition::GOInfo &FooInfo = InfoMap[Foo];
   const Function *Bar = M->getFunction("bar");
@@ -439,7 +443,8 @@ TEST_F(SingleModule, OneCalleeLoop) {
   EXPECT_THAT(PInfo.Dependencies, ::testing::ElementsAre(Bar))
       << "Expected p's Dependencies list is {bar}";
   // Check the GOs' final digest.
-  repodefinition::generateRepoDefinitions(*M);
+  EXPECT_TRUE(repodefinition::generateRepoDefinitions(*M))
+      << "Expected Module M to be changed";
   EXPECT_FALSE(isEqualDigest(Foo, Bar))
       << "Expected that functions of foo and bar have the different final "
          "hash value";
@@ -492,10 +497,10 @@ TEST_F(SingleModule, TwolevelsCall) {
                              " ret i32 1\n"
                              "}\n";
   M = parseAssembly(ModuleString);
+  repodefinition::ModuleHashGenerator MHG;
+  MHG.digestModule(*M);
   // Check the GOs' initial digest, contributions and dependencies.
-  repodefinition::GOInfoMap InfoMap;
-  repodefinition::GONumber _;
-  std::tie(InfoMap, _) = repodefinition::calculateGONumAndGOIMap(*M);
+  repodefinition::GOInfoMap InfoMap = MHG.getGOInfoMap();
   const Function *Foo = M->getFunction("foo");
   const repodefinition::GOInfo &FooInfo = InfoMap[Foo];
   const Function *Bar = M->getFunction("bar");
@@ -534,11 +539,8 @@ TEST_F(SingleModule, TwolevelsCall) {
       << "Expected that the bar's Contributions list is empty.";
   EXPECT_THAT(BarInfo.Dependencies, ::testing::UnorderedElementsAre(P, Q))
       << "Expected that the bar's Dependencies list is {P, Q}";
-
-  const auto &Result = repodefinition::generateRepoDefinitions(*M);
-  EXPECT_TRUE(std::get<0>(Result)) << "Expected Module M to be changed";
-  EXPECT_EQ(std::get<1>(Result), 0u) << "Expected zero global variables";
-  EXPECT_EQ(std::get<2>(Result), 5u) << "Expected five global functions";
+  EXPECT_TRUE(repodefinition::generateRepoDefinitions(*M))
+      << "Expected Module M to be changed";
   EXPECT_TRUE(isEqualDigest(Foo, Bar)) << "Expected that functions of foo and "
                                           "bar have the same final hash value";
 }
@@ -570,10 +572,10 @@ TEST_F(SingleModule, SingleContribution) {
                              "    ret void\n"
                              "}\n";
   M = parseAssembly(ModuleString);
+  repodefinition::ModuleHashGenerator MHG;
+  MHG.digestModule(*M);
   // Check the GOs' initial digest, contributions and dependencies.
-  repodefinition::GOInfoMap InfoMap;
-  repodefinition::GONumber _;
-  std::tie(InfoMap, _) = repodefinition::calculateGONumAndGOIMap(*M);
+  repodefinition::GOInfoMap InfoMap = MHG.getGOInfoMap();
   const GlobalVariable *Z = M->getGlobalVariable("Z");
   const repodefinition::GOInfo &ZInfo = InfoMap[Z];
   const Function *Test = M->getFunction("test");
@@ -632,10 +634,10 @@ TEST_F(SingleModule, MultipleContribution) {
                              "    ret void\n"
                              "}\n";
   M = parseAssembly(ModuleString);
+  repodefinition::ModuleHashGenerator MHG;
+  MHG.digestModule(*M);
   // Check the GOs' initial digest, contributions and dependencies.
-  repodefinition::GOInfoMap InfoMap;
-  repodefinition::GONumber _;
-  std::tie(InfoMap, _) = repodefinition::calculateGONumAndGOIMap(*M);
+  repodefinition::GOInfoMap InfoMap = MHG.getGOInfoMap();
   const GlobalVariable *Z = M->getGlobalVariable("Z");
   const repodefinition::GOInfo &ZInfo = InfoMap[Z];
   const Function *Test = M->getFunction("test");
@@ -801,4 +803,645 @@ TEST_F(DoubleModule, MixedFrontendAndBackendHashGeneration) {
 
   EXPECT_NE(getDefinition(Foo)->getDigest(), BarDigest)
       << "Functions of foo and bar should have the different digest";
+}
+
+//
+// The following four tests are targeted on checking that the function
+// definition order should not affect the function hash. Modules M0 and M1 have
+// the same call graph but have different function definition order.
+//
+//  IR forming a following call graph for M0 and M1.
+//      c
+//     / \
+//    v   v
+//    a   b
+// Functions 'a' 'b' and 'c' should have the same hashes in Module M0 and M1.
+//
+TEST_F(DoubleModule, Simple) {
+  const char *Module0String = "define i32 @A(){\n"
+                              "entry:\n"
+                              "  ret i32 1\n"
+                              "}\n"
+                              "define i32 @B(){\n"
+                              "entry:\n"
+                              "  ret i32 2\n"
+                              "}\n"
+                              "define i32 @C() {\n"
+                              "entry:\n"
+                              "  %call = call i32 @A()\n"
+                              "  %call1 = call i32 @B()\n"
+                              "  %add = add nsw i32 %call, %call1\n"
+                              "  ret i32 %add\n"
+                              "}\n";
+  const char *Module1String = "define i32 @C() {\n"
+                              "entry:\n"
+                              "  %call = call i32 @A()\n"
+                              "  %call1 = call i32 @B()\n"
+                              "  %add = add nsw i32 %call, %call1\n"
+                              "  ret i32 %add\n"
+                              "}\n"
+                              "define i32 @B(){\n"
+                              "entry:\n"
+                              "  ret i32 2\n"
+                              "}\n"
+                              "define i32 @A(){\n"
+                              "entry:\n"
+                              "  ret i32 1\n"
+                              "}\n";
+
+  M0 = parseAssembly(Module0String);
+  M1 = parseAssembly(Module1String);
+  repodefinition::generateRepoDefinitions(*M0);
+  repodefinition::generateRepoDefinitions(*M1);
+  const Function *M0A = M0->getFunction("A");
+  const Function *M1A = M1->getFunction("A");
+  EXPECT_TRUE(isEqualDigest(M0A, M1A))
+      << "Function A should have the same digest in M0 and M1";
+  const Function *M0B = M0->getFunction("B");
+  const Function *M1B = M1->getFunction("B");
+  EXPECT_TRUE(isEqualDigest(M0B, M1B))
+      << "Functions of M0B and M1B should have the same digest";
+  const Function *M0C = M0->getFunction("C");
+  const Function *M1C = M1->getFunction("C");
+  EXPECT_TRUE(isEqualDigest(M0C, M1C))
+      << "Functions of M0C and M1C should have the same digest";
+}
+
+//  IR forming a following call graph for M0 and M1.
+//     A
+//     |
+//     v
+//     B <----+
+//     |      |
+//     + -----+
+//
+TEST_F(DoubleModule, SelfLoop) {
+  const char *Module0String = "define void @A(){\n"
+                              "entry:\n"
+                              "  call void @B()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @B(){\n"
+                              "entry:\n"
+                              "  call void @B()\n"
+                              "  ret void\n"
+                              "}\n";
+  const char *Module1String = "define void @B(){\n"
+                              "entry:\n"
+                              "  call void @B()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @A(){\n"
+                              "entry:\n"
+                              "  call void @B()\n"
+                              "  ret void\n"
+                              "}\n";
+  M0 = parseAssembly(Module0String);
+  M1 = parseAssembly(Module1String);
+  repodefinition::generateRepoDefinitions(*M0);
+  repodefinition::generateRepoDefinitions(*M1);
+  const Function *M0A = M0->getFunction("A");
+  const Function *M1A = M1->getFunction("A");
+  EXPECT_TRUE(isEqualDigest(M0A, M1A))
+      << "Function A should have the same digest in M0 and M1";
+  const Function *M0B = M0->getFunction("B");
+  const Function *M1B = M1->getFunction("B");
+  EXPECT_TRUE(isEqualDigest(M0B, M1B))
+      << "Functions of M0B and M1B should have the same digest";
+}
+
+//  IR forming a following call graph for M0 and M1.
+//
+//     A <----+
+//     |      |
+//     v      |
+//     B ----->
+//
+TEST_F(DoubleModule, TinyLoop) {
+  const char *Module0String = "define void @A(){\n"
+                              "entry:\n"
+                              "  call void @B()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @B(){\n"
+                              "entry:\n"
+                              "  call void @A()\n"
+                              "  ret void\n"
+                              "}\n";
+  const char *Module1String = "define void @B(){\n"
+                              "entry:\n"
+                              "  call void @A()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @A(){\n"
+                              "entry:\n"
+                              "  call void @B()\n"
+                              "  ret void\n"
+                              "}\n";
+  M0 = parseAssembly(Module0String);
+  M1 = parseAssembly(Module1String);
+  repodefinition::generateRepoDefinitions(*M0);
+  repodefinition::generateRepoDefinitions(*M1);
+  const Function *M0A = M0->getFunction("A");
+  const Function *M1A = M1->getFunction("A");
+  EXPECT_TRUE(isEqualDigest(M0A, M1A))
+      << "Function A should have the same digest in M0 and M1";
+  const Function *M0B = M0->getFunction("B");
+  const Function *M1B = M1->getFunction("B");
+  EXPECT_TRUE(isEqualDigest(M0B, M1B))
+      << "Functions of M0B and M1B should have the same digest";
+}
+
+//  IR forming a following call graph for M0 and M1.
+//     C
+//     |
+//     v
+//     A <----+
+//     |      |
+//     v      |
+//     B ----->
+//
+TEST_F(DoubleModule, TinyLoop2) {
+  const char *Module0String = "define void @A(){\n"
+                              "entry:\n"
+                              "  call void @B()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @B(){\n"
+                              "entry:\n"
+                              "  call void @A()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @C(){\n"
+                              "entry:\n"
+                              "  call void @A()\n"
+                              "  ret void\n"
+                              "}\n";
+  const char *Module1String = "define void @C(){\n"
+                              "entry:\n"
+                              "  call void @A()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @B(){\n"
+                              "entry:\n"
+                              "  call void @A()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @A(){\n"
+                              "entry:\n"
+                              "  call void @B()\n"
+                              "  ret void\n"
+                              "}\n";
+  M0 = parseAssembly(Module0String);
+  M1 = parseAssembly(Module1String);
+  repodefinition::generateRepoDefinitions(*M0);
+  repodefinition::generateRepoDefinitions(*M1);
+  const Function *M0A = M0->getFunction("A");
+  const Function *M1A = M1->getFunction("A");
+  EXPECT_TRUE(isEqualDigest(M0A, M1A))
+      << "Function A should have the same digest in M0 and M1";
+  const Function *M0B = M0->getFunction("B");
+  const Function *M1B = M1->getFunction("B");
+  EXPECT_TRUE(isEqualDigest(M0B, M1B))
+      << "Functions of M0B and M1B should have the same digest";
+  const Function *M0C = M0->getFunction("C");
+  const Function *M1C = M1->getFunction("C");
+  EXPECT_TRUE(isEqualDigest(M0C, M1C))
+      << "Functions of M0C and M1C should have the same digest";
+}
+
+//  IR forming a following call graph for M0 and M1.
+//                G
+//                |
+//     +--------------------+
+//     |                    |
+//     v                    v
+//     C <----+             F <----+
+//     |      |             |      |
+//     v      |             v      |
+//     B      |             E      |
+//     |      |             |      |
+//     v      |             v      |
+//     A ----->             D ----->
+//
+TEST_F(DoubleModule, TwoLoop) {
+  const char *Module0String = "define void @G(){\n"
+                              "entry:\n"
+                              "  call void @C()\n"
+                              "  call void @F()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @C(){\n"
+                              "entry:\n"
+                              "  call void @B()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @B(){\n"
+                              "entry:\n"
+                              "  call void @A()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @A(){\n"
+                              "entry:\n"
+                              "  call void @C()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @F(){\n"
+                              "entry:\n"
+                              "  call void @E()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @E(){\n"
+                              "entry:\n"
+                              "  call void @D()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @D(){\n"
+                              "entry:\n"
+                              "  call void @F()\n"
+                              "  ret void\n"
+                              "}\n";
+  const char *Module1String = "define void @D(){\n"
+                              "entry:\n"
+                              "  call void @F()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @E(){\n"
+                              "entry:\n"
+                              "  call void @D()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @F(){\n"
+                              "entry:\n"
+                              "  call void @E()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @A(){\n"
+                              "entry:\n"
+                              "  call void @C()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @B(){\n"
+                              "entry:\n"
+                              "  call void @A()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @C(){\n"
+                              "entry:\n"
+                              "  call void @B()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @G(){\n"
+                              "entry:\n"
+                              "  call void @C()\n"
+                              "  call void @F()\n"
+                              "  ret void\n"
+                              "}\n";
+  M0 = parseAssembly(Module0String);
+  M1 = parseAssembly(Module1String);
+  repodefinition::generateRepoDefinitions(*M0);
+  repodefinition::generateRepoDefinitions(*M1);
+  const Function *M0A = M0->getFunction("A");
+  const Function *M1A = M1->getFunction("A");
+  EXPECT_TRUE(isEqualDigest(M0A, M1A))
+      << "Function A should have the same digest in M0 and M1";
+  const Function *M0B = M0->getFunction("B");
+  const Function *M1B = M1->getFunction("B");
+  EXPECT_TRUE(isEqualDigest(M0B, M1B))
+      << "Functions of M0B and M1B should have the same digest";
+  const Function *M0C = M0->getFunction("C");
+  const Function *M1C = M1->getFunction("C");
+  EXPECT_TRUE(isEqualDigest(M0C, M1C))
+      << "Functions of M0C and M1C should have the same digest";
+  const Function *M0D = M0->getFunction("D");
+  const Function *M1D = M1->getFunction("D");
+  EXPECT_TRUE(isEqualDigest(M0D, M1D))
+      << "Functions of M0D and M1D should have the same digest";
+  const Function *M0E = M0->getFunction("E");
+  const Function *M1E = M1->getFunction("E");
+  EXPECT_TRUE(isEqualDigest(M0E, M1E))
+      << "Functions of M0E and M1E should have the same digest";
+  const Function *M0F = M0->getFunction("F");
+  const Function *M1F = M1->getFunction("F");
+  EXPECT_TRUE(isEqualDigest(M0F, M1F))
+      << "Functions of M0F and M1F should have the same digest";
+  const Function *M0G = M0->getFunction("G");
+  const Function *M1G = M1->getFunction("G");
+  EXPECT_TRUE(isEqualDigest(M0G, M1G))
+      << "Functions of M0G and M1G should have the same digest";
+}
+
+//  IR forming a following call graph for M0 and M1.
+//                A
+//                |
+//     +--------------------+
+//     |                    |
+//     v                    v
+//     B <----+             D------+
+//     |      |             |      |
+//     v      |             v      v
+//     C ----->             E      F
+//
+TEST_F(DoubleModule, Hybrid) {
+  const char *Module0String = "define void @A(){\n"
+                              "entry:\n"
+                              "  call void @B()\n"
+                              "  call void @D()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @B(){\n"
+                              "entry:\n"
+                              "  call void @C()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @C(){\n"
+                              "entry:\n"
+                              "  call void @B()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @D(){\n"
+                              "entry:\n"
+                              "  call i32 @E()\n"
+                              "  call i32 @F()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define i32 @E(){\n"
+                              "entry:\n"
+                              "  ret i32 1\n"
+                              "}\n"
+                              "define i32 @F(){\n"
+                              "entry:\n"
+                              "  ret i32 2\n"
+                              "}\n";
+  const char *Module1String = "define i32 @F(){\n"
+                              "entry:\n"
+                              "  ret i32 2\n"
+                              "}\n"
+                              "define i32 @E(){\n"
+                              "entry:\n"
+                              "  ret i32 1\n"
+                              "}\n"
+                              "define void @D(){\n"
+                              "entry:\n"
+                              "  call i32 @E()\n"
+                              "  call i32 @F()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @C(){\n"
+                              "entry:\n"
+                              "  call void @B()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @B(){\n"
+                              "entry:\n"
+                              "  call void @C()\n"
+                              "  ret void\n"
+                              "}\n"
+                              "define void @A(){\n"
+                              "entry:\n"
+                              "  call void @B()\n"
+                              "  call void @D()\n"
+                              "  ret void\n"
+                              "}\n";
+  M0 = parseAssembly(Module0String);
+  M1 = parseAssembly(Module1String);
+  repodefinition::generateRepoDefinitions(*M0);
+  repodefinition::generateRepoDefinitions(*M1);
+  const Function *M0A = M0->getFunction("A");
+  const Function *M1A = M1->getFunction("A");
+  EXPECT_TRUE(isEqualDigest(M0A, M1A))
+      << "Function A should have the same digest in M0 and M1";
+  const Function *M0B = M0->getFunction("B");
+  const Function *M1B = M1->getFunction("B");
+  EXPECT_TRUE(isEqualDigest(M0B, M1B))
+      << "Functions of M0B and M1B should have the same digest";
+  const Function *M0C = M0->getFunction("C");
+  const Function *M1C = M1->getFunction("C");
+  EXPECT_TRUE(isEqualDigest(M0C, M1C))
+      << "Functions of M0C and M1C should have the same digest";
+  const Function *M0D = M0->getFunction("D");
+  const Function *M1D = M1->getFunction("D");
+  EXPECT_TRUE(isEqualDigest(M0D, M1D))
+      << "Functions of M0D and M1D should have the same digest";
+  const Function *M0E = M0->getFunction("E");
+  const Function *M1E = M1->getFunction("E");
+  EXPECT_TRUE(isEqualDigest(M0E, M1E))
+      << "Functions of M0E and M1E should have the same digest";
+  const Function *M0F = M0->getFunction("F");
+  const Function *M1F = M1->getFunction("F");
+  EXPECT_TRUE(isEqualDigest(M0F, M1F))
+      << "Functions of M0F and M1F should have the same digest";
+}
+
+// The following four tests are targeted on checking the contents of the cached
+// hashes at every step rather than the cumulative result of hashing every GO.
+//
+//  IR forming a following call graph for M.
+//      a
+//     / \
+//    v   v
+//    b   b
+//
+TEST_F(SingleModule, TwoEdges) {
+  const char *ModuleString = "define i32 @A() {\n"
+                             "entry:\n"
+                             "  %call = call i32 @B()\n"
+                             "  %call1 = call i32 @B()\n"
+                             "  %add = add nsw i32 %call, %call1\n"
+                             "  ret i32 %add\n"
+                             "}\n"
+                             "define i32 @B(){\n"
+                             "entry:\n"
+                             "  ret i32 2\n"
+                             "}\n";
+  M = parseAssembly(ModuleString);
+  const Function *A = M->getFunction("A");
+  const Function *B = M->getFunction("B");
+  {
+    repodefinition::ModuleHashGenerator MHG;
+    MHG.calculateDigest(A, true);
+    auto MA = MHG.getGOHashCache();
+    EXPECT_THAT(getKeys(MA), ::testing::UnorderedElementsAre(A, B));
+  }
+  {
+    repodefinition::ModuleHashGenerator MHG;
+    MHG.calculateDigest(B, true);
+    auto MB = MHG.getGOHashCache();
+    EXPECT_THAT(getKeys(MB), ::testing::UnorderedElementsAre(B));
+  }
+}
+
+//  IR forming a following call graph for M.
+//          A
+//         /\
+//        /  \
+//       v    \
+//       B     C
+//       \     /
+//        \   /
+//         v v
+//          D
+TEST_F(SingleModule, Diamond) {
+  const char *ModuleString = "define void @A(){\n"
+                             "entry:\n"
+                             "  call void @B()\n"
+                             "  call void @C()\n"
+                             "  ret void\n"
+                             "}\n"
+                             "define void @B(){\n"
+                             "entry:\n"
+                             "  call void @D()\n"
+                             "  ret void\n"
+                             "}\n"
+                             "define void @C(){\n"
+                             "entry:\n"
+                             "  call void @D()\n"
+                             "  ret void\n"
+                             "}\n"
+                             "define void @D(){\n"
+                             "entry:\n"
+                             "  ret void\n"
+                             "}\n";
+  M = parseAssembly(ModuleString);
+  const Function *A = M->getFunction("A");
+  const Function *B = M->getFunction("B");
+  const Function *C = M->getFunction("C");
+  const Function *D = M->getFunction("D");
+  {
+    repodefinition::ModuleHashGenerator MHG;
+    MHG.calculateDigest(A, true);
+    auto MA = MHG.getGOHashCache();
+    EXPECT_THAT(getKeys(MA), ::testing::UnorderedElementsAre(A, B, C, D));
+  }
+  {
+    repodefinition::ModuleHashGenerator MHG;
+    MHG.calculateDigest(B, true);
+    auto MB = MHG.getGOHashCache();
+    EXPECT_THAT(getKeys(MB), ::testing::UnorderedElementsAre(B, D));
+  }
+  {
+    repodefinition::ModuleHashGenerator MHG;
+    MHG.calculateDigest(C, true);
+    auto MC = MHG.getGOHashCache();
+    EXPECT_THAT(getKeys(MC), ::testing::UnorderedElementsAre(C, D));
+  }
+  {
+    repodefinition::ModuleHashGenerator MHG;
+    MHG.calculateDigest(D, true);
+    auto MD = MHG.getGOHashCache();
+    EXPECT_THAT(getKeys(MD), ::testing::UnorderedElementsAre(D));
+  }
+}
+
+//  IR forming a following call graph for M.
+//       A
+//       |
+//   +-------+
+//   |       |
+//   v       v
+//   D-----> B <----+
+//           |      |
+//           v      |
+//           C ----->
+//
+TEST_F(SingleModule, TwiceVisitedLoop) {
+  const char *ModuleString = "define void @A(){\n"
+                             "entry:\n"
+                             "  call void @B()\n"
+                             "  call void @D()\n"
+                             "  ret void\n"
+                             "}\n"
+                             "define void @B(){\n"
+                             "entry:\n"
+                             "  call void @C()\n"
+                             "  ret void\n"
+                             "}\n"
+                             "define void @C(){\n"
+                             "entry:\n"
+                             "  call void @B()\n"
+                             "  ret void\n"
+                             "}\n"
+                             "define void @D(){\n"
+                             "entry:\n"
+                             "  call void @B()\n"
+                             "  ret void\n"
+                             "}\n";
+  M = parseAssembly(ModuleString);
+  const Function *A = M->getFunction("A");
+  const Function *B = M->getFunction("B");
+  const Function *C = M->getFunction("C");
+  const Function *D = M->getFunction("D");
+  {
+    repodefinition::ModuleHashGenerator MHG;
+    MHG.calculateDigest(A, true);
+    auto MA = MHG.getGOHashCache();
+    // TODO: There is an issue in current hash algorithm. Once the issue is
+    // fixed, D should be cached as well.
+    EXPECT_THAT(getKeys(MA), ::testing::UnorderedElementsAre(A));
+  }
+  {
+    repodefinition::ModuleHashGenerator MHG;
+    MHG.calculateDigest(B, true);
+    auto MB = MHG.getGOHashCache();
+    EXPECT_EQ(MB.size(), 0U);
+  }
+  {
+    repodefinition::ModuleHashGenerator MHG;
+    MHG.calculateDigest(C, true);
+    auto MC = MHG.getGOHashCache();
+    EXPECT_EQ(MC.size(), 0U);
+  }
+  {
+    repodefinition::ModuleHashGenerator MHG;
+    MHG.calculateDigest(D, true);
+    auto MD = MHG.getGOHashCache();
+    EXPECT_THAT(getKeys(MD), ::testing::UnorderedElementsAre(D));
+  }
+}
+
+//  IR forming a following call graph for M.
+//         <------ A <----+
+//         |       |      |
+//         v       v      |
+//         C ----> B ----->
+//
+TEST_F(SingleModule, DoubleLoop) {
+  const char *ModuleString = "define void @A(){\n"
+                             "entry:\n"
+                             "  call void @B()\n"
+                             "  call void @C()\n"
+                             "  ret void\n"
+                             "}\n"
+                             "define void @B(){\n"
+                             "entry:\n"
+                             "  call void @A()\n"
+                             "  ret void\n"
+                             "}\n"
+                             "define void @C(){\n"
+                             "entry:\n"
+                             "  call void @B()\n"
+                             "  ret void\n"
+                             "}\n";
+  M = parseAssembly(ModuleString);
+  const Function *A = M->getFunction("A");
+  const Function *B = M->getFunction("B");
+  const Function *C = M->getFunction("C");
+  {
+    repodefinition::ModuleHashGenerator MHG;
+    MHG.calculateDigest(A, true);
+    auto MA = MHG.getGOHashCache();
+    EXPECT_EQ(MA.size(), 0U);
+  }
+  {
+    repodefinition::ModuleHashGenerator MHG;
+    MHG.calculateDigest(B, true);
+    auto MB = MHG.getGOHashCache();
+    EXPECT_EQ(MB.size(), 0U);
+  }
+  {
+    repodefinition::ModuleHashGenerator MHG;
+    MHG.calculateDigest(C, true);
+    auto MC = MHG.getGOHashCache();
+    EXPECT_EQ(MC.size(), 0U);
+  }
 }
