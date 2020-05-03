@@ -14,6 +14,7 @@
 #include "llvm/IR/RepoTicket.h"
 #include "LLVMContextImpl.h"
 #include "MetadataImpl.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/GlobalObject.h"
 #include "llvm/IR/LLVMContext.h"
@@ -24,6 +25,14 @@
 #include <cassert>
 
 using namespace llvm;
+
+#define DEBUG_TYPE "prepo-digest"
+
+STATISTIC(NumFunctions, "Number of functions hashed");
+STATISTIC(NumVariables, "Number of variables hashed");
+STATISTIC(NumMemoizedHashes, "Number of memoized hashes");
+STATISTIC(VisitedUnCachedGOTimes, "Visited times of unmemoized hashes");
+STATISTIC(VisitedCachedGOTimes, "Visited times of memoized hashes");
 
 namespace llvm {
 
@@ -131,10 +140,15 @@ static bool updateDigestUseContributions(MD5 &GOHash,
 // Loop through the dependences and add the final digest of each global object
 // inside of the dependences to GOHash.
 template <typename Function>
-static bool updateDigestUseDependencies(MD5 &GOHash, const GOVec &Dependencies,
+static auto updateDigestUseDependencies(const GlobalObject *GO, MD5 &GOHash,
+                                        unsigned GOVisitedIndex,
+                                        const GOVec &Dependencies,
                                         GOStateMap &Visited, GOInfoMap &GOIMap,
-                                        Function AccumulateGODigest) {
+                                        MemoizedHashes &GOHashCache,
+                                        Function AccumulateGODigest)
+    -> std::tuple<bool, size_t, DigestType> {
   bool Changed = false;
+  auto LoopPoint = std::numeric_limits<size_t>::max();
   for (const GlobalObject *const G : Dependencies) {
     const llvm::Function *const Fn = dyn_cast<const llvm::Function>(G);
     // if function will not be inlined and not be discarded if it is not used,
@@ -142,34 +156,86 @@ static bool updateDigestUseDependencies(MD5 &GOHash, const GOVec &Dependencies,
     if (Fn && Fn->hasFnAttribute(Attribute::NoInline) &&
         !Fn->isDiscardableIfUnused())
       continue;
-    Changed = updateDigestUseDependenciesAndContributions(
-                  G, GOHash, Visited, GOIMap, AccumulateGODigest) ||
-              Changed;
+    bool GChanged;
+    size_t GVisitedIndex;
+    DigestType GDigest;
+    std::tie(GChanged, GVisitedIndex, GDigest) =
+        updateDigestUseDependenciesAndContributions<Function>(
+            G, Visited, GOIMap, GOHashCache, AccumulateGODigest);
+    Changed = Changed || GChanged;
+    // A GO which loops back to itself doesn't count as a loop.
+    if (G != GO)
+      LoopPoint = std::min(LoopPoint, GVisitedIndex);
+    GOHash.update(GDigest.Bytes);
   }
-  return Changed;
+  // Encoded the final edge. Record that in the hash.
+  GOHash.update(static_cast<char>(Tags::End));
+
+  DigestType Digest;
+  GOHash.final(Digest);
+
+  if (LoopPoint > GOVisitedIndex) {
+    GOHashCache[GO] = Digest;
+    LLVM_DEBUG(dbgs() << "Recording result for \"" << GO->getName() << "\"\n");
+    ++NumMemoizedHashes;
+    ++VisitedCachedGOTimes;
+  } else {
+    ++VisitedUnCachedGOTimes;
+  }
+  return std::make_tuple(Changed, LoopPoint, Digest);
 }
 
-// Update the GO's hash value by adding the hash of its dependencies and
-// contributions.
+// Update the digest of an invidual GO incorporating the hashes of all its
+// dependencies and contributions.
+// \param GO The global object whose digest is to be computed.
+// \param Visited A map of GO to a unique number in the dependencies or
+//        contributions graph.
+// \param GOIMap A map of GO to GOInfo
+// \param GOHashCache Used to record memoized hashes.
+// \param AccumulateGODigest A function is used to accumulate the GO's digest.
+// \returns a tuple containing the state information which includes 1) return
+// true if the module M has been changed, 2) a numerical identifier which will
+// be used if GO loops back to itself in future and 3) the GO's digest.
 template <typename Function>
-static bool updateDigestUseDependenciesAndContributions(
-    const GlobalObject *GO, MD5 &GOHash, GOStateMap &Visited, GOInfoMap &GOIMap,
-    Function AccumulateGODigest) {
+static auto updateDigestUseDependenciesAndContributions(
+    const GlobalObject *GO, GOStateMap &Visited, GOInfoMap &GOIMap,
+    MemoizedHashes &GOHashCache, Function AccumulateGODigest)
+    -> std::tuple<bool, size_t, DigestType> {
   if (GO->isDeclaration())
-    return false;
+    return std::make_tuple(false, std::numeric_limits<size_t>::max(),
+                           NullDigest);
+
+  const auto GOVisitedIndex = Visited.size();
+  LLVM_DEBUG(dbgs() << "Computing hash for \"" << GO->getName() << "\" (#"
+                    << GOVisitedIndex << ")\n");
+
+  // If the hash has been memoized, we can return the result immediately.
+  const auto TablePos = GOHashCache.find(GO);
+  if (TablePos != GOHashCache.end()) {
+    ++VisitedCachedGOTimes;
+    LLVM_DEBUG(dbgs() << "Returning pre-computed hash for \"" << GO->getName()
+                      << "\"\n");
+    return std::make_tuple(true, GOVisitedIndex, TablePos->second);
+  }
+
+  MD5 GOHash = MD5();
 
   bool Inserted;
   typename GOStateMap::const_iterator StateIt;
-  std::tie(StateIt, Inserted) = Visited.try_emplace(GO, Visited.size());
+  std::tie(StateIt, Inserted) = Visited.try_emplace(GO, GOVisitedIndex);
   if (!Inserted) {
-    // If GO is visited, use the letter 'R' as the marker and use its state as
-    // the value.
-    GOHash.update('R');
-    GOHash.update(StateIt->second);
-    return true;
+    assert(GOVisitedIndex > StateIt->second);
+    // If GO is visited, mark as a Backref and use its state as the value.
+    GOHash.update(static_cast<char>(Tags::Backref));
+    GOHash.update(GOVisitedIndex - StateIt->second - 1U);
+    LLVM_DEBUG(dbgs() << "Hashing back reference to #" << StateIt->second
+                      << "\n");
+    DigestType Digest;
+    GOHash.final(Digest);
+    return std::make_tuple(true, StateIt->second, Digest);
   }
 
-  GOHash.update('T');
+  GOHash.update(static_cast<char>(Tags::GO));
   auto State = AccumulateGODigest(GO, GOHash, GOIMap);
   bool Changed = State.Changed;
   // The hashes of the GO's 'contributions' and 'dependencies' are separately
@@ -183,42 +249,44 @@ static bool updateDigestUseDependenciesAndContributions(
             Changed;
 
   // Add the GO's dependencies to its hash.
-  Changed = updateDigestUseDependencies(GOHash, State.Dependencies, Visited,
-                                        GOIMap, AccumulateGODigest) ||
-            Changed;
-
-  return Changed;
+  auto GOState = updateDigestUseDependencies<Function>(
+      GO, GOHash, GOVisitedIndex, State.Dependencies, Visited, GOIMap,
+      GOHashCache, AccumulateGODigest);
+  std::get<0>(GOState) = std::get<0>(GOState) || Changed;
+  return std::move(GOState);
 }
 
-// Calculate the GOs' initial digest, dependencies, contributions and GONumber.
-std::pair<GOInfoMap, GONumber> calculateGONumAndGOIMap(Module &M) {
+// Calculate the GOs' initial digest, dependencies, contributions and the
+// number of hashed global variables and functions.
+GOInfoMap calculateGONumAndGOIMap(Module &M) {
   GOInfoMap GOIMap;
-  GONumber GONum;
 
   for (auto &GV : M.globals()) {
     if (GV.isDeclaration())
       continue;
     calculateGOInfo(&GV, GOIMap);
-    ++GONum.VarNum;
+    ++NumVariables;
   }
   for (auto &Fn : M.functions()) {
     if (Fn.isDeclaration())
       continue;
     calculateGOInfo(&Fn, GOIMap);
-    ++GONum.FuncNum;
+    ++NumFunctions;
   }
-  return std::make_pair(std::move(GOIMap), std::move(GONum));
+  return std::move(GOIMap);
 }
 
-std::tuple<bool, unsigned, unsigned> generateTicketMDs(Module &M) {
+bool generateTicketMDs(Module &M) {
   bool Changed = false;
-  GONumber GONum;
   GOStateMap Visited;
-  Visited.reserve(M.size() + M.getGlobalList().size());
+  auto GOSize = M.size() + M.getGlobalList().size();
+  Visited.reserve(GOSize);
   GOInfoMap GOIMap;
+  MemoizedHashes GOHashCache;
+  GOHashCache.reserve(GOSize);
 
-  // Calculate the GOInfoMap and GONumber.
-  std::tie(GOIMap, GONum) = calculateGONumAndGOIMap(M);
+  // Calculate the GOInfoMap.
+  GOIMap = calculateGONumAndGOIMap(M);
 
 #ifndef NDEBUG
   for (auto &GI : GOIMap) {
@@ -232,32 +300,28 @@ std::tuple<bool, unsigned, unsigned> generateTicketMDs(Module &M) {
     if (GO.isDeclaration())
       continue;
     Visited.clear();
-    MD5 Hash = MD5();
     auto Helper = [](const GlobalObject *GO, MD5 &GOHash, GOInfoMap &GOIMap) {
       return accumulateGOInitialDigestAndGetGODigestState(GO, GOHash, GOIMap);
     };
-    updateDigestUseDependenciesAndContributions(&GO, Hash, Visited, GOIMap,
-                                                Helper);
-    MD5::MD5Result Digest;
-    Hash.final(Digest);
-    set(&GO, Digest);
+    set(&GO, std::get<2>(updateDigestUseDependenciesAndContributions(
+                 &GO, Visited, GOIMap, GOHashCache, Helper)));
     Changed = true;
   }
 
-  return std::make_tuple(Changed, GONum.VarNum, GONum.FuncNum);
+  return Changed;
 }
 
 DigestType calculateDigest(const GlobalObject *GO) {
   GOStateMap Visited;
-  MD5 Hash = MD5();
   GOInfoMap GOIMap;
-
+  MemoizedHashes GOHashCache;
   updateDigestUseDependenciesAndContributions(
-      GO, Hash, Visited, GOIMap,
+      GO, Visited, GOIMap, GOHashCache,
       accumulateGOFinalDigestOrInitialDigestAndGetGODigestState);
-  MD5::MD5Result Digest;
-  Hash.final(Digest);
-  return Digest;
+
+  return std::get<2>(updateDigestUseDependenciesAndContributions(
+      GO, Visited, GOIMap, GOHashCache,
+      accumulateGOFinalDigestOrInitialDigestAndGetGODigestState));
 }
 
 } // namespace ticketmd

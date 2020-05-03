@@ -40,6 +40,10 @@ static constexpr ticketmd::DigestType NullDigest{
 using GOVec = SmallVector<const GlobalObject *, 1>;
 /// Map GO to a unique number in the function call graph.
 using GOStateMap = llvm::DenseMap<const GlobalObject *, unsigned>;
+/// Memoize GO's hash if one of the following conditions is satisfied:
+/// 1. GO is not in a cycle/loop.
+/// 2. GO is in a self-loop but not if there is a loop involving another object.
+using MemoizedHashes = llvm::DenseMap<const GlobalObject *, DigestType>;
 
 const Constant *getAliasee(const GlobalAlias *GA);
 /// Set global object ticket metadata value and add this to the module level
@@ -51,9 +55,10 @@ void set(GlobalObject *GO, DigestType const &D);
 /// GO does not contain the ticket metadata.
 std::pair<DigestType, bool> get(const GlobalObject *GO);
 
-struct GONumber {
-  unsigned FuncNum = 0;
-  unsigned VarNum = 0;
+enum class Tags : char {
+  Backref = 'R',
+  End = 'E',
+  GO = 'T',
 };
 
 /// A structure of a global object (GO) information.
@@ -149,17 +154,14 @@ void calculateGOInfo(const GlobalType *G, GOInfoMap &GOI) {
 // Create a global object information map and calculate the number of hashed
 // functions and variable  inside of the Module M.
 /// \param M Called module.
-/// \returns a pair containing a global object information map and a structure
-/// holding the number of hashed global variables and functions.
-std::pair<GOInfoMap, GONumber> calculateGONumAndGOIMap(Module &M);
+/// \returns a global object information map.
+GOInfoMap calculateGONumAndGOIMap(Module &M);
 
 /// Compute the hash value and set the ticket metadata for all global objects
 /// inside of the Module M.
 /// \param M Called module.
-/// \returns a tuple containing a global object information map which include if
-/// the module M has been changed, and two unsigned values which are the number
-/// of global variables and functions respectively.
-std::tuple<bool, unsigned, unsigned> generateTicketMDs(Module &M);
+/// \return a bool which is true if the module M has been changed.
+bool generateTicketMDs(Module &M);
 
 /// Compute the hash value for the given global object GO.
 /// \param GO The global object.
