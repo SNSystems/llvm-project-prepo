@@ -115,47 +115,101 @@ struct GODigestState {
   /// A reference to an object's dependencies. The GOInfo struct takes ownership
   /// of it.
   const GOVec &Dependencies;
-  /// A bool which is true if GO's hash value has been changed.
-  bool Changed;
   GODigestState() = delete;
-  GODigestState(const GOVec &Contributions, const GOVec &Dependencies,
-                bool Changed)
-      : Contributions(Contributions), Dependencies(Dependencies),
-        Changed(Changed) {}
+  GODigestState(const GOVec &Contributions, const GOVec &Dependencies)
+      : Contributions(Contributions), Dependencies(Dependencies) {}
 };
 
-/// Calculate the initial hash value, dependencies and contributions for the
-/// global object 'G'.
-/// \param G Calculated global object.
-/// \param GOI a DenseMap containing the global object information.
-///
-template <typename GlobalType>
-void calculateGOInfo(const GlobalType *G, GOInfoMap &GOI) {
-  GOInfo Result = calculateDigestAndDependenciesAndContributedToGVs(G);
-  // ContributedToGVs of an object is used to update other objects'
-  // contributions. For example, if the ContributedToGVs of function `foo`  are
-  // global variables `g` and `q`, the function `foo` is in the contributions of
-  // `g` and `q`.
-  // ContributedToGVs[`foo`] = [`g`, `q`]
-  // ====> Contributions[`g`] = [`foo`],
-  //       Contributions[`q`] = [`foo`]
-  for (auto &GO : Result.Contributions) {
-    assert(isa<GlobalVariable>(GO) &&
-           "Only global variables can have contributions!");
-    assert(isa<llvm::Function>(G) && "All contributions are functions!");
-    GOI[GO].Contributions.emplace_back(G);
-  }
-  // Update G's dependencies.
-  GOInfo &GInfo = GOI[G];
-  GInfo.InitialDigest = std::move(Result.InitialDigest);
-  GInfo.Dependencies = std::move(Result.Dependencies);
-}
+/// Helper Class for generating the hash for each global objects on the Module
+/// and it also represents how a global object (GO) is mapped into its cached
+/// hash.
+class HashCache {
+  /// A map of GO to a unique number in the dependencies graph.
+  GOStateMap Visited;
+  /// Used to keep the GO information.
+  GOInfoMap GOIMap;
+  // Used to record memoized hashes.
+  MemoizedHashes GOHashCache;
+  /// True if the module M is changed.
+  bool Changed;
 
-// Create a global object information map and calculate the number of hashed
-// functions and variable  inside of the Module M.
-/// \param M Called module.
-/// \returns a global object information map.
-GOInfoMap calculateGONumAndGOIMap(Module &M);
+public:
+  HashCache() : Changed(false) {}
+  /// calculate the GO's hash and construct a memoized hashes for module.
+  HashCache(Module &M);
+
+  /// Compute the hash value for the given global object GO.
+  /// \param GO The global object.
+  /// \return The global object's digest value.
+  DigestType calculateDigest(const GlobalObject *GO);
+
+  bool isChanged() const { return Changed; }
+
+  const GOInfoMap &getGOInfoMap() const { return GOIMap; }
+
+private:
+  /// Get global object hash value from memoized hashes.
+  /// \param GO The global object.
+  /// \return A tuple of global object's hash value and  a bool which is true if
+  /// GO's hash is cached.
+  std::tuple<DigestType, bool> get(const GlobalObject *GO) const {
+    const auto Iter = GOHashCache.find_as(GO);
+    return (Iter != GOHashCache.end()) ? std::make_tuple(Iter->second, true)
+                                       : std::make_tuple(NullDigest, false);
+  }
+
+  /// Construct the global object information map (GOIMap) and calculate the
+  /// number of hashed functions and variable  inside of the Module M.
+  void calculateGONumAndGOIMap(const Module &M);
+
+  /// Compute the hash value for the given global object GO.
+  /// \param GO The global object.
+  /// \param AccumulateGODigest A function is used to accumulate the GO's
+  /// digest.
+  /// \return The global object's digest value.
+  template <typename Function>
+  DigestType calculateDigest(const GlobalObject *GO,
+                             Function AccumulateGODiges);
+
+  /// Calculate the initial hash value, dependencies and contributions for the
+  /// global object 'G' and store these informaion in the GOImap.
+  /// \param G Calculated global object.
+  template <typename GlobalType> void calculateGOInfo(const GlobalType *G);
+  void calculateGOInfo(const GlobalObject *GO);
+
+  /// Accumulate the GO's initial digest and get its GODigestState.
+  GODigestState
+  accumulateGOInitialDigestAndGetGODigestState(const GlobalObject *GO,
+                                               MD5 &GOHash);
+
+  /// Accumulate the GO's final or initial digest and get its GODigestState.
+  GODigestState accumulateGOFinalDigestOrInitialDigestAndGetGODigestState(
+      const GlobalObject *GO, MD5 &GOHash);
+
+  /// Loop through the contributions and add the initial digest of each global
+  /// object inside of the contributions to GOHash.
+  void updateDigestUseContributions(MD5 &GOHash, const GOVec &Contributions);
+
+  /// Loop through the dependences and add the final digest of each global
+  /// object inside of the dependences to GOHash.
+  template <typename Function>
+  std::tuple<size_t, DigestType> updateDigestUseDependencies(
+      const GlobalObject *GO, MD5 &GOHash, unsigned GOVisitedIndex,
+      const GOVec &Dependencies, Function AccumulateGODigest);
+
+  /// Update the digest of an invidual GO incorporating the hashes of all its
+  /// dependencies and contributions.
+  /// \param GO The global object whose digest is to be computed.
+  /// \param AccumulateGODigest A function is used to accumulate the GO's
+  /// digest.
+  /// \returns a tuple containing the state information which includes
+  /// 1) a numerical identifier which will be used if GO loops back to itself in
+  /// future and 2) the GO's digest.
+  template <typename Function>
+  std::tuple<size_t, DigestType>
+  updateDigestUseDependenciesAndContributions(const GlobalObject *GO,
+                                              Function AccumulateGODigest);
+};
 
 /// Compute the hash value and set the ticket metadata for all global objects
 /// inside of the Module M.

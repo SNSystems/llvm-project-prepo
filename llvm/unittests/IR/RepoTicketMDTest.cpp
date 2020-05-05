@@ -74,7 +74,9 @@ TEST_F(SingleModule, NoCalleeSame) {
   const char *ModuleString = "define internal i32 @foo() { ret i32 1 }\n"
                              "define internal i32 @bar() { ret i32 1 }\n";
   M = parseAssembly(ModuleString);
-  ticketmd::GOInfoMap InfoMap = ticketmd::calculateGONumAndGOIMap(*M);
+  ticketmd::HashCache MHC(*M);
+  // Check the GOs' initial digest, contributions and dependencies.
+  ticketmd::GOInfoMap InfoMap = MHC.getGOInfoMap();
 
   const Function *Foo = M->getFunction("foo");
   const ticketmd::GOInfo &FooInfo = InfoMap[Foo];
@@ -142,8 +144,9 @@ TEST_F(SingleModule, OneCalleeSameNameSameBody) {
                              "}\n"
                              "define internal i32 @g() { ret i32 1 }\n";
   M = parseAssembly(ModuleString);
+  ticketmd::HashCache MHC(*M);
   // Check the GOs' initial digest, contributions and dependencies.
-  ticketmd::GOInfoMap InfoMap = ticketmd::calculateGONumAndGOIMap(*M);
+  ticketmd::GOInfoMap InfoMap = MHC.getGOInfoMap();
   const Function *Foo = M->getFunction("foo");
   const ticketmd::GOInfo &FooInfo = InfoMap[Foo];
   const Function *Bar = M->getFunction("bar");
@@ -193,8 +196,9 @@ TEST_F(SingleModule, OneCalleeDiffNameSameBody) {
                              "define internal i32 @g() { ret i32 1 }\n"
                              "define internal i32 @p() { ret i32 1 }\n";
   M = parseAssembly(ModuleString);
+  ticketmd::HashCache MHC(*M);
   // Check the GOs' initial digest, contributions and dependencies.
-  ticketmd::GOInfoMap InfoMap = ticketmd::calculateGONumAndGOIMap(*M);
+  ticketmd::GOInfoMap InfoMap = MHC.getGOInfoMap();
   const Function *Foo = M->getFunction("foo");
   const ticketmd::GOInfo &FooInfo = InfoMap[Foo];
   const Function *Bar = M->getFunction("bar");
@@ -341,8 +345,9 @@ TEST_F(SingleModule, CallEachOther) {
                              "ret void\n"
                              "}\n";
   M = parseAssembly(ModuleString);
+  ticketmd::HashCache MHC(*M);
   // Check the GOs' initial digest, contributions and dependencies.
-  ticketmd::GOInfoMap InfoMap = ticketmd::calculateGONumAndGOIMap(*M);
+  ticketmd::GOInfoMap InfoMap = MHC.getGOInfoMap();
   const Function *Foo = M->getFunction("foo");
   const ticketmd::GOInfo &FooInfo = InfoMap[Foo];
   const Function *Bar = M->getFunction("bar");
@@ -394,8 +399,9 @@ TEST_F(SingleModule, OneCalleeLoop) {
                              "  ret i32 %0\n"
                              "}\n";
   M = parseAssembly(ModuleString);
+  ticketmd::HashCache MHC(*M);
   // Check the GOs' initial digest, contributions and dependencies.
-  ticketmd::GOInfoMap InfoMap = ticketmd::calculateGONumAndGOIMap(*M);
+  ticketmd::GOInfoMap InfoMap = MHC.getGOInfoMap();
   const Function *Foo = M->getFunction("foo");
   const ticketmd::GOInfo &FooInfo = InfoMap[Foo];
   const Function *Bar = M->getFunction("bar");
@@ -472,8 +478,9 @@ TEST_F(SingleModule, TwolevelsCall) {
                              " ret i32 1\n"
                              "}\n";
   M = parseAssembly(ModuleString);
+  ticketmd::HashCache MHC(*M);
   // Check the GOs' initial digest, contributions and dependencies.
-  ticketmd::GOInfoMap InfoMap = ticketmd::calculateGONumAndGOIMap(*M);
+  ticketmd::GOInfoMap InfoMap = MHC.getGOInfoMap();
   const Function *Foo = M->getFunction("foo");
   const ticketmd::GOInfo &FooInfo = InfoMap[Foo];
   const Function *Bar = M->getFunction("bar");
@@ -546,8 +553,9 @@ TEST_F(SingleModule, SingleContribution) {
                              "    ret void\n"
                              "}\n";
   M = parseAssembly(ModuleString);
+  ticketmd::HashCache MHC(*M);
   // Check the GOs' initial digest, contributions and dependencies.
-  ticketmd::GOInfoMap InfoMap = ticketmd::calculateGONumAndGOIMap(*M);
+  ticketmd::GOInfoMap InfoMap = MHC.getGOInfoMap();
   const GlobalVariable *Z = M->getGlobalVariable("Z");
   const ticketmd::GOInfo &ZInfo = InfoMap[Z];
   const Function *Test = M->getFunction("test");
@@ -606,8 +614,9 @@ TEST_F(SingleModule, MultipleContribution) {
                              "    ret void\n"
                              "}\n";
   M = parseAssembly(ModuleString);
+  ticketmd::HashCache MHC(*M);
   // Check the GOs' initial digest, contributions and dependencies.
-  ticketmd::GOInfoMap InfoMap = ticketmd::calculateGONumAndGOIMap(*M);
+  ticketmd::GOInfoMap InfoMap = MHC.getGOInfoMap();
   const GlobalVariable *Z = M->getGlobalVariable("Z");
   const ticketmd::GOInfo &ZInfo = InfoMap[Z];
   const Function *Test = M->getFunction("test");
