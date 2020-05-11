@@ -119,32 +119,28 @@ void HashCache::calculateGOInfo(const GlobalObject *GO) {
   }
 }
 
-GODigestState
-HashCache::accumulateGOInitialDigestAndGetGODigestState(const GlobalObject *GO,
-                                                        MD5 &GOHash) {
+GODigestState HashCache::accumulateGODigest(const GlobalObject *GO, MD5 &GOHash,
+                                            bool Final) {
+  if (Final) {
+    if (const auto *const GOMD = GO->getMetadata(LLVMContext::MD_repo_ticket)) {
+      if (const TicketNode *const TN = dyn_cast<TicketNode>(GOMD)) {
+        DigestType D = TN->getDigest();
+        GOHash.update(D.Bytes);
+        const GOInfo &GOInformation =
+            GOIMap.try_emplace(GO, std::move(D), GOVec(), GOVec())
+                .first->second;
+        Changed = true;
+        return GODigestState(GOInformation.Contributions,
+                             GOInformation.Dependencies);
+      }
+      report_fatal_error("Failed to get TicketNode metadata!");
+    }
+    calculateGOInfo(GO);
+  }
   const GOInfo &GOInformation = GOIMap[GO];
   GOHash.update(GOInformation.InitialDigest.Bytes);
   Changed = true;
   return GODigestState(GOInformation.Contributions, GOInformation.Dependencies);
-}
-
-GODigestState
-HashCache::accumulateGOFinalDigestOrInitialDigestAndGetGODigestState(
-    const GlobalObject *GO, MD5 &GOHash) {
-  if (const auto *const GOMD = GO->getMetadata(LLVMContext::MD_repo_ticket)) {
-    if (const TicketNode *const TN = dyn_cast<TicketNode>(GOMD)) {
-      DigestType D = TN->getDigest();
-      GOHash.update(D.Bytes);
-      const GOInfo &GOInformation =
-          GOIMap.try_emplace(GO, std::move(D), GOVec(), GOVec()).first->second;
-      Changed = true;
-      return GODigestState(GOInformation.Contributions,
-                           GOInformation.Dependencies);
-    }
-    report_fatal_error("Failed to get TicketNode metadata!");
-  }
-  calculateGOInfo(GO);
-  return accumulateGOInitialDigestAndGetGODigestState(GO, GOHash);
 }
 
 // Calculate the GOs' initial digest, dependencies, contributions and the
@@ -179,11 +175,10 @@ void HashCache::updateDigestUseContributions(MD5 &GOHash,
   Changed = Changed || !Contributions.empty();
 }
 
-template <typename Function>
 auto HashCache::updateDigestUseDependencies(const GlobalObject *GO, MD5 &GOHash,
                                             unsigned GOVisitedIndex,
                                             const GOVec &Dependencies,
-                                            Function AccumulateGODigest)
+                                            bool Final)
     -> std::tuple<size_t, DigestType> {
   auto LoopPoint = std::numeric_limits<size_t>::max();
   for (const GlobalObject *const G : Dependencies) {
@@ -196,8 +191,7 @@ auto HashCache::updateDigestUseDependencies(const GlobalObject *GO, MD5 &GOHash,
     size_t GVisitedIndex;
     DigestType GDigest;
     std::tie(GVisitedIndex, GDigest) =
-        updateDigestUseDependenciesAndContributions<Function>(
-            G, AccumulateGODigest);
+        updateDigestUseDependenciesAndContributions(G, Final);
     // A GO which loops back to itself doesn't count as a loop.
     if (G != GO)
       LoopPoint = std::min(LoopPoint, GVisitedIndex);
@@ -222,10 +216,8 @@ auto HashCache::updateDigestUseDependencies(const GlobalObject *GO, MD5 &GOHash,
   return std::make_tuple(LoopPoint, Digest);
 }
 
-template <typename Function>
 auto HashCache::updateDigestUseDependenciesAndContributions(
-    const GlobalObject *GO, Function AccumulateGODigest)
-    -> std::tuple<size_t, DigestType> {
+    const GlobalObject *GO, bool Final) -> std::tuple<size_t, DigestType> {
   assert(!GO->isDeclaration() && "Can only be used for global definitions");
 
   const auto GOVisitedIndex = Visited.size();
@@ -261,7 +253,7 @@ auto HashCache::updateDigestUseDependenciesAndContributions(
   }
 
   GOHash.update(static_cast<char>(Tags::GO));
-  auto State = (this->*AccumulateGODigest)(GO, GOHash);
+  auto State = accumulateGODigest(GO, GOHash, Final);
   // The hashes of the GO's 'contributions' and 'dependencies' are separately
   // added to the GO's hash since their respective arrows point are in different
   // direction. In addition, 'contributions' cannot form loops since 1) only
@@ -272,16 +264,13 @@ auto HashCache::updateDigestUseDependenciesAndContributions(
   updateDigestUseContributions(GOHash, State.Contributions);
 
   // Add the GO's dependencies to its hash.
-  return updateDigestUseDependencies<Function>(
-      GO, GOHash, GOVisitedIndex, State.Dependencies, AccumulateGODigest);
+  return updateDigestUseDependencies(GO, GOHash, GOVisitedIndex,
+                                     State.Dependencies, Final);
 }
 
-template <typename Function>
-DigestType HashCache::calculateDigest(const GlobalObject *GO,
-                                      Function AccumulateGODigest) {
+DigestType HashCache::calculateDigest(const GlobalObject *GO, bool Final) {
   Visited.clear();
-  return std::get<1>(
-      updateDigestUseDependenciesAndContributions(GO, AccumulateGODigest));
+  return std::get<1>(updateDigestUseDependenciesAndContributions(GO, Final));
 }
 
 HashCache::HashCache(Module &M) {
@@ -297,16 +286,12 @@ HashCache::HashCache(Module &M) {
   for (auto &GO : M.global_objects()) {
     if (GO.isDeclaration())
       continue;
-    set(&GO,
-        calculateDigest(
-            &GO, &HashCache::accumulateGOInitialDigestAndGetGODigestState));
+    set(&GO, calculateDigest(&GO, false));
   }
 }
 
 DigestType HashCache::calculateDigest(const GlobalObject *GO) {
-  return std::get<1>(updateDigestUseDependenciesAndContributions(
-      GO,
-      &HashCache::accumulateGOFinalDigestOrInitialDigestAndGetGODigestState));
+  return std::get<1>(updateDigestUseDependenciesAndContributions(GO, true));
 }
 
 bool generateTicketMDs(Module &M) {

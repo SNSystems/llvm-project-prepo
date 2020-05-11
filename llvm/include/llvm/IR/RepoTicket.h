@@ -164,12 +164,9 @@ private:
 
   /// Compute the hash value for the given global object GO.
   /// \param GO The global object.
-  /// \param AccumulateGODigest A function is used to accumulate the GO's
-  /// digest.
+  /// \param Final (document this)
   /// \return The global object's digest value.
-  template <typename Function>
-  DigestType calculateDigest(const GlobalObject *GO,
-                             Function AccumulateGODiges);
+  DigestType calculateDigest(const GlobalObject *GO, bool Final);
 
   /// Calculate the initial hash value, dependencies and contributions for the
   /// global object 'G' and store these informaion in the GOImap.
@@ -177,14 +174,9 @@ private:
   template <typename GlobalType> void calculateGOInfo(const GlobalType *G);
   void calculateGOInfo(const GlobalObject *GO);
 
-  /// Accumulate the GO's initial digest and get its GODigestState.
-  GODigestState
-  accumulateGOInitialDigestAndGetGODigestState(const GlobalObject *GO,
-                                               MD5 &GOHash);
-
-  /// Accumulate the GO's final or initial digest and get its GODigestState.
-  GODigestState accumulateGOFinalDigestOrInitialDigestAndGetGODigestState(
-      const GlobalObject *GO, MD5 &GOHash);
+  /// Accumulate the GO's digest and get its GODigestState.
+  GODigestState accumulateGODigest(const GlobalObject *GO, MD5 &GOHash,
+                                   bool Final);
 
   /// Loop through the contributions and add the initial digest of each global
   /// object inside of the contributions to GOHash.
@@ -192,23 +184,21 @@ private:
 
   /// Loop through the dependences and add the final digest of each global
   /// object inside of the dependences to GOHash.
-  template <typename Function>
-  std::tuple<size_t, DigestType> updateDigestUseDependencies(
-      const GlobalObject *GO, MD5 &GOHash, unsigned GOVisitedIndex,
-      const GOVec &Dependencies, Function AccumulateGODigest);
+  std::tuple<size_t, DigestType>
+  updateDigestUseDependencies(const GlobalObject *GO, MD5 &GOHash,
+                              unsigned GOVisitedIndex,
+                              const GOVec &Dependencies, bool Final);
 
   /// Update the digest of an invidual GO incorporating the hashes of all its
   /// dependencies and contributions.
   /// \param GO The global object whose digest is to be computed.
-  /// \param AccumulateGODigest A function is used to accumulate the GO's
-  /// digest.
+  /// \param Final (doc here)
   /// \returns a tuple containing the state information which includes
   /// 1) a numerical identifier which will be used if GO loops back to itself in
   /// future and 2) the GO's digest.
-  template <typename Function>
   std::tuple<size_t, DigestType>
   updateDigestUseDependenciesAndContributions(const GlobalObject *GO,
-                                              Function AccumulateGODigest);
+                                              bool Final);
 };
 
 /// Compute the hash value and set the ticket metadata for all global objects
