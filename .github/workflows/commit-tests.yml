@@ -20,6 +20,8 @@ jobs:
       uses: llvm/actions/install-ninja@master
     - name: Checkout LLVM
       uses: actions/checkout@v2
+      with:
+        submodules: true
     - name: Checkout pstore
       uses: actions/checkout@v2
       with:
@@ -28,4 +30,4 @@ jobs:
     - name: Test LLVM
       uses: llvm/actions/build-test-llvm-project@master
       with:
-        cmake_args: -G Ninja -DLLVM_ENABLE_PROJECTS="clang;pstore" -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD=OFF -DLLVM_PARALLEL_LINK_JOBS=1
+        cmake_args: -G Ninja -DLLVM_ENABLE_PROJECTS="clang;pstore;rld" -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD=OFF -DLLVM_PARALLEL_LINK_JOBS=1
