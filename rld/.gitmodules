@@ -1,0 +1,3 @@
+[submodule "tools/gen/xxHash"]
+	path = tools/gen/xxHash
+	url = https://github.com/Cyan4973/xxHash.git
