@@ -1,0 +1,416 @@
+#ifndef RLD_ELF_H
+#define RLD_ELF_H
+
+#include "LayoutBuilder.h"
+#include "llvm/ADT/Optional.h"
+#include "llvm/BinaryFormat/ELF.h"
+#include "llvm/Object/ELF.h"
+#include "llvm/Object/ELFTypes.h"
+#include "llvm/Support/Endian.h"
+#include "llvm/Support/raw_ostream.h"
+
+#include <memory>
+#include <type_traits>
+
+namespace llvm {
+class raw_pwrite_stream;
+class Triple;
+} // namespace llvm
+
+namespace rld {
+namespace elf {
+
+namespace details {
+
+llvm::ErrorOr<unsigned>
+machineFromTriple(llvm::Optional<llvm::Triple> const &Triple);
+
+template <class ELFT> typename ELFT::Ehdr initELFHeader(unsigned Machine) {
+  typename ELFT::Ehdr Header;
+  Header.e_ident[llvm::ELF::EI_MAG0] = 0x7f;
+  Header.e_ident[llvm::ELF::EI_MAG1] = 'E';
+  Header.e_ident[llvm::ELF::EI_MAG2] = 'L';
+  Header.e_ident[llvm::ELF::EI_MAG3] = 'F';
+  Header.e_ident[llvm::ELF::EI_CLASS] =
+      ELFT::Is64Bits ? llvm::ELF::ELFCLASS64 : llvm::ELF::ELFCLASS32;
+  Header.e_ident[llvm::ELF::EI_DATA] =
+      (ELFT::TargetEndianness == llvm::support::little)
+          ? llvm::ELF::ELFDATA2LSB
+          : llvm::ELF::ELFDATA2MSB;
+  Header.e_ident[llvm::ELF::EI_VERSION] = llvm::ELF::EV_CURRENT;
+  Header.e_ident[llvm::ELF::EI_OSABI] = llvm::ELF::ELFOSABI_NONE;
+  Header.e_ident[llvm::ELF::EI_ABIVERSION] = 0;
+  Header.e_type = llvm::ELF::ET_REL;
+  Header.e_machine = Machine;
+  Header.e_version = llvm::ELF::EV_CURRENT;
+  Header.e_entry = 0;
+  Header.e_phoff = 0; // patched up later
+  Header.e_shoff = 0; // patched up later
+  Header.e_flags = 0;
+  Header.e_ehsize = sizeof(typename ELFT::Ehdr);
+  Header.e_phentsize = sizeof(typename ELFT::Phdr);
+  Header.e_phnum = 0;
+  Header.e_shentsize = sizeof(typename ELFT::Shdr);
+  Header.e_shnum = 0;    // patched up later.
+  Header.e_shstrndx = 0; // SectionIndices::StringTab;
+  return Header;
+}
+
+template <typename Ty, typename = typename std::enable_if<
+                           std::is_standard_layout<Ty>::value>::type>
+std::size_t writeRaw(llvm::raw_ostream &OS, Ty const &T) {
+  assert(OS.tell() % alignof(Ty) == 0);
+  OS.write(reinterpret_cast<char const *>(&T), sizeof(T));
+  return sizeof(T);
+}
+
+template <typename Ty, typename = typename std::enable_if<
+                           std::is_standard_layout<Ty>::value>::type>
+std::size_t writeRaw(llvm::raw_ostream &OS, Ty *T, std::size_t Size) {
+  assert(OS.tell() % alignof(Ty) == 0);
+  OS.write(reinterpret_cast<char const *>(&T), Size);
+  return Size;
+}
+
+template <typename Function>
+void for_each_segment(LayoutOutput const &LO, Function f) {
+  auto const NumSegments = LO.size();
+  for (auto Seg = std::size_t{0}; Seg < NumSegments; ++Seg) {
+    auto const Kind = static_cast<rld::SegmentKind>(Seg);
+    if (Kind != rld::SegmentKind::discard) {
+      f(Kind, LO[Seg]);
+    }
+  }
+}
+
+} // end namespace details
+
+template <typename ELFT>
+std::error_code writeELF(llvm::raw_pwrite_stream &OS, Context const &Ctxt,
+                         std::unique_ptr<rld::LayoutOutput> Layout) {
+  llvm::ErrorOr<unsigned> const Machine =
+      details::machineFromTriple(Ctxt.triple());
+  if (!Machine) {
+    return Machine.getError();
+  }
+
+  typename ELFT::Ehdr Header = details::initELFHeader<ELFT>(*Machine);
+  details::writeRaw(OS, Header);
+  return std::error_code{};
+}
+
+template <typename ELFT>
+constexpr auto elfSegmentKind(rld::SegmentKind Kind) ->
+    typename llvm::object::ELFFile<ELFT>::Elf_Word {
+  using Elf_Word = typename llvm::object::ELFFile<ELFT>::Elf_Word;
+  switch (Kind) {
+  case rld::SegmentKind::phdr:
+    return Elf_Word{llvm::ELF::PT_PHDR};
+
+  case rld::SegmentKind::interp:
+    return Elf_Word{llvm::ELF::PT_INTERP};
+
+  case rld::SegmentKind::data:
+  case rld::SegmentKind::rodata:
+  case rld::SegmentKind::text:
+    return Elf_Word{llvm::ELF::PT_LOAD};
+
+  case rld::SegmentKind::tls:
+    return Elf_Word{llvm::ELF::PT_TLS};
+
+  case rld::SegmentKind::gnu_stack:
+    return Elf_Word{llvm::ELF::PT_GNU_STACK};
+
+  case rld::SegmentKind::discard:
+  case rld::SegmentKind::last:
+    assert(false); // Never appears in the layout.
+    return Elf_Word{};
+  }
+}
+
+template <typename ELFT>
+constexpr auto elfSegmentFlags(rld::SegmentKind const Kind) ->
+    typename llvm::object::ELFFile<ELFT>::Elf_Word {
+  using Elf_Word = typename llvm::object::ELFFile<ELFT>::Elf_Word;
+  switch (Kind) {
+  case rld::SegmentKind::data:
+  case rld::SegmentKind::gnu_stack:
+    return Elf_Word{llvm::ELF::PF_R | llvm::ELF::PF_W};
+
+  case rld::SegmentKind::phdr:
+  case rld::SegmentKind::interp:
+  case rld::SegmentKind::rodata:
+  case rld::SegmentKind::tls:
+    return Elf_Word{llvm::ELF::PF_R};
+
+  case rld::SegmentKind::text:
+    return Elf_Word{llvm::ELF::PF_X | llvm::ELF::PF_R};
+  default:
+    break;
+  }
+  llvm_unreachable("Invalid segment kind");
+}
+
+constexpr bool hasPhysicalAddress(rld::SegmentKind const Kind) {
+  switch (Kind) {
+  case rld::SegmentKind::phdr:
+  case rld::SegmentKind::data:
+  case rld::SegmentKind::rodata:
+  case rld::SegmentKind::text:
+  case rld::SegmentKind::tls:
+    return true;
+
+  case rld::SegmentKind::gnu_stack:
+  case rld::SegmentKind::interp:
+  case rld::SegmentKind::discard:
+  case rld::SegmentKind::last:
+    return false;
+  }
+}
+
+template <typename ELFT>
+auto emitProgramHeaders(typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr,
+                        std::uint64_t StartOffset,
+                        rld::LayoutOutput const &Layout) {
+  details::for_each_segment(
+      Layout, [&Phdr, &StartOffset](rld::SegmentKind Kind,
+                                    rld::Segment const &Segment) {
+        if (Segment.shouldEmit()) {
+          Phdr->p_type = elfSegmentKind<ELFT>(Kind);
+          Phdr->p_flags = elfSegmentFlags<ELFT>(Kind);
+          Phdr->p_vaddr = hasPhysicalAddress(Kind) ? Segment.VAddr : 0;
+          Phdr->p_paddr = Phdr->p_vaddr;
+          Phdr->p_offset = StartOffset;
+          Phdr->p_filesz = Segment.VSize;
+          Phdr->p_memsz = hasPhysicalAddress(Kind) ? Segment.VSize : 0;
+          // “Values 0 and 1 mean no alignment is required. Otherwise, p_align
+          // should be a positive, integral power of 2”
+          std::size_t MaxAlign = Segment.MaxAlign.load();
+          assert(MaxAlign == 0 || llvm::countPopulation(MaxAlign) == 1);
+          Phdr->p_align = MaxAlign;
+
+#if 0
+          // “The file size may not be larger than the memory size.”
+          assert(Phdr->p_filesz <= Phdr->p_memsz);
+
+          // “loadable process segments must have congruent values for p_vaddr and p_offset, modulo
+          // the page size”. That is, p_vaddr ≡ p_offset(mod p_align).
+std::cout << Phdr->p_vaddr << '\n';
+std::cout << Phdr->p_offset << '\n';
+std::cout << Phdr->p_filesz << '\n';
+std::cout << Phdr->p_vaddr % Phdr->p_align << '\n';
+std::cout << Phdr->p_offset % Phdr->p_align << '\n';
+
+          assert(Phdr->p_type != llvm::ELF::PT_LOAD ||
+                 (Phdr->p_vaddr % Phdr->p_align) ==
+                     (Phdr->p_offset % Phdr->p_align));
+#endif
+          ++Phdr;
+          StartOffset += Segment.VSize;
+        }
+      });
+  return Phdr;
+}
+
+template <typename ELFT>
+constexpr auto elf_section_type(rld::SectionKind Kind) {
+  using Elf_Word = typename llvm::object::ELFFile<ELFT>::Elf_Word;
+  switch (Kind) {
+  case SectionKind::data:
+  case SectionKind::debug_line:
+  case SectionKind::debug_ranges:
+  case SectionKind::debug_string:
+  case SectionKind::interp:
+  case SectionKind::mergeable_1_byte_c_string:
+  case SectionKind::mergeable_2_byte_c_string:
+  case SectionKind::mergeable_4_byte_c_string:
+  case SectionKind::mergeable_const_16:
+  case SectionKind::mergeable_const_32:
+  case SectionKind::mergeable_const_4:
+  case SectionKind::mergeable_const_8:
+  case SectionKind::read_only:
+  case SectionKind::rel_ro:
+  case SectionKind::text:
+  case SectionKind::thread_data:
+    return Elf_Word{llvm::ELF::SHT_PROGBITS};
+
+  case SectionKind::bss:
+  case SectionKind::thread_bss:
+    return Elf_Word{llvm::ELF::SHT_NOBITS};
+
+  case SectionKind::strtab:
+  case SectionKind::shstrtab:
+    return Elf_Word{llvm::ELF::SHT_STRTAB};
+
+  case SectionKind::dependent:
+  case SectionKind::last:
+    assert(false); //
+    return Elf_Word{};
+  }
+  llvm_unreachable("Bad section kind");
+}
+
+template <typename ELFT> constexpr auto elf_section_flags(SectionKind Kind) {
+  using Elf_Word = typename llvm::object::ELFFile<ELFT>::Elf_Word;
+
+  switch (Kind) {
+  case SectionKind::text:
+    return Elf_Word{llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_EXECINSTR};
+
+  case SectionKind::bss:
+  case SectionKind::data:
+    return Elf_Word{llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_WRITE};
+
+  case SectionKind::rel_ro:
+    return Elf_Word{llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_WRITE};
+
+  case SectionKind::mergeable_1_byte_c_string:
+  case SectionKind::mergeable_2_byte_c_string:
+  case SectionKind::mergeable_4_byte_c_string:
+  case SectionKind::mergeable_const_4:
+  case SectionKind::mergeable_const_8:
+  case SectionKind::mergeable_const_16:
+  case SectionKind::mergeable_const_32:
+    return Elf_Word{llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_MERGE};
+
+  case SectionKind::read_only:
+    return Elf_Word{llvm::ELF::SHF_ALLOC};
+
+  case SectionKind::thread_data:
+    return Elf_Word{llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_TLS};
+
+  case SectionKind::thread_bss:
+    return Elf_Word{llvm::ELF::SHF_TLS};
+
+  case SectionKind::debug_line:
+  case SectionKind::debug_string:
+  case SectionKind::debug_ranges:
+  case SectionKind::interp:
+  case SectionKind::strtab:
+  case SectionKind::shstrtab:
+    return Elf_Word{};
+
+  case SectionKind::dependent:
+  case SectionKind::last:
+    assert(false); //
+    return Elf_Word{};
+  }
+  llvm_unreachable("Bad section kind");
+}
+
+template <typename ELFT> constexpr auto elf_section_entsize(SectionKind Kind) {
+  using Elf_Word = typename llvm::object::ELFFile<ELFT>::Elf_Word;
+  switch (Kind) {
+  case SectionKind::mergeable_1_byte_c_string:
+    return Elf_Word{1};
+  case SectionKind::mergeable_2_byte_c_string:
+    return Elf_Word{2};
+  case SectionKind::mergeable_4_byte_c_string:
+    return Elf_Word{4};
+  case SectionKind::mergeable_const_4:
+    return Elf_Word{4};
+  case SectionKind::mergeable_const_8:
+    return Elf_Word{8};
+  case SectionKind::mergeable_const_16:
+    return Elf_Word{16};
+  case SectionKind::mergeable_const_32:
+    return Elf_Word{32};
+  case SectionKind::text:
+  case SectionKind::data:
+  case SectionKind::bss:
+  case SectionKind::rel_ro:
+  case SectionKind::read_only:
+  case SectionKind::thread_data:
+  case SectionKind::thread_bss:
+  case SectionKind::debug_line:
+  case SectionKind::debug_string:
+  case SectionKind::debug_ranges:
+  case SectionKind::interp:
+  case SectionKind::dependent:
+  case SectionKind::shstrtab:
+  case SectionKind::strtab:
+    break;
+  case SectionKind::last:
+    llvm_unreachable("an impossible section kind");
+  }
+  return Elf_Word{0};
+}
+
+template <rld::SectionKind SKind> struct ElfSectionName {};
+#define ELF_SECTION_NAME(K, N)                                                 \
+  template <> struct ElfSectionName<rld::SectionKind::K> {                     \
+    static constexpr char name[] = N;                                          \
+    static constexpr std::size_t length = pstore::array_elements(name) - 1U;   \
+  }
+
+ELF_SECTION_NAME(bss, ".bss");
+ELF_SECTION_NAME(data, ".data");
+ELF_SECTION_NAME(debug_line, ".debug_line");
+ELF_SECTION_NAME(debug_ranges, ".debug_ranges");
+ELF_SECTION_NAME(debug_string, ".debug_str");
+ELF_SECTION_NAME(dependent, "");
+ELF_SECTION_NAME(interp, ".interp");
+ELF_SECTION_NAME(mergeable_1_byte_c_string, ".rodata.str1.1");
+ELF_SECTION_NAME(mergeable_2_byte_c_string, ".rodata.str2.2");
+ELF_SECTION_NAME(mergeable_4_byte_c_string, ".rodata.str4.4");
+ELF_SECTION_NAME(mergeable_const_16, ".rodata.cst16");
+ELF_SECTION_NAME(mergeable_const_32, ".rodata.cst32");
+ELF_SECTION_NAME(mergeable_const_4, ".rodata.cst4");
+ELF_SECTION_NAME(mergeable_const_8, ".rodata.cst8");
+ELF_SECTION_NAME(read_only, ".rodata");
+ELF_SECTION_NAME(rel_ro, ".data.rel");
+ELF_SECTION_NAME(shstrtab, ".shstrtab");
+ELF_SECTION_NAME(strtab, ".strtab");
+ELF_SECTION_NAME(text, ".text");
+ELF_SECTION_NAME(thread_bss, ".tbss");
+ELF_SECTION_NAME(thread_data, ".tls");
+
+#undef ELF_SECTION_NAME
+
+#define X(x)                                                                   \
+  case rld::SectionKind::x:                                                    \
+    return {ElfSectionName<rld::SectionKind::x>::name,                         \
+            ElfSectionName<rld::SectionKind::x>::length};
+
+inline std::pair<char const *, std::size_t>
+elfSectionNameAndLength(rld::SectionKind SKind) {
+  switch (SKind) {
+    PSTORE_MCREPO_SECTION_KINDS
+  case rld::SectionKind::shstrtab:
+    return {ElfSectionName<rld::SectionKind::shstrtab>::name,
+            ElfSectionName<rld::SectionKind::shstrtab>::length};
+  case rld::SectionKind::strtab:
+    return {ElfSectionName<rld::SectionKind::strtab>::name,
+            ElfSectionName<rld::SectionKind::strtab>::length};
+  case rld::SectionKind::last:
+    break;
+  }
+  llvm_unreachable("Unknown rld section-kind");
+}
+
+#undef X
+
+struct ElfSectionInfo {
+  std::uint64_t Offset = 0;
+  std::uint64_t Size = 0;
+  std::uint64_t NameOffset = 0;
+  bool Emit = false;
+  unsigned Align = 1;
+};
+
+using ElfSectionInfoArray =
+    std::array<ElfSectionInfo, static_cast<size_t>(rld::SectionKind::last)>;
+
+template <typename ELFT>
+auto emitSectionHeaders(typename llvm::object::ELFFile<ELFT>::Elf_Shdr *Shdr,
+                        ElfSectionInfoArray const &ElfSections) ->
+    typename llvm::object::ELFFile<ELFT>::Elf_Shdr *;
+
+// Produce the section names string table.
+char *emitSectionHeaderStringTable(char *SectionNamePtr,
+                                   ElfSectionInfoArray const &ElfSections);
+
+} // end namespace elf
+} // end namespace rld
+
+#endif // RLD_ELF_H
