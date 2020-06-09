@@ -42,9 +42,8 @@ SimpleCompiler::CompileResult SimpleCompiler::operator()(Module &M) {
     PM.run(M);
   }
 
-  auto ObjBuffer = llvm::make_unique<SmallVectorMemoryBuffer>(
-      std::move(ObjBufferSV),
-      "<in memory object compiled from " + M.getModuleIdentifier() + ">");
+  auto ObjBuffer = std::make_unique<SmallVectorMemoryBuffer>(
+      std::move(ObjBufferSV), M.getModuleIdentifier() + "-jitted-objectbuffer");
 
   auto Obj = object::ObjectFile::createObjectFile(ObjBuffer->getMemBufferRef());
 

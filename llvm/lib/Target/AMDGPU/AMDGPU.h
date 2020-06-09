@@ -11,6 +11,8 @@
 #define LLVM_LIB_TARGET_AMDGPU_AMDGPU_H
 
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/IR/IntrinsicsR600.h" // TODO: Sink this.
+#include "llvm/IR/IntrinsicsAMDGPU.h" // TODO: Sink this.
 
 namespace llvm {
 
@@ -154,6 +156,9 @@ extern char &SIWholeQuadModeID;
 void initializeSILowerControlFlowPass(PassRegistry &);
 extern char &SILowerControlFlowID;
 
+void initializeSIRemoveShortExecBranchesPass(PassRegistry &);
+extern char &SIRemoveShortExecBranchesID;
+
 void initializeSIInsertSkipsPass(PassRegistry &);
 extern char &SIInsertSkipsPassID;
 
@@ -187,6 +192,10 @@ FunctionPass *createAMDGPUISelDag(
 ModulePass *createAMDGPUAlwaysInlinePass(bool GlobalOpt = true);
 ModulePass *createR600OpenCLImageTypeLoweringPass();
 FunctionPass *createAMDGPUAnnotateUniformValues();
+
+ModulePass *createAMDGPUPrintfRuntimeBinding();
+void initializeAMDGPUPrintfRuntimeBindingPass(PassRegistry&);
+extern char &AMDGPUPrintfRuntimeBindingID;
 
 ModulePass* createAMDGPUUnifyMetadataPass();
 void initializeAMDGPUUnifyMetadataPass(PassRegistry&);

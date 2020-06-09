@@ -26,6 +26,7 @@
 #include "SIRegisterInfo.h"
 #include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "Utils/AMDGPUBaseInfo.h"
+#include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
@@ -73,8 +74,8 @@ private:
   const SIRegisterInfo *TRI;
   const SIInstrInfo *TII;
 
-  std::unordered_map<MachineInstr *, std::unique_ptr<SDWAOperand>> SDWAOperands;
-  std::unordered_map<MachineInstr *, SDWAOperandsVector> PotentialMatches;
+  MapVector<MachineInstr *, std::unique_ptr<SDWAOperand>> SDWAOperands;
+  MapVector<MachineInstr *, SDWAOperandsVector> PotentialMatches;
   SmallVector<MachineInstr *, 8> ConvertedInstructions;
 
   Optional<int64_t> foldToImm(const MachineOperand &Op) const;
@@ -574,16 +575,16 @@ SIPeepholeSDWA::matchSDWAOperand(MachineInstr &MI) {
 
     MachineOperand *Src1 = TII->getNamedOperand(MI, AMDGPU::OpName::src1);
     MachineOperand *Dst = TII->getNamedOperand(MI, AMDGPU::OpName::vdst);
-    if (TRI->isPhysicalRegister(Src1->getReg()) ||
-        TRI->isPhysicalRegister(Dst->getReg()))
+    if (Register::isPhysicalRegister(Src1->getReg()) ||
+        Register::isPhysicalRegister(Dst->getReg()))
       break;
 
     if (Opcode == AMDGPU::V_LSHLREV_B32_e32 ||
         Opcode == AMDGPU::V_LSHLREV_B32_e64) {
-      return make_unique<SDWADstOperand>(
+      return std::make_unique<SDWADstOperand>(
           Dst, Src1, *Imm == 16 ? WORD_1 : BYTE_3, UNUSED_PAD);
     } else {
-      return make_unique<SDWASrcOperand>(
+      return std::make_unique<SDWASrcOperand>(
           Src1, Dst, *Imm == 16 ? WORD_1 : BYTE_3, false, false,
           Opcode != AMDGPU::V_LSHRREV_B32_e32 &&
           Opcode != AMDGPU::V_LSHRREV_B32_e64);
@@ -613,15 +614,15 @@ SIPeepholeSDWA::matchSDWAOperand(MachineInstr &MI) {
     MachineOperand *Src1 = TII->getNamedOperand(MI, AMDGPU::OpName::src1);
     MachineOperand *Dst = TII->getNamedOperand(MI, AMDGPU::OpName::vdst);
 
-    if (TRI->isPhysicalRegister(Src1->getReg()) ||
-        TRI->isPhysicalRegister(Dst->getReg()))
+    if (Register::isPhysicalRegister(Src1->getReg()) ||
+        Register::isPhysicalRegister(Dst->getReg()))
       break;
 
     if (Opcode == AMDGPU::V_LSHLREV_B16_e32 ||
         Opcode == AMDGPU::V_LSHLREV_B16_e64) {
-      return make_unique<SDWADstOperand>(Dst, Src1, BYTE_1, UNUSED_PAD);
+      return std::make_unique<SDWADstOperand>(Dst, Src1, BYTE_1, UNUSED_PAD);
     } else {
-      return make_unique<SDWASrcOperand>(
+      return std::make_unique<SDWASrcOperand>(
             Src1, Dst, BYTE_1, false, false,
             Opcode != AMDGPU::V_LSHRREV_B16_e32 &&
             Opcode != AMDGPU::V_LSHRREV_B16_e64);
@@ -677,11 +678,11 @@ SIPeepholeSDWA::matchSDWAOperand(MachineInstr &MI) {
     MachineOperand *Src0 = TII->getNamedOperand(MI, AMDGPU::OpName::src0);
     MachineOperand *Dst = TII->getNamedOperand(MI, AMDGPU::OpName::vdst);
 
-    if (TRI->isPhysicalRegister(Src0->getReg()) ||
-        TRI->isPhysicalRegister(Dst->getReg()))
+    if (Register::isPhysicalRegister(Src0->getReg()) ||
+        Register::isPhysicalRegister(Dst->getReg()))
       break;
 
-    return make_unique<SDWASrcOperand>(
+    return std::make_unique<SDWASrcOperand>(
           Src0, Dst, SrcSel, false, false, Opcode != AMDGPU::V_BFE_U32);
   }
 
@@ -706,11 +707,11 @@ SIPeepholeSDWA::matchSDWAOperand(MachineInstr &MI) {
 
     MachineOperand *Dst = TII->getNamedOperand(MI, AMDGPU::OpName::vdst);
 
-    if (TRI->isPhysicalRegister(ValSrc->getReg()) ||
-        TRI->isPhysicalRegister(Dst->getReg()))
+    if (Register::isPhysicalRegister(ValSrc->getReg()) ||
+        Register::isPhysicalRegister(Dst->getReg()))
       break;
 
-    return make_unique<SDWASrcOperand>(
+    return std::make_unique<SDWASrcOperand>(
         ValSrc, Dst, *Imm == 0x0000ffff ? WORD_0 : BYTE_0);
   }
 
@@ -840,7 +841,7 @@ SIPeepholeSDWA::matchSDWAOperand(MachineInstr &MI) {
     MachineOperand *OrDst = TII->getNamedOperand(MI, AMDGPU::OpName::vdst);
     assert(OrDst && OrDst->isReg());
 
-    return make_unique<SDWADstPreserveOperand>(
+    return std::make_unique<SDWADstPreserveOperand>(
       OrDst, OrSDWADef, OrOtherDef, DstSel);
 
   }
@@ -1189,7 +1190,7 @@ void SIPeepholeSDWA::legalizeScalarOperands(MachineInstr &MI,
       continue;
     }
 
-    unsigned VGPR = MRI->createVirtualRegister(&AMDGPU::VGPR_32RegClass);
+    Register VGPR = MRI->createVirtualRegister(&AMDGPU::VGPR_32RegClass);
     auto Copy = BuildMI(*MI.getParent(), MI.getIterator(), MI.getDebugLoc(),
                         TII->get(AMDGPU::V_MOV_B32_e32), VGPR);
     if (Op.isImm())

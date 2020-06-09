@@ -197,7 +197,7 @@ static bool Execute(ProcessInfo &PI, StringRef Program,
     // An environment block consists of a null-terminated block of
     // null-terminated strings. Convert the array of environment variables to
     // an environment block by concatenating them.
-    for (const auto E : *Env) {
+    for (StringRef E : *Env) {
       SmallVector<wchar_t, MAX_PATH> EnvString;
       if (std::error_code ec = windows::UTF8ToUTF16(E, EnvString)) {
         SetLastError(ec.value());
@@ -470,7 +470,7 @@ std::error_code
 llvm::sys::writeFileWithEncoding(StringRef FileName, StringRef Contents,
                                  WindowsEncodingMethod Encoding) {
   std::error_code EC;
-  llvm::raw_fd_ostream OS(FileName, EC, llvm::sys::fs::F_Text);
+  llvm::raw_fd_ostream OS(FileName, EC, llvm::sys::fs::OF_Text);
   if (EC)
     return EC;
 

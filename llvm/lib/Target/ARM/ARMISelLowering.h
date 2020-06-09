@@ -103,6 +103,7 @@ class VectorType;
       ADDE,         // Add using carry
       SUBC,         // Sub with carry
       SUBE,         // Sub using carry
+      LSLS,         // Shift left producing carry
 
       VMOVRRD,      // double to two gprs.
       VMOVDRR,      // Two gprs to double.
@@ -126,17 +127,13 @@ class VectorType;
       WIN__DBZCHK,  // Windows' divide by zero check
 
       WLS,          // Low-overhead loops, While Loop Start
+      LOOP_DEC,     // Really a part of LE, performs the sub
+      LE,           // Low-overhead loops, Loop End
 
-      VCEQ,         // Vector compare equal.
-      VCEQZ,        // Vector compare equal to zero.
-      VCGE,         // Vector compare greater than or equal.
-      VCGEZ,        // Vector compare greater than or equal to zero.
-      VCLEZ,        // Vector compare less than or equal to zero.
-      VCGEU,        // Vector compare unsigned greater than or equal.
-      VCGT,         // Vector compare greater than.
-      VCGTZ,        // Vector compare greater than zero.
-      VCLTZ,        // Vector compare less than zero.
-      VCGTU,        // Vector compare unsigned greater than.
+      PREDICATE_CAST, // Predicate cast for MVE i1 types
+
+      VCMP,         // Vector compare.
+      VCMPZ,        // Vector compare to zero.
       VTST,         // Vector test bits.
 
       // Vector shift by vector
@@ -200,6 +197,7 @@ class VectorType;
       VTRN,         // transpose
       VTBL1,        // 1-register shuffle with mask
       VTBL2,        // 2-register shuffle with mask
+      VMOVN,        // MVE vmovn
 
       // Vector multiply long:
       VMULLs,       // ...signed
@@ -220,6 +218,12 @@ class VectorType;
       SMLSLDX,      // Signed multiply subtract long dual exchange
       SMMLAR,       // Signed multiply long, round and add
       SMMLSR,       // Signed multiply long, subtract and round
+
+      // Single Lane QADD8 and QADD16. Only the bottom lane. That's what the b stands for.
+      QADD8b,
+      QSUB8b,
+      QADD16b,
+      QSUB16b,
 
       // Operands of the standard BUILD_VECTOR node are not legalized, which
       // is fine if BUILD_VECTORs are always lowered to shuffles or other
@@ -242,6 +246,11 @@ class VectorType;
       // Pseudo-instruction representing a memory copy using ldm/stm
       // instructions.
       MEMCPY,
+
+      // V8.1MMainline condition select
+      CSINV, // Conditional select invert.
+      CSNEG, // Conditional select negate.
+      CSINC, // Conditional select increment.
 
       // Vector load N-element structure to all lanes:
       VLD1DUP = ISD::FIRST_TARGET_MEMORY_OPCODE,
@@ -269,7 +278,11 @@ class VectorType;
       VST4_UPD,
       VST2LN_UPD,
       VST3LN_UPD,
-      VST4LN_UPD
+      VST4LN_UPD,
+
+      // Load/Store of dual registers
+      LDRD,
+      STRD
     };
 
   } // end namespace ARMISD
@@ -368,7 +381,7 @@ class VectorType;
 
     bool isLegalT2ScaledAddressingMode(const AddrMode &AM, EVT VT) const;
 
-    /// Returns true if the addresing mode representing by AM is legal
+    /// Returns true if the addressing mode representing by AM is legal
     /// for the Thumb1 target, for a load/store of the specified type.
     bool isLegalT1ScaledAddressingMode(const AddrMode &AM, EVT VT) const;
 
@@ -539,7 +552,7 @@ class VectorType;
     Instruction *emitTrailingFence(IRBuilder<> &Builder, Instruction *Inst,
                                    AtomicOrdering Ord) const override;
 
-    unsigned getMaxSupportedInterleaveFactor() const override { return 4; }
+    unsigned getMaxSupportedInterleaveFactor() const override;
 
     bool lowerInterleavedLoad(LoadInst *LI,
                               ArrayRef<ShuffleVectorInst *> Shuffles,
@@ -595,7 +608,7 @@ class VectorType;
     /// Returns true if \p VecTy is a legal interleaved access type. This
     /// function checks the vector element type and the overall width of the
     /// vector.
-    bool isLegalInterleavedAccessType(VectorType *VecTy,
+    bool isLegalInterleavedAccessType(unsigned Factor, VectorType *VecTy,
                                       const DataLayout &DL) const;
 
     bool alignLoopsWithOptSize() const override;
@@ -608,8 +621,8 @@ class VectorType;
     void finalizeLowering(MachineFunction &MF) const override;
 
     /// Return the correct alignment for the current calling convention.
-    unsigned getABIAlignmentForCallingConv(Type *ArgTy,
-                                           DataLayout DL) const override;
+    Align getABIAlignmentForCallingConv(Type *ArgTy,
+                                        DataLayout DL) const override;
 
     bool isDesirableToCommuteWithShift(const SDNode *N,
                                        CombineLevel Level) const override;
@@ -670,6 +683,8 @@ class VectorType;
     SDValue LowerEH_SJLJ_SETJMP(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerEH_SJLJ_LONGJMP(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerEH_SJLJ_SETUP_DISPATCH(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerINTRINSIC_VOID(SDValue Op, SelectionDAG &DAG,
+                                    const ARMSubtarget *Subtarget) const;
     SDValue LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG,
                                     const ARMSubtarget *Subtarget) const;
     SDValue LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const;
@@ -720,23 +735,17 @@ class VectorType;
     SDValue LowerINT_TO_FP(SDValue Op, SelectionDAG &DAG) const;
     void lowerABS(SDNode *N, SmallVectorImpl<SDValue> &Results,
                   SelectionDAG &DAG) const;
+    void LowerLOAD(SDNode *N, SmallVectorImpl<SDValue> &Results,
+                   SelectionDAG &DAG) const;
 
-    unsigned getRegisterByName(const char* RegName, EVT VT,
-                               SelectionDAG &DAG) const override;
+    Register getRegisterByName(const char* RegName, LLT VT,
+                               const MachineFunction &MF) const override;
 
     SDValue BuildSDIVPow2(SDNode *N, const APInt &Divisor, SelectionDAG &DAG,
                           SmallVectorImpl<SDNode *> &Created) const override;
 
-    /// isFMAFasterThanFMulAndFAdd - Return true if an FMA operation is faster
-    /// than a pair of fmul and fadd instructions. fmuladd intrinsics will be
-    /// expanded to FMAs when this method returns true, otherwise fmuladd is
-    /// expanded to fmul + fadd.
-    ///
-    /// ARM supports both fused and unfused multiply-add operations; we already
-    /// lower a pair of fmul and fadd to the latter so it's not clear that there
-    /// would be a gain or that the gain would be worthwhile enough to risk
-    /// correctness bugs.
-    bool isFMAFasterThanFMulAndFAdd(EVT VT) const override { return false; }
+    bool isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
+                                    EVT VT) const override;
 
     SDValue ReconstructShuffle(SDValue Op, SelectionDAG &DAG) const;
 
@@ -814,7 +823,7 @@ class VectorType;
     SDValue getARMCmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
                       SDValue &ARMcc, SelectionDAG &DAG, const SDLoc &dl) const;
     SDValue getVFPCmp(SDValue LHS, SDValue RHS, SelectionDAG &DAG,
-                      const SDLoc &dl, bool InvalidOnQNaN) const;
+                      const SDLoc &dl) const;
     SDValue duplicateCmp(SDValue Cmp, SelectionDAG &DAG) const;
 
     SDValue OptimizeVFPBrcond(SDValue Op, SelectionDAG &DAG) const;
@@ -838,7 +847,7 @@ class VectorType;
     void setAllExpand(MVT VT);
   };
 
-  enum NEONModImmType {
+  enum VMOVModImmType {
     VMOVModImm,
     VMVNModImm,
     MVEVMVNModImm,

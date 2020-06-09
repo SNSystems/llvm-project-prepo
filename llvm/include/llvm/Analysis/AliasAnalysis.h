@@ -949,7 +949,7 @@ template <typename DerivedT> class AAResultBase {
 
   /// A pointer to the AAResults object that this AAResult is
   /// aggregated within. May be null if not aggregated.
-  AAResults *AAR;
+  AAResults *AAR = nullptr;
 
   /// Helper to dispatch calls back through the derived type.
   DerivedT &derived() { return static_cast<DerivedT &>(*this); }
@@ -1179,14 +1179,9 @@ struct ExternalAAWrapperPass : ImmutablePass {
 
   static char ID;
 
-  ExternalAAWrapperPass() : ImmutablePass(ID) {
-    initializeExternalAAWrapperPassPass(*PassRegistry::getPassRegistry());
-  }
+  ExternalAAWrapperPass();
 
-  explicit ExternalAAWrapperPass(CallbackT CB)
-      : ImmutablePass(ID), CB(std::move(CB)) {
-    initializeExternalAAWrapperPassPass(*PassRegistry::getPassRegistry());
-  }
+  explicit ExternalAAWrapperPass(CallbackT CB);
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.setPreservesAll();

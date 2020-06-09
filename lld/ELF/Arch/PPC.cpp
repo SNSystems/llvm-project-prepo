@@ -10,14 +10,16 @@
 #include "Symbols.h"
 #include "SyntheticSections.h"
 #include "Target.h"
+#include "Thunks.h"
 #include "lld/Common/ErrorHandler.h"
 #include "llvm/Support/Endian.h"
 
 using namespace llvm;
 using namespace llvm::support::endian;
 using namespace llvm::ELF;
-using namespace lld;
-using namespace lld::elf;
+
+namespace lld {
+namespace elf {
 
 namespace {
 class PPC final : public TargetInfo {
@@ -30,13 +32,16 @@ public:
   void writePltHeader(uint8_t *buf) const override {
     llvm_unreachable("should call writePPC32GlinkSection() instead");
   }
-  void writePlt(uint8_t *buf, uint64_t gotPltEntryAddr, uint64_t pltEntryAddr,
-    int32_t index, unsigned relOff) const override {
+  void writePlt(uint8_t *buf, const Symbol &sym,
+                uint64_t pltEntryAddr) const override {
     llvm_unreachable("should call writePPC32GlinkSection() instead");
   }
+  void writeIplt(uint8_t *buf, const Symbol &sym,
+                 uint64_t pltEntryAddr) const override;
   void writeGotPlt(uint8_t *buf, const Symbol &s) const override;
   bool needsThunk(RelExpr expr, RelType relocType, const InputFile *file,
-                  uint64_t branchAddr, const Symbol &s) const override;
+                  uint64_t branchAddr, const Symbol &s,
+                  int64_t a) const override;
   uint32_t getThunkSectionSpacing() const override;
   bool inBranchRange(RelType type, uint64_t src, uint64_t dst) const override;
   void relocateOne(uint8_t *loc, RelType type, uint64_t val) const override;
@@ -61,7 +66,7 @@ static void writeFromHalf16(uint8_t *loc, uint32_t insn) {
   write32(config->isLE ? loc : loc - 2, insn);
 }
 
-void elf::writePPC32GlinkSection(uint8_t *buf, size_t numEntries) {
+void writePPC32GlinkSection(uint8_t *buf, size_t numEntries) {
   // On PPC Secure PLT ABI, bl foo@plt jumps to a call stub, which loads an
   // absolute address from a specific .plt slot (usually called .got.plt on
   // other targets) and jumps there.
@@ -142,6 +147,7 @@ PPC::PPC() {
   gotPltHeaderEntriesNum = 0;
   pltHeaderSize = 64; // size of PLTresolve in .glink
   pltEntrySize = 4;
+  ipltEntrySize = 16;
 
   needsThunks = true;
 
@@ -153,6 +159,13 @@ PPC::PPC() {
   defaultImageBase = 0x10000000;
 
   write32(trapInstr.data(), 0x7fe00008);
+}
+
+void PPC::writeIplt(uint8_t *buf, const Symbol &sym,
+                    uint64_t /*pltEntryAddr*/) const {
+  // In -pie or -shared mode, assume r30 points to .got2+0x8000, and use a
+  // .got2.plt_pic32. thunk.
+  writePPC32PltCallStub(buf, sym.getGotPltVA(), sym.file, 0x8000);
 }
 
 void PPC::writeGotHeader(uint8_t *buf) const {
@@ -168,7 +181,7 @@ void PPC::writeGotPlt(uint8_t *buf, const Symbol &s) const {
 }
 
 bool PPC::needsThunk(RelExpr expr, RelType type, const InputFile *file,
-                     uint64_t branchAddr, const Symbol &s) const {
+                     uint64_t branchAddr, const Symbol &s, int64_t /*a*/) const {
   if (type != R_PPC_REL24 && type != R_PPC_PLTREL24)
     return false;
   if (s.isInPlt())
@@ -190,6 +203,13 @@ bool PPC::inBranchRange(RelType type, uint64_t src, uint64_t dst) const {
 RelExpr PPC::getRelExpr(RelType type, const Symbol &s,
                         const uint8_t *loc) const {
   switch (type) {
+  case R_PPC_NONE:
+    return R_NONE;
+  case R_PPC_ADDR16_HA:
+  case R_PPC_ADDR16_HI:
+  case R_PPC_ADDR16_LO:
+  case R_PPC_ADDR32:
+    return R_ABS;
   case R_PPC_DTPREL16:
   case R_PPC_DTPREL16_HA:
   case R_PPC_DTPREL16_HI:
@@ -227,7 +247,9 @@ RelExpr PPC::getRelExpr(RelType type, const Symbol &s,
   case R_PPC_TPREL16_HI:
     return R_TLS;
   default:
-    return R_ABS;
+    error(getErrorLocation(loc) + "unknown relocation (" + Twine(type) +
+          ") against symbol " + toString(s));
+    return R_NONE;
   }
 }
 
@@ -319,7 +341,7 @@ void PPC::relocateOne(uint8_t *loc, RelType type, uint64_t val) const {
     break;
   }
   default:
-    error(getErrorLocation(loc) + "unrecognized relocation " + toString(type));
+    llvm_unreachable("unknown relocation");
   }
 }
 
@@ -426,7 +448,10 @@ void PPC::relaxTlsIeToLe(uint8_t *loc, RelType type, uint64_t val) const {
   }
 }
 
-TargetInfo *elf::getPPCTargetInfo() {
+TargetInfo *getPPCTargetInfo() {
   static PPC target;
   return &target;
 }
+
+} // namespace elf
+} // namespace lld

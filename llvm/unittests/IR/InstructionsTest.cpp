@@ -995,6 +995,46 @@ TEST(InstructionsTest, ShuffleMaskQueries) {
   delete Id12;
 }
 
+TEST(InstructionsTest, GetSplat) {
+  // Create the elements for various constant vectors.
+  LLVMContext Ctx;
+  Type *Int32Ty = Type::getInt32Ty(Ctx);
+  Constant *CU = UndefValue::get(Int32Ty);
+  Constant *C0 = ConstantInt::get(Int32Ty, 0);
+  Constant *C1 = ConstantInt::get(Int32Ty, 1);
+
+  Constant *Splat0 = ConstantVector::get({C0, C0, C0, C0});
+  Constant *Splat1 = ConstantVector::get({C1, C1, C1, C1 ,C1});
+  Constant *Splat0Undef = ConstantVector::get({C0, CU, C0, CU});
+  Constant *Splat1Undef = ConstantVector::get({CU, CU, C1, CU});
+  Constant *NotSplat = ConstantVector::get({C1, C1, C0, C1 ,C1});
+  Constant *NotSplatUndef = ConstantVector::get({CU, C1, CU, CU ,C0});
+
+  // Default - undefs are not allowed.
+  EXPECT_EQ(Splat0->getSplatValue(), C0);
+  EXPECT_EQ(Splat1->getSplatValue(), C1);
+  EXPECT_EQ(Splat0Undef->getSplatValue(), nullptr);
+  EXPECT_EQ(Splat1Undef->getSplatValue(), nullptr);
+  EXPECT_EQ(NotSplat->getSplatValue(), nullptr);
+  EXPECT_EQ(NotSplatUndef->getSplatValue(), nullptr);
+
+  // Disallow undefs explicitly.
+  EXPECT_EQ(Splat0->getSplatValue(false), C0);
+  EXPECT_EQ(Splat1->getSplatValue(false), C1);
+  EXPECT_EQ(Splat0Undef->getSplatValue(false), nullptr);
+  EXPECT_EQ(Splat1Undef->getSplatValue(false), nullptr);
+  EXPECT_EQ(NotSplat->getSplatValue(false), nullptr);
+  EXPECT_EQ(NotSplatUndef->getSplatValue(false), nullptr);
+
+  // Allow undefs.
+  EXPECT_EQ(Splat0->getSplatValue(true), C0);
+  EXPECT_EQ(Splat1->getSplatValue(true), C1);
+  EXPECT_EQ(Splat0Undef->getSplatValue(true), C0);
+  EXPECT_EQ(Splat1Undef->getSplatValue(true), C1);
+  EXPECT_EQ(NotSplat->getSplatValue(true), nullptr);
+  EXPECT_EQ(NotSplatUndef->getSplatValue(true), nullptr);
+}
+
 TEST(InstructionsTest, SkipDebug) {
   LLVMContext C;
   std::unique_ptr<Module> M = parseIR(C,
@@ -1034,13 +1074,70 @@ TEST(InstructionsTest, SkipDebug) {
   EXPECT_EQ(nullptr, Term->getNextNonDebugInstruction());
 }
 
-TEST(InstructionsTest, PhiIsNotFPMathOperator) {
+TEST(InstructionsTest, PhiMightNotBeFPMathOperator) {
   LLVMContext Context;
   IRBuilder<> Builder(Context);
   MDBuilder MDHelper(Context);
-  Instruction *I = Builder.CreatePHI(Builder.getDoubleTy(), 0);
+  Instruction *I = Builder.CreatePHI(Builder.getInt32Ty(), 0);
   EXPECT_FALSE(isa<FPMathOperator>(I));
   I->deleteValue();
+  Instruction *FP = Builder.CreatePHI(Builder.getDoubleTy(), 0);
+  EXPECT_TRUE(isa<FPMathOperator>(FP));
+  FP->deleteValue();
+}
+
+TEST(InstructionsTest, FPCallIsFPMathOperator) {
+  LLVMContext C;
+
+  Type *ITy = Type::getInt32Ty(C);
+  FunctionType *IFnTy = FunctionType::get(ITy, {});
+  Value *ICallee = Constant::getNullValue(IFnTy->getPointerTo());
+  std::unique_ptr<CallInst> ICall(CallInst::Create(IFnTy, ICallee, {}, ""));
+  EXPECT_FALSE(isa<FPMathOperator>(ICall));
+
+  Type *VITy = VectorType::get(ITy, 2);
+  FunctionType *VIFnTy = FunctionType::get(VITy, {});
+  Value *VICallee = Constant::getNullValue(VIFnTy->getPointerTo());
+  std::unique_ptr<CallInst> VICall(CallInst::Create(VIFnTy, VICallee, {}, ""));
+  EXPECT_FALSE(isa<FPMathOperator>(VICall));
+
+  Type *AITy = ArrayType::get(ITy, 2);
+  FunctionType *AIFnTy = FunctionType::get(AITy, {});
+  Value *AICallee = Constant::getNullValue(AIFnTy->getPointerTo());
+  std::unique_ptr<CallInst> AICall(CallInst::Create(AIFnTy, AICallee, {}, ""));
+  EXPECT_FALSE(isa<FPMathOperator>(AICall));
+
+  Type *FTy = Type::getFloatTy(C);
+  FunctionType *FFnTy = FunctionType::get(FTy, {});
+  Value *FCallee = Constant::getNullValue(FFnTy->getPointerTo());
+  std::unique_ptr<CallInst> FCall(CallInst::Create(FFnTy, FCallee, {}, ""));
+  EXPECT_TRUE(isa<FPMathOperator>(FCall));
+
+  Type *VFTy = VectorType::get(FTy, 2);
+  FunctionType *VFFnTy = FunctionType::get(VFTy, {});
+  Value *VFCallee = Constant::getNullValue(VFFnTy->getPointerTo());
+  std::unique_ptr<CallInst> VFCall(CallInst::Create(VFFnTy, VFCallee, {}, ""));
+  EXPECT_TRUE(isa<FPMathOperator>(VFCall));
+
+  Type *AFTy = ArrayType::get(FTy, 2);
+  FunctionType *AFFnTy = FunctionType::get(AFTy, {});
+  Value *AFCallee = Constant::getNullValue(AFFnTy->getPointerTo());
+  std::unique_ptr<CallInst> AFCall(CallInst::Create(AFFnTy, AFCallee, {}, ""));
+  EXPECT_TRUE(isa<FPMathOperator>(AFCall));
+
+  Type *AVFTy = ArrayType::get(VFTy, 2);
+  FunctionType *AVFFnTy = FunctionType::get(AVFTy, {});
+  Value *AVFCallee = Constant::getNullValue(AVFFnTy->getPointerTo());
+  std::unique_ptr<CallInst> AVFCall(
+      CallInst::Create(AVFFnTy, AVFCallee, {}, ""));
+  EXPECT_TRUE(isa<FPMathOperator>(AVFCall));
+
+  Type *AAVFTy = ArrayType::get(AVFTy, 2);
+  FunctionType *AAVFFnTy = FunctionType::get(AAVFTy, {});
+  Value *AAVFCallee = Constant::getNullValue(AAVFFnTy->getPointerTo());
+  std::unique_ptr<CallInst> AAVFCall(
+      CallInst::Create(AAVFFnTy, AAVFCallee, {}, ""));
+  EXPECT_TRUE(isa<FPMathOperator>(AAVFCall));
 }
 
 TEST(InstructionsTest, FNegInstruction) {
@@ -1059,6 +1156,73 @@ TEST(InstructionsTest, FNegInstruction) {
   EXPECT_FALSE(FNeg->hasApproxFunc());
   FAdd->deleteValue();
   FNeg->deleteValue();
+}
+
+TEST(InstructionsTest, CallBrInstruction) {
+  LLVMContext Context;
+  std::unique_ptr<Module> M = parseIR(Context, R"(
+define void @foo() {
+entry:
+  callbr void asm sideeffect "// XXX: ${0:l}", "X"(i8* blockaddress(@foo, %branch_test.exit))
+          to label %land.rhs.i [label %branch_test.exit]
+
+land.rhs.i:
+  br label %branch_test.exit
+
+branch_test.exit:
+  %0 = phi i1 [ true, %entry ], [ false, %land.rhs.i ]
+  br i1 %0, label %if.end, label %if.then
+
+if.then:
+  ret void
+
+if.end:
+  ret void
+}
+)");
+  Function *Foo = M->getFunction("foo");
+  auto BBs = Foo->getBasicBlockList().begin();
+  CallBrInst &CBI = cast<CallBrInst>(BBs->front());
+  ++BBs;
+  ++BBs;
+  BasicBlock &BranchTestExit = *BBs;
+  ++BBs;
+  BasicBlock &IfThen = *BBs;
+
+  // Test that setting the first indirect destination of callbr updates the dest
+  EXPECT_EQ(&BranchTestExit, CBI.getIndirectDest(0));
+  CBI.setIndirectDest(0, &IfThen);
+  EXPECT_EQ(&IfThen, CBI.getIndirectDest(0));
+
+  // Further, test that changing the indirect destination updates the arg
+  // operand to use the block address of the new indirect destination basic
+  // block. This is a critical invariant of CallBrInst.
+  BlockAddress *IndirectBA = BlockAddress::get(CBI.getIndirectDest(0));
+  BlockAddress *ArgBA = cast<BlockAddress>(CBI.getArgOperand(0));
+  EXPECT_EQ(IndirectBA, ArgBA)
+      << "After setting the indirect destination, callbr had an indirect "
+         "destination of '"
+      << CBI.getIndirectDest(0)->getName() << "', but a argument of '"
+      << ArgBA->getBasicBlock()->getName() << "'. These should always match:\n"
+      << CBI;
+  EXPECT_EQ(IndirectBA->getBasicBlock(), &IfThen);
+  EXPECT_EQ(ArgBA->getBasicBlock(), &IfThen);
+}
+
+TEST(InstructionsTest, UnaryOperator) {
+  LLVMContext Context;
+  IRBuilder<> Builder(Context);
+  Instruction *I = Builder.CreatePHI(Builder.getDoubleTy(), 0);
+  Value *F = Builder.CreateFNeg(I);
+
+  EXPECT_TRUE(isa<Value>(F));
+  EXPECT_TRUE(isa<Instruction>(F));
+  EXPECT_TRUE(isa<UnaryInstruction>(F));
+  EXPECT_TRUE(isa<UnaryOperator>(F));
+  EXPECT_FALSE(isa<BinaryOperator>(F));
+
+  F->deleteValue();
+  I->deleteValue();
 }
 
 } // end anonymous namespace

@@ -203,5 +203,5 @@ unsigned X86RepoObjectWriter::getRelocType(MCContext &Ctx,
 }
 
 std::unique_ptr<MCObjectTargetWriter> llvm::createX86RepoObjectWriter() {
-  return llvm::make_unique<X86RepoObjectWriter>();
+  return std::make_unique<X86RepoObjectWriter>();
 }

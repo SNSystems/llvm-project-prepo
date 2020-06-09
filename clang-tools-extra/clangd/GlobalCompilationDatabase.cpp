@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "GlobalCompilationDatabase.h"
+#include "FS.h"
 #include "Logger.h"
 #include "Path.h"
 #include "clang/Frontend/CompilerInvocation.h"
@@ -15,8 +16,11 @@
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/Program.h"
 #include <string>
 #include <tuple>
 #include <vector>
@@ -24,30 +28,6 @@
 namespace clang {
 namespace clangd {
 namespace {
-
-void adjustArguments(tooling::CompileCommand &Cmd,
-                     llvm::StringRef ResourceDir) {
-  tooling::ArgumentsAdjuster ArgsAdjuster = tooling::combineAdjusters(
-      // clangd should not write files to disk, including dependency files
-      // requested on the command line.
-      tooling::getClangStripDependencyFileAdjuster(),
-      // Strip plugin related command line arguments. Clangd does
-      // not support plugins currently. Therefore it breaks if
-      // compiler tries to load plugins.
-      tooling::combineAdjusters(tooling::getStripPluginsAdjuster(),
-                                tooling::getClangSyntaxOnlyAdjuster()));
-
-  Cmd.CommandLine = ArgsAdjuster(Cmd.CommandLine, Cmd.Filename);
-  // Inject the resource dir.
-  // FIXME: Don't overwrite it if it's already there.
-  if (!ResourceDir.empty())
-    Cmd.CommandLine.push_back(("-resource-dir=" + ResourceDir).str());
-}
-
-std::string getStandardResourceDir() {
-  static int Dummy; // Just an address in this process.
-  return CompilerInvocation::GetResourcesPath("clangd", (void *)&Dummy);
-}
 
 // Runs the given action on all parent directories of filename, starting from
 // deepest directory and going up to root. Stops whenever action succeeds.
@@ -61,19 +41,9 @@ void actOnAllParentDirectories(PathRef FileName,
 
 } // namespace
 
-static std::string getFallbackClangPath() {
-  static int Dummy;
-  std::string ClangdExecutable =
-      llvm::sys::fs::getMainExecutable("clangd", (void *)&Dummy);
-  SmallString<128> ClangPath;
-  ClangPath = llvm::sys::path::parent_path(ClangdExecutable);
-  llvm::sys::path::append(ClangPath, "clang");
-  return ClangPath.str();
-}
-
 tooling::CompileCommand
 GlobalCompilationDatabase::getFallbackCommand(PathRef File) const {
-  std::vector<std::string> Argv = {getFallbackClangPath()};
+  std::vector<std::string> Argv = {"clang"};
   // Clang treats .h files as C by default and files without extension as linker
   // input, resulting in unhelpful diagnostics.
   // Parsing as Objective C++ is friendly to more cases.
@@ -115,20 +85,41 @@ DirectoryBasedGlobalCompilationDatabase::getCompileCommand(PathRef File) const {
   return None;
 }
 
-std::pair<tooling::CompilationDatabase *, /*SentBroadcast*/ bool>
+// For platforms where paths are case-insensitive (but case-preserving),
+// we need to do case-insensitive comparisons and use lowercase keys.
+// FIXME: Make Path a real class with desired semantics instead.
+//        This class is not the only place this problem exists.
+// FIXME: Mac filesystems default to case-insensitive, but may be sensitive.
+
+static std::string maybeCaseFoldPath(PathRef Path) {
+#if defined(_WIN32) || defined(__APPLE__)
+  return Path.lower();
+#else
+  return Path;
+#endif
+}
+
+static bool pathEqual(PathRef A, PathRef B) {
+#if defined(_WIN32) || defined(__APPLE__)
+  return A.equals_lower(B);
+#else
+  return A == B;
+#endif
+}
+
+DirectoryBasedGlobalCompilationDatabase::CachedCDB &
 DirectoryBasedGlobalCompilationDatabase::getCDBInDirLocked(PathRef Dir) const {
   // FIXME(ibiryukov): Invalidate cached compilation databases on changes
-  auto CachedIt = CompilationDatabases.find(Dir);
-  if (CachedIt != CompilationDatabases.end())
-    return {CachedIt->second.CDB.get(), CachedIt->second.SentBroadcast};
-  std::string Error = "";
-
-  CachedCDB Entry;
-  Entry.CDB = tooling::CompilationDatabase::loadFromDirectory(Dir, Error);
-  auto Result = Entry.CDB.get();
-  CompilationDatabases[Dir] = std::move(Entry);
-
-  return {Result, false};
+  // FIXME(sammccall): this function hot, avoid copying key when hitting cache.
+  auto Key = maybeCaseFoldPath(Dir);
+  auto R = CompilationDatabases.try_emplace(Key);
+  if (R.second) { // Cache miss, try to load CDB.
+    CachedCDB &Entry = R.first->second;
+    std::string Error = "";
+    Entry.CDB = tooling::CompilationDatabase::loadFromDirectory(Dir, Error);
+    Entry.Path = Dir;
+  }
+  return R.first->second;
 }
 
 llvm::Optional<DirectoryBasedGlobalCompilationDatabase::CDBLookupResult>
@@ -137,35 +128,41 @@ DirectoryBasedGlobalCompilationDatabase::lookupCDB(
   assert(llvm::sys::path::is_absolute(Request.FileName) &&
          "path must be absolute");
 
+  bool ShouldBroadcast = false;
   CDBLookupResult Result;
-  bool SentBroadcast = false;
 
   {
     std::lock_guard<std::mutex> Lock(Mutex);
+    CachedCDB *Entry = nullptr;
     if (CompileCommandsDir) {
-      std::tie(Result.CDB, SentBroadcast) =
-          getCDBInDirLocked(*CompileCommandsDir);
-      Result.PI.SourceRoot = *CompileCommandsDir;
+      Entry = &getCDBInDirLocked(*CompileCommandsDir);
     } else {
-      actOnAllParentDirectories(
-          Request.FileName, [this, &SentBroadcast, &Result](PathRef Path) {
-            std::tie(Result.CDB, SentBroadcast) = getCDBInDirLocked(Path);
-            Result.PI.SourceRoot = Path;
-            return Result.CDB != nullptr;
-          });
+      // Traverse the canonical version to prevent false positives. i.e.:
+      // src/build/../a.cc can detect a CDB in /src/build if not canonicalized.
+      // FIXME(sammccall): this loop is hot, use a union-find-like structure.
+      actOnAllParentDirectories(removeDots(Request.FileName),
+                                [&](PathRef Path) {
+                                  Entry = &getCDBInDirLocked(Path);
+                                  return Entry->CDB != nullptr;
+                                });
     }
 
-    if (!Result.CDB)
+    if (!Entry || !Entry->CDB)
       return llvm::None;
 
     // Mark CDB as broadcasted to make sure discovery is performed once.
-    if (Request.ShouldBroadcast && !SentBroadcast)
-      CompilationDatabases[Result.PI.SourceRoot].SentBroadcast = true;
+    if (Request.ShouldBroadcast && !Entry->SentBroadcast) {
+      Entry->SentBroadcast = true;
+      ShouldBroadcast = true;
+    }
+
+    Result.CDB = Entry->CDB.get();
+    Result.PI.SourceRoot = Entry->Path;
   }
 
   // FIXME: Maybe make the following part async, since this can block retrieval
   // of compile commands.
-  if (Request.ShouldBroadcast && !SentBroadcast)
+  if (ShouldBroadcast)
     broadcastCDB(Result);
   return Result;
 }
@@ -195,9 +192,9 @@ void DirectoryBasedGlobalCompilationDatabase::broadcastCDB(
         if (!It.second)
           return true;
 
-        auto Res = getCDBInDirLocked(Path);
-        It.first->second = Res.first != nullptr;
-        return Path == Result.PI.SourceRoot;
+        CachedCDB &Entry = getCDBInDirLocked(Path);
+        It.first->second = Entry.CDB != nullptr;
+        return pathEqual(Path, Result.PI.SourceRoot);
       });
     }
   }
@@ -208,8 +205,9 @@ void DirectoryBasedGlobalCompilationDatabase::broadcastCDB(
     // Independent of whether it has an entry for that file or not.
     actOnAllParentDirectories(File, [&](PathRef Path) {
       if (DirectoryHasCDB.lookup(Path)) {
-        if (Path == Result.PI.SourceRoot)
-          GovernedFiles.push_back(File);
+        if (pathEqual(Path, Result.PI.SourceRoot))
+          // Make sure listeners always get a canonical path for the file.
+          GovernedFiles.push_back(removeDots(File));
         // Stop as soon as we hit a CDB.
         return true;
       }
@@ -233,9 +231,8 @@ DirectoryBasedGlobalCompilationDatabase::getProjectInfo(PathRef File) const {
 
 OverlayCDB::OverlayCDB(const GlobalCompilationDatabase *Base,
                        std::vector<std::string> FallbackFlags,
-                       llvm::Optional<std::string> ResourceDir)
-    : Base(Base), ResourceDir(ResourceDir ? std::move(*ResourceDir)
-                                          : getStandardResourceDir()),
+                       tooling::ArgumentsAdjuster Adjuster)
+    : Base(Base), ArgsAdjuster(std::move(Adjuster)),
       FallbackFlags(std::move(FallbackFlags)) {
   if (Base)
     BaseChanged = Base->watch([this](const std::vector<std::string> Changes) {
@@ -248,7 +245,7 @@ OverlayCDB::getCompileCommand(PathRef File) const {
   llvm::Optional<tooling::CompileCommand> Cmd;
   {
     std::lock_guard<std::mutex> Lock(Mutex);
-    auto It = Commands.find(File);
+    auto It = Commands.find(removeDots(File));
     if (It != Commands.end())
       Cmd = It->second;
   }
@@ -256,7 +253,8 @@ OverlayCDB::getCompileCommand(PathRef File) const {
     Cmd = Base->getCompileCommand(File);
   if (!Cmd)
     return llvm::None;
-  adjustArguments(*Cmd, ResourceDir);
+  if (ArgsAdjuster)
+    Cmd->CommandLine = ArgsAdjuster(Cmd->CommandLine, Cmd->Filename);
   return Cmd;
 }
 
@@ -266,26 +264,31 @@ tooling::CompileCommand OverlayCDB::getFallbackCommand(PathRef File) const {
   std::lock_guard<std::mutex> Lock(Mutex);
   Cmd.CommandLine.insert(Cmd.CommandLine.end(), FallbackFlags.begin(),
                          FallbackFlags.end());
-  adjustArguments(Cmd, ResourceDir);
+  if (ArgsAdjuster)
+    Cmd.CommandLine = ArgsAdjuster(Cmd.CommandLine, Cmd.Filename);
   return Cmd;
 }
 
 void OverlayCDB::setCompileCommand(
     PathRef File, llvm::Optional<tooling::CompileCommand> Cmd) {
+  // We store a canonical version internally to prevent mismatches between set
+  // and get compile commands. Also it assures clients listening to broadcasts
+  // doesn't receive different names for the same file.
+  std::string CanonPath = removeDots(File);
   {
     std::unique_lock<std::mutex> Lock(Mutex);
     if (Cmd)
-      Commands[File] = std::move(*Cmd);
+      Commands[CanonPath] = std::move(*Cmd);
     else
-      Commands.erase(File);
+      Commands.erase(CanonPath);
   }
-  OnCommandChanged.broadcast({File});
+  OnCommandChanged.broadcast({CanonPath});
 }
 
 llvm::Optional<ProjectInfo> OverlayCDB::getProjectInfo(PathRef File) const {
   {
     std::lock_guard<std::mutex> Lock(Mutex);
-    auto It = Commands.find(File);
+    auto It = Commands.find(removeDots(File));
     if (It != Commands.end())
       return ProjectInfo{};
   }

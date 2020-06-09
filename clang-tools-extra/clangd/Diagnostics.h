@@ -53,7 +53,7 @@ struct ClangdDiagnosticOptions {
 struct DiagBase {
   std::string Message;
   // Intended to be used only in error messages.
-  // May be relative, absolute or even artifically constructed.
+  // May be relative, absolute or even artificially constructed.
   std::string File;
   // Absolute path to containing file, if available.
   llvm::Optional<std::string> AbsFile;
@@ -145,6 +145,8 @@ private:
   std::vector<Diag> Output;
   llvm::Optional<LangOptions> LangOpts;
   llvm::Optional<Diag> LastDiag;
+  /// Set iff adjustDiagFromHeader resulted in changes to LastDiag.
+  bool LastDiagWasAdjusted = false;
   llvm::DenseSet<int> IncludeLinesWithErrors;
   bool LastPrimaryDiagnosticWasSuppressed = false;
 };

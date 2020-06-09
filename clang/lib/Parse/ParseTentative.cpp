@@ -1031,6 +1031,10 @@ Parser::TPResult Parser::TryParseDeclarator(bool mayBeAbstract,
       // direct-declarator '[' constant-expression[opt] ']'
       // direct-abstract-declarator[opt] '[' constant-expression[opt] ']'
       TPR = TryParseBracketDeclarator();
+    } else if (Tok.is(tok::kw_requires)) {
+      // declarator requires-clause
+      // A requires clause indicates a function declaration.
+      TPR = TPResult::True;
     } else {
       break;
     }
@@ -1193,7 +1197,7 @@ public:
   }
 
   std::unique_ptr<CorrectionCandidateCallback> clone() override {
-    return llvm::make_unique<TentativeParseCCC>(*this);
+    return std::make_unique<TentativeParseCCC>(*this);
   }
 };
 }
@@ -1330,7 +1334,7 @@ Parser::isCXXDeclarationSpecifier(Parser::TPResult BracedCastResult,
       // this is ambiguous. Typo-correct to type and expression keywords and
       // to types and identifiers, in order to try to recover from errors.
       TentativeParseCCC CCC(Next);
-      switch (TryAnnotateName(false /* no nested name specifier */, &CCC)) {
+      switch (TryAnnotateName(&CCC)) {
       case ANK_Error:
         return TPResult::Error;
       case ANK_TentativeDecl:
@@ -1408,6 +1412,7 @@ Parser::isCXXDeclarationSpecifier(Parser::TPResult BracedCastResult,
   case tok::kw_typedef:
   case tok::kw_constexpr:
   case tok::kw_consteval:
+  case tok::kw_constinit:
     // storage-class-specifier
   case tok::kw_register:
   case tok::kw_static:
@@ -1568,7 +1573,7 @@ Parser::isCXXDeclarationSpecifier(Parser::TPResult BracedCastResult,
         } else {
           // Try to resolve the name. If it doesn't exist, assume it was
           // intended to name a type and keep disambiguating.
-          switch (TryAnnotateName(false /* SS is not dependent */)) {
+          switch (TryAnnotateName()) {
           case ANK_Error:
             return TPResult::Error;
           case ANK_TentativeDecl:
@@ -2013,7 +2018,6 @@ Parser::TryParseParameterDeclarationClause(bool *InvalidAsDeclaration,
 ///   'throw' '(' type-id-list[opt] ')'
 ///
 Parser::TPResult Parser::TryParseFunctionDeclarator() {
-
   // The '(' is already parsed.
 
   TPResult TPR = TryParseParameterDeclarationClause();
@@ -2065,9 +2069,21 @@ Parser::TPResult Parser::TryParseFunctionDeclarator() {
 ///
 Parser::TPResult Parser::TryParseBracketDeclarator() {
   ConsumeBracket();
-  if (!SkipUntil(tok::r_square, StopAtSemi))
+
+  // A constant-expression cannot begin with a '{', but the
+  // expr-or-braced-init-list of a postfix-expression can.
+  if (Tok.is(tok::l_brace))
+    return TPResult::False;
+
+  if (!SkipUntil(tok::r_square, tok::comma, StopAtSemi | StopBeforeMatch))
     return TPResult::Error;
 
+  // If we hit a comma before the ']', this is not a constant-expression,
+  // but might still be the expr-or-braced-init-list of a postfix-expression.
+  if (Tok.isNot(tok::r_square))
+    return TPResult::False;
+
+  ConsumeBracket();
   return TPResult::Ambiguous;
 }
 

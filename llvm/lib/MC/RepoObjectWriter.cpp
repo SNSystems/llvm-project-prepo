@@ -498,7 +498,7 @@ void RepoObjectWriter::writeSectionData(ContentsType &Fragments,
   // TODO: need a cleaner way to check that the alignment value will fit.
   assert(Alignment <= std::numeric_limits<std::uint8_t>::max());
 
-  auto Content = make_unique<pstore::repo::section_content>(
+  auto Content = std::make_unique<pstore::repo::section_content>(
       St, static_cast<std::uint8_t>(Alignment));
 
   // Add the section content to the fragment.
@@ -642,7 +642,7 @@ pstore::raw_sstring_view RepoObjectWriter::getSymbolName(
   if (It != Names.end())
     return It->first;
 
-  Symbols.push_back(llvm::make_unique<std::string>(std::move(SymbolName)));
+  Symbols.push_back(std::make_unique<std::string>(std::move(SymbolName)));
   return pstore::make_sstring_view(*Symbols.back().get());
 }
 
@@ -770,13 +770,13 @@ DispatcherCollectionType RepoObjectWriter::buildFragmentData(
     switch (Content->kind) {
     case pstore::repo::section_kind::bss:
       Dispatcher =
-          llvm::make_unique<pstore::repo::bss_section_creation_dispatcher>(
+          std::make_unique<pstore::repo::bss_section_creation_dispatcher>(
               Content.get());
       break;
     case pstore::repo::section_kind::debug_line:
       // TODO: record the CU's debug line header first, then point this section
       // to it.
-      Dispatcher = llvm::make_unique<
+      Dispatcher = std::make_unique<
           pstore::repo::debug_line_section_creation_dispatcher>(
           DebugLineHeaderExtent, Content.get());
       break;
@@ -785,7 +785,7 @@ DispatcherCollectionType RepoObjectWriter::buildFragmentData(
       break;
     default:
       Dispatcher =
-          llvm::make_unique<pstore::repo::generic_section_creation_dispatcher>(
+          std::make_unique<pstore::repo::generic_section_creation_dispatcher>(
               Content->kind, Content.get());
     }
     Dispatchers.emplace_back(std::move(Dispatcher));
@@ -1094,6 +1094,6 @@ bool RepoObjectWriter::isSymbolRefDifferenceFullyResolvedImpl(
 std::unique_ptr<MCObjectWriter>
 llvm::createRepoObjectWriter(std::unique_ptr<MCRepoObjectTargetWriter> MOTW,
                              raw_pwrite_stream &OS, bool IsLittleEndian) {
-  return llvm::make_unique<RepoObjectWriter>(std::move(MOTW), OS,
+  return std::make_unique<RepoObjectWriter>(std::move(MOTW), OS,
                                              IsLittleEndian);
 }
