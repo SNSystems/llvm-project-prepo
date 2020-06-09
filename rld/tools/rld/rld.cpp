@@ -502,7 +502,7 @@ static llvm::ErrorOr<std::unique_ptr<pstore::database>> openRepository() {
   if (!llvm::sys::fs::exists(FilePath)) {
     return make_error_code(RldErrorCode::DatabaseNotFound);
   }
-  return llvm::make_unique<pstore::database>(
+  return std::make_unique<pstore::database>(
       FilePath, pstore::database::access_mode::writable);
 }
 

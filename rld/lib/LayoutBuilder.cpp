@@ -150,7 +150,7 @@ LayoutBuilder::LayoutBuilder(Context &Ctx,
                              std::size_t NumCompilations)
     : Ctx_{Ctx}, Globals_{Globals}, NumCompilations_{NumCompilations},
       CompilationWaiter_{NumCompilations}, CUsMut_{}, CUs_{},
-      Segments_{llvm::make_unique<LayoutOutput>()} {
+      Segments_{std::make_unique<LayoutOutput>()} {
 
   checkSectionToSegmentArray();
 }

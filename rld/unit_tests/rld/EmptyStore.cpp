@@ -9,7 +9,7 @@ EmptyStore::EmptyStore()
     : Buffer_{pstore::aligned_valloc(FileSize, pageSize())},
       File_{std::make_shared<pstore::file::in_memory>(Buffer_, FileSize)} {
   pstore::database::build_new_store(*File_);
-  Db_ = llvm::make_unique<pstore::database>(File_);
+  Db_ = std::make_unique<pstore::database>(File_);
   Db_->set_vacuum_mode(pstore::database::vacuum_mode::disabled);
 }
 
