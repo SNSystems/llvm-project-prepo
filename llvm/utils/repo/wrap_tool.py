@@ -43,7 +43,7 @@ def _run(args):
 
     _logger.info(args)
     try:
-        out = subprocess.check_output(args, stderr=subprocess.STDOUT)
+        out = subprocess.check_output(args, stderr=subprocess.STDOUT).decode('utf-8')
     except OSError as ex:
         if ex.errno == errno.ENOENT:
             raise RuntimeError('executable was not found ({0})'.format(args[0]))
