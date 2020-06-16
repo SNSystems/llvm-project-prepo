@@ -66,18 +66,20 @@ namespace rld {
 
 class SpinLock {
 public:
+  static constexpr uint64_t SpinsBeforeYield = 1000;
+
   void lock() {
     auto Count = uint64_t{0};
-    while (flag_.test_and_set(std::memory_order_acquire)) {
-      if (++Count > 1000) {
+    while (Flag_.test_and_set(std::memory_order_acquire)) {
+      if (++Count > SpinsBeforeYield) {
         std::this_thread::yield();
       }
     }
   }
-  void unlock() { flag_.clear(std::memory_order_release); }
+  void unlock() { Flag_.clear(std::memory_order_release); }
 
 private:
-  std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
+  std::atomic_flag Flag_ = ATOMIC_FLAG_INIT;
 };
 
 class Symbol;
@@ -395,7 +397,7 @@ Symbol *setSymbolShadow(std::atomic<Symbol *> *Sptr, CreateOp Create,
   // process of creating the symbol instance.
   auto Count = uint64_t{0};
   while ((Symbol = Sptr->load(std::memory_order_acquire)) == Busy) {
-    if (Count > 1000) {
+    if (++Count > SpinLock::SpinsBeforeYield) {
       std::this_thread::yield();
     }
   }
