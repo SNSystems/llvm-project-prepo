@@ -319,12 +319,16 @@ void debugDumpSymbols(Context const &Ctx,
     auto &OS = llvm::dbgs();
     OS << "There are " << Globals.size() << " symbols\n";
     for (auto const &S : Globals) {
+      // Note that requesting a symbol's definition returns an owned lock on the
+      // object. That means that we need to get the name first since accessing
+      // both will try to acquire the same lock.
+      StringAddress const Name = S.name();
       auto X = S.definition();
       auto const &Def = std::get<Symbol::DefinitionIndex>(X);
 
       auto const IsDefined = Def.hasValue();
       pstore::shared_sstring_view Owner;
-      OS << "  " << stringViewAsRef(loadString(Ctx.Db, S.name(), &Owner))
+      OS << "  " << stringViewAsRef(loadString(Ctx.Db, Name, &Owner))
          << ": defined: " << (IsDefined ? "Yes" : "No");
       if (IsDefined) {
         auto Sep = "ordinals: [";
