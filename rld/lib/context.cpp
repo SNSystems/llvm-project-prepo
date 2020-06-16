@@ -5,7 +5,7 @@
 //*  \___\___/|_| |_|\__\___/_/\_\\__| *
 //*                                    *
 //===- lib/context.cpp ----------------------------------------------------===//
-// Copyright (c) 2017-2018 by Sony Interactive Entertainment, Inc.
+// Copyright (c) 2017-2020 by Sony Interactive Entertainment, Inc.
 // All rights reserved.
 //
 // Developed by:
