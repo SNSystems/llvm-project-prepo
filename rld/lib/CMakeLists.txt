@@ -73,11 +73,6 @@ target_include_directories (LLVMrld PUBLIC
     "$<BUILD_INTERFACE:${RLD_INCLUDE_DIR}>"
     "$<INSTALL_INTERFACE:include>"
 )
-
-set_target_properties (LLVMrld PROPERTIES
-    CXX_STANDARD 14
-    CXX_STANDARD_REQUIRED Yes
-)
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options (LLVMrld PUBLIC
         -Wno-c++14-extensions
