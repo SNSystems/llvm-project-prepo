@@ -92,7 +92,7 @@ std::size_t writeRaw(llvm::raw_ostream &OS, Ty const &T) {
 template <typename ELFT>
 auto rld::elf::emitSectionHeaders(
     typename llvm::object::ELFFile<ELFT>::Elf_Shdr *Shdr,
-    ElfSectionInfoArray const &ElfSections) ->
+    const SectionArray<ElfSectionInfo> &ElfSections) ->
     typename llvm::object::ELFFile<ELFT>::Elf_Shdr * {
 
   // The Null section.
@@ -101,8 +101,7 @@ auto rld::elf::emitSectionHeaders(
 
   for (rld::SectionKind Kind = rld::firstSectionKind();
        Kind != rld::SectionKind::last; ++Kind) {
-    ElfSectionInfo const &Section = ElfSections[static_cast<size_t>(Kind)];
-
+    ElfSectionInfo const &Section = ElfSections[Kind];
     if (!Section.Emit) {
       continue;
     }
@@ -126,32 +125,31 @@ auto rld::elf::emitSectionHeaders(
 
 template auto rld::elf::emitSectionHeaders<llvm::object::ELF64LE>(
     typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Shdr *Shdr,
-    ElfSectionInfoArray const &ElfSections) ->
+    const SectionArray<ElfSectionInfo> &ElfSections) ->
     typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Shdr *;
 
 template auto rld::elf::emitSectionHeaders<llvm::object::ELF64BE>(
     typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Shdr *Shdr,
-    ElfSectionInfoArray const &ElfSections) ->
+    const SectionArray<ElfSectionInfo> &ElfSections) ->
     typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Shdr *;
 
 template auto rld::elf::emitSectionHeaders<llvm::object::ELF32LE>(
     typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Shdr *Shdr,
-    ElfSectionInfoArray const &ElfSections) ->
+    const SectionArray<ElfSectionInfo> &ElfSections) ->
     typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Shdr *;
 
 template auto rld::elf::emitSectionHeaders<llvm::object::ELF32BE>(
     typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Shdr *Shdr,
-    ElfSectionInfoArray const &ElfSections) ->
+    const SectionArray<ElfSectionInfo> &ElfSections) ->
     typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Shdr *;
 
-char *
-rld::elf::emitSectionHeaderStringTable(char *SectionNamePtr,
-                                       ElfSectionInfoArray const &ElfSections) {
+char *rld::elf::emitSectionHeaderStringTable(
+    char *SectionNamePtr, const SectionArray<ElfSectionInfo> &ElfSections) {
   // First entry is the empty string.
   *(SectionNamePtr++) = '\0';
   for (rld::SectionKind Kind = rld::firstSectionKind();
        Kind != rld::SectionKind::last; ++Kind) {
-    ElfSectionInfo const &Section = ElfSections[static_cast<size_t>(Kind)];
+    ElfSectionInfo const &Section = ElfSections[Kind];
 
     if (Section.Emit) {
       std::pair<char const *, std::size_t> const NameAndLength =

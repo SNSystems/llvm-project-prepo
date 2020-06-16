@@ -42,8 +42,11 @@
 # SOFTWARE OR THE USE OR OTHER DEALINGS WITH THE SOFTWARE.
 #===----------------------------------------------------------------------===//
 add_rld_unittest(rldTests
-    EmptyStore.cpp
-    TestMathExtras.cpp
-    TestSymbolResolver.cpp
+  CompilationBuilder.cpp
+  EmptyStore.cpp
+  StringAdder.cpp
+  TestMathExtras.cpp
+  TestSymbolResolver.cpp
+  TestXfxResolver.cpp
 )
 target_link_libraries (rldTests PRIVATE LLVMrld)

@@ -59,6 +59,7 @@ add_llvm_library (LLVMrld
     LayoutBuilder.cpp
     scanner.cpp
     symbol.cpp
+    XfxScanner.cpp
 
     ADDITIONAL_HEADER_DIRS
     "${RLD_INCLUDE_DIR}/rld"

@@ -77,11 +77,11 @@ template <typename OStream> OStream &operator<<(OStream &OS, SegmentKind S) {
   return OS << Str;
 }
 
-LayoutBuilder::Visited::Visited(std::size_t NumCompilations) {
+LayoutBuilder::Visited::Visited(uint32_t NumCompilations) {
   this->resize(NumCompilations);
 }
 
-void LayoutBuilder::Visited::visit(std::size_t Index) {
+void LayoutBuilder::Visited::visit(uint32_t Index) {
   std::lock_guard<std::mutex> const Lock{Mut_};
   // As archives are completed, file indices beyond the initial value will be
   // arriving here.
@@ -90,13 +90,13 @@ void LayoutBuilder::Visited::visit(std::size_t Index) {
   CV_.notify_one();
 }
 
-void LayoutBuilder::Visited::waitFor(std::size_t Index) {
+void LayoutBuilder::Visited::waitFor(uint32_t Index) {
   std::unique_lock<std::mutex> Lock{Mut_};
   CV_.wait(Lock, [this, Index] { return Visited_[Index]; });
   assert(Visited_[Index]);
 }
 
-void LayoutBuilder::Visited::resize(std::size_t NumCompilations) {
+void LayoutBuilder::Visited::resize(uint32_t NumCompilations) {
   if (NumCompilations > Visited_.size()) {
     // Add something to NumCompilations to allow for the fact that we can
     // anticipate additional compilations coming from archives.
@@ -129,6 +129,8 @@ LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
     {SectionKind::strtab, SegmentKind::discard},   // TODO:An unnecessary entry?
 }};
 
+// check section to segment array
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 void LayoutBuilder::checkSectionToSegmentArray() {
 #ifndef NDEBUG
   auto Index = 0;
@@ -143,11 +145,11 @@ void LayoutBuilder::checkSectionToSegmentArray() {
 #endif
 }
 
-// ctor
-// ~~~~
+// (ctor)
+// ~~~~~~
 LayoutBuilder::LayoutBuilder(Context &Ctx,
                              const NotNull<GlobalsStorage *> Globals,
-                             std::size_t NumCompilations)
+                             uint32_t NumCompilations)
     : Ctx_{Ctx}, Globals_{Globals}, NumCompilations_{NumCompilations},
       CompilationWaiter_{NumCompilations}, CUsMut_{}, CUs_{},
       Segments_{std::make_unique<LayoutOutput>()} {
@@ -157,7 +159,7 @@ LayoutBuilder::LayoutBuilder(Context &Ctx,
 
 // visited
 // ~~~~~~~
-void LayoutBuilder::visited(std::size_t Index, LocalSymbolsContainer &&Locals) {
+void LayoutBuilder::visited(uint32_t Index, LocalSymbolsContainer &&Locals) {
   {
     std::lock_guard<std::mutex> const CUsLock{CUsMut_};
     assert(CUs_.find(Index) == CUs_.end());
@@ -169,8 +171,8 @@ void LayoutBuilder::visited(std::size_t Index, LocalSymbolsContainer &&Locals) {
   CompilationWaiter_.visit(Index);
 }
 
-// prevSectionEnd
-// ~~~~~~~~~~~~~~
+// prev section end
+// ~~~~~~~~~~~~~~~~
 std::uint64_t LayoutBuilder::prevSectionEnd(SectionInfoVector const &SI) {
   // TODO: initialize SI with an empty section to avoid this test?
   if (SI.empty()) {
@@ -189,19 +191,20 @@ template <SectionKind SK> struct ToPstoreSectionKind {};
 PSTORE_MCREPO_SECTION_KINDS
 #undef X
 
-// pstore::repo::section_kind rldSectionKindToPStoreSectionKind ();
-
+// update maximum
+// ~~~~~~~~~~~~~~
 template <typename T>
 static inline void updateMaximum(std::atomic<T> &maximum_value,
                                  T const &value) noexcept {
   T prev_value = maximum_value;
   while (prev_value < value &&
-         !maximum_value.compare_exchange_weak(prev_value, value)) {
+         !maximum_value.compare_exchange_weak(prev_value, value,
+                                              std::memory_order_relaxed)) {
   }
 }
 
-// addSectionToLayout
-// ~~~~~~~~~~~~~~~~~~
+// add section to layout
+// ~~~~~~~~~~~~~~~~~~~~~
 template <pstore::repo::section_kind SKind>
 void LayoutBuilder::addSectionToLayout(
     FragmentPtr const &F,
@@ -230,7 +233,7 @@ void LayoutBuilder::addSectionToLayout(
                      (reinterpret_cast<std::uint8_t const *>(Section) -
                       reinterpret_cast<std::uint8_t const *>(F.get()))};
 
-  std::size_t const Alignment = pstore::repo::section_alignment(*Section);
+  auto const Alignment = pstore::repo::section_alignment(*Section);
   updateMaximum(Seg.MaxAlign, Alignment);
   SI.emplace_back(Section, SectionAddress,
                   alignTo(LayoutBuilder::prevSectionEnd(SI), Alignment),
@@ -244,8 +247,8 @@ void LayoutBuilder::addSectionToLayout(
   });
 }
 
-// recoverDefinitionsFromCUMap
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~
+// recover definitions from CU map
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // We were handed the compilation's definitions when its scan completed.
 // Recover it from where we stashed it in the CUs_ map.
 auto LayoutBuilder::recoverDefinitionsFromCUMap(std::size_t Ordinal)
@@ -257,6 +260,34 @@ auto LayoutBuilder::recoverDefinitionsFromCUMap(std::size_t Ordinal)
   return D;
 }
 
+// add body
+// ~~~~~~~~
+void LayoutBuilder::addBody(Symbol::Body const &Body, uint32_t Ordinal,
+                            StringAddress const Name) {
+  // Record this symbol's fragment if it was defined by this compilation.
+  if (Body.inputOrdinal() != Ordinal) {
+    return;
+  }
+  llvmDebug(DebugType, Ctx_.IOMut, [&] {
+    llvm::dbgs() << "  " << loadStdString(Ctx_.Db, Name) << '\n';
+  });
+
+  for (pstore::repo::section_kind Section : *Body.fragment()) {
+#define X(a)                                                                   \
+  case pstore::repo::section_kind::a:                                          \
+    this->addSectionToLayout<pstore::repo::section_kind::a>(                   \
+        Body.fragment(), Body.fragmentAddress());                              \
+    break;
+
+    switch (Section) {
+      PSTORE_MCREPO_SECTION_KINDS
+    case pstore::repo::section_kind::last:
+      llvm_unreachable("Unknown fragment section kind");
+    }
+#undef X
+  }
+}
+
 // run
 // ~~~
 void LayoutBuilder::run() {
@@ -265,7 +296,7 @@ void LayoutBuilder::run() {
   // Produce a GNU_STACK segment even though it will contain no data.
   (*Segments_)[segmentNum(SegmentKind::gnu_stack)].AlwaysEmit = true;
 
-  for (auto Ordinal = std::size_t{0}; Ordinal < NumCompilations_; ++Ordinal) {
+  for (auto Ordinal = uint32_t{0}; Ordinal < NumCompilations_; ++Ordinal) {
     CompilationWaiter_.waitFor(Ordinal);
 
     llvmDebug(DebugType, Ctx_.IOMut, [&] {
@@ -275,41 +306,45 @@ void LayoutBuilder::run() {
     for (auto const &Definition : recoverDefinitionsFromCUMap(Ordinal)) {
       StringAddress const Name = Definition.first;
       Symbol const *const Sym = Definition.second;
-      assert(Sym->definition().hasValue() &&
+      // Get the symbol definition and a lock on the symbol table entry.
+      auto const SymDef = Sym->definition();
+
+      assert(std::get<Symbol::DefinitionIndex>(SymDef).hasValue() &&
              "Symbols that reach layout must be defined");
-      assert(Sym->definition()->size() == 1); // FIXME: support append linkage!
-      Symbol::Body const &Body = Sym->definition()->front();
 
-      // Record this symbol's fragment if it was defined by this compilation.
-      if (Body.inputOrdinal() != Ordinal) {
-        continue;
-      }
-      llvmDebug(DebugType, Ctx_.IOMut, [&] {
-        llvm::dbgs() << "  " << loadStdString(Ctx_.Db, Name) << '\n';
-      });
+      auto &Bodies = *std::get<Symbol::DefinitionIndex>(SymDef);
+      assert(Bodies.size() >= 1U &&
+             "A defined symbol must have a least 1 body");
+      if (Bodies.size() == 1U) {
+        assert(Bodies.front().inputOrdinal() == Ordinal);
+        this->addBody(Bodies.front(), Ordinal, Name);
+      } else {
+        auto First = std::begin(Bodies);
+        auto Last = std::end(Bodies);
 
-      for (pstore::repo::section_kind Section : *Body.fragment()) {
-#define X(a)                                                                   \
-  case pstore::repo::section_kind::a:                                          \
-    this->addSectionToLayout<pstore::repo::section_kind::a>(                   \
-        Body.fragment(), Body.fragmentAddress());                              \
-    break;
+        assert(std::all_of(First, Last,
+                           [](Symbol::Body const &B) {
+                             return B.linkage() ==
+                                    pstore::repo::linkage::append;
+                           }) &&
+               "Multiple bodies of a symbol must all have append linkage");
 
-        switch (Section) {
-          PSTORE_MCREPO_SECTION_KINDS
-        case pstore::repo::section_kind::last:
-          llvm_unreachable("Unknown fragment section kind");
-        }
-#undef X
+        auto const Pos = std::lower_bound(
+            First, Last, Ordinal, [](Symbol::Body const &A, uint32_t B) {
+              return A.inputOrdinal() < B;
+            });
+        assert(Pos != Last && Pos->inputOrdinal() == Ordinal);
+        this->addBody(*Pos, Ordinal, Name);
       }
     }
   }
 
-  // debugDumpSymbols(Ctx_, Globals_->all());
+  llvmDebug(DebugType, Ctx_.IOMut,
+            [&] { debugDumpSymbols(Ctx_, Globals_->all()); });
 }
 
-// flattenSegments
-// ~~~~~~~~~~~~~~~
+// flatten segments
+// ~~~~~~~~~~~~~~~~
 std::unique_ptr<LayoutOutput> LayoutBuilder::flattenSegments() {
   auto Base = std::uint64_t{0x0000000000200000};
   constexpr auto PageSize = std::uint64_t{0x1000};

@@ -115,6 +115,10 @@ llvm::cl::opt<unsigned>
                       llvm::cl::desc("Number of external symbols per module"),
                       llvm::cl::init(1U));
 llvm::cl::opt<unsigned>
+    AppendPerModule("append",
+                    llvm::cl::desc("Number of append symbols per module"),
+                    llvm::cl::init(1U));
+llvm::cl::opt<unsigned>
     LinkOncePerModule("linkonce",
                       llvm::cl::desc("Number of link-once symbols per module"),
                       llvm::cl::init(1U));
@@ -151,7 +155,8 @@ public:
   }
 
   template <typename Lock>
-  auto add(pstore::transaction<Lock> &Transaction, const llvm::StringRef &Str) {
+  IStringAddress add(pstore::transaction<Lock> &Transaction,
+                     const llvm::StringRef &Str) {
     return addIndirect(Transaction, append(Str));
   }
 
@@ -497,6 +502,7 @@ int main(int argc, char *argv[]) {
                                     "Repository Test Data Generator");
 
   static auto const ExternalPrefix = "external_"s;
+  static auto const AppendPrefix = "append_"s;
 
   pstore::database Db{DbPath, pstore::database::access_mode::writable};
 
@@ -504,7 +510,8 @@ int main(int argc, char *argv[]) {
   LinkOnce LOInfo{Idx.Fragments, LinkOncePerModule};
 
   auto Transaction = pstore::begin(Db);
-  StringAdder Strings{(ExternalPerModule + 1) * Modules + LinkOncePerModule + 1,
+  StringAdder Strings{(ExternalPerModule + 1) * Modules + LinkOncePerModule +
+                          AppendPerModule + 1,
                       Idx.Names};
 
   llvm::SmallString<128> OutputDir = llvm::StringRef{OutputDirOpt};
@@ -515,31 +522,47 @@ int main(int argc, char *argv[]) {
   IStringAddress TicketPath = Strings.add(Transaction, OutputDir);
   IStringAddress TripleName = Strings.add(Transaction, Triple);
 
+  // Create names for the append symbols.
+  std::vector<IStringAddress> AppendNames;
+  AppendNames.reserve(AppendPerModule);
+  for (auto Ctr = 0U; Ctr < AppendPerModule; ++Ctr) {
+    AppendNames.emplace_back(Strings.add(
+        Transaction, std::move(AppendPrefix + std::to_string(Ctr))));
+  }
+
+  auto const SymbolsPerModule =
+      ExternalPerModule + LinkOncePerModule + AppendPerModule;
+  auto FragmentCount = 0U;
+  auto ExternalCount = 0U;
+
   for (auto ModuleCtr = 0U; ModuleCtr < Modules; ++ModuleCtr) {
-    FragmentCreator FCreator{
-        SectionSet{
-            (1ULL << static_cast<unsigned>(pstore::repo::section_kind::text)) |
-            (1ULL << static_cast<unsigned>(
-                 pstore::repo::section_kind::read_only))}};
+    FragmentCreator FCreator{SectionSet{
+        (1ULL << static_cast<unsigned>(pstore::repo::section_kind::text)) |
+        (1ULL << static_cast<unsigned>(
+             pstore::repo::section_kind::read_only))}};
 
     if (ModuleCtr == 0) {
       LOInfo.createFragments(Transaction, FCreator, Strings);
+      FragmentCount += LinkOncePerModule;
     }
 
     std::vector<pstore::repo::compilation_member> CompilationMembers;
-    auto const SymbolsPerModule = ExternalPerModule + LinkOncePerModule;
     CompilationMembers.reserve(SymbolsPerModule);
 
-    for (auto FragmentCtr = 0U; FragmentCtr < ExternalPerModule;
-         ++FragmentCtr) {
-      auto const FragmentCount = SymbolsPerModule * ModuleCtr + FragmentCtr;
-      auto const DigestExtentPair =
-          FCreator(Transaction, FragmentCount + LinkOncePerModule);
+    for (auto ExternalCtr = 0U; ExternalCtr < ExternalPerModule;
+         ++ExternalCtr) {
+      auto const DigestExtentPair = FCreator(Transaction, FragmentCount++);
       CompilationMembers.emplace_back(
           DigestExtentPair.first, DigestExtentPair.second,
           Strings.add(Transaction,
-                      ExternalPrefix + std::to_string(FragmentCount)),
+                      ExternalPrefix + std::to_string(ExternalCount++)),
           pstore::repo::linkage::external);
+    }
+    for (auto AppendCtr = 0U; AppendCtr < AppendPerModule; ++AppendCtr) {
+      auto const DigestExtentPair = FCreator(Transaction, FragmentCount++);
+      CompilationMembers.emplace_back(
+          DigestExtentPair.first, DigestExtentPair.second,
+          AppendNames[AppendCtr], pstore::repo::linkage::append);
     }
 
     for (auto const &CM : CompilationMembers) {
@@ -552,6 +575,7 @@ int main(int argc, char *argv[]) {
                                       DigestExtentPair.second, std::get<1>(LO),
                                       pstore::repo::linkage::link_once_any);
     }
+    assert(LOInfo.fragments().size() == LinkOncePerModule);
     assert(CompilationMembers.size() == SymbolsPerModule);
 
     {

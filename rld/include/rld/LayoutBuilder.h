@@ -49,6 +49,7 @@
 #include "pstore/adt/chunked_vector.hpp"
 
 #include "rld/AdvanceEnum.h"
+#include "rld/SectionKind.h"
 #include "rld/symbol.h"
 
 #include <condition_variable>
@@ -106,71 +107,6 @@ inline SegmentKind operator++(SegmentKind &SK, int) noexcept {
   return prev;
 }
 
-//*  ___         _   _          _  ___         _  *
-//* / __| ___ __| |_(_)___ _ _ | |/ (_)_ _  __| | *
-//* \__ \/ -_) _|  _| / _ \ ' \| ' <| | ' \/ _` | *
-//* |___/\___\__|\__|_\___/_||_|_|\_\_|_||_\__,_| *
-//*                                               *
-enum class SectionKind {
-#define X(a) a,
-  PSTORE_MCREPO_SECTION_KINDS shstrtab,
-  strtab,
-  last // Never used. Always last.
-#undef X
-};
-
-#define X(x)                                                                   \
-  case SectionKind::x:                                                         \
-    return OS << #x;
-template <typename OStream> OStream &operator<<(OStream &OS, SectionKind Kind) {
-  switch (Kind) {
-    PSTORE_MCREPO_SECTION_KINDS
-  case SectionKind::shstrtab:
-    return OS << "shstrtab";
-  case SectionKind::strtab:
-    return OS << "strtab";
-  case SectionKind::last:
-    break;
-  }
-  llvm_unreachable("unknown SectionKind");
-}
-#undef X
-
-constexpr auto firstSectionKind() noexcept -> SectionKind {
-  using utype = std::underlying_type<SectionKind>::type;
-  constexpr auto result = SectionKind::text;
-  static_assert(static_cast<utype>(result) == utype{0},
-                "expected result to have value 0");
-  return result;
-}
-
-// Convert from a pstore section-kind to an rld section-kind
-template <pstore::repo::section_kind SKind> struct ToRldSectionKind {};
-#define X(x)                                                                   \
-  template <> struct ToRldSectionKind<pstore::repo::section_kind::x> {         \
-    static constexpr auto value = rld::SectionKind::x;                         \
-  };
-PSTORE_MCREPO_SECTION_KINDS
-#undef X
-
-// pre-increment
-inline SectionKind &operator++(SectionKind &SK) noexcept {
-#define X(x) SectionKind::x,
-  return SK = enum_values<SectionKind,
-                          PSTORE_MCREPO_SECTION_KINDS SectionKind::shstrtab,
-                          SectionKind::strtab, SectionKind::last>::advance(SK);
-#undef X
-}
-
-// post-increment
-inline SectionKind operator++(SectionKind &SK, int) noexcept {
-  auto const prev = SK;
-  ++SK;
-  return prev;
-}
-
-constexpr std::size_t NumSectionKinds =
-    static_cast<std::underlying_type<SectionKind>::type>(SectionKind::last);
 
 struct SectionInfo {
   SectionInfo(pstore::repo::section_base const *S, UintptrAddress SA,
@@ -182,7 +118,8 @@ struct SectionInfo {
   UintptrAddress XfxShadow;
 
   std::uint64_t Offset;
-  std::uint64_t Size;
+  std::uint64_t Size; // TODO: we really don't need 64-bits for the size of an
+                      // individual section.
   unsigned Align;
 
   std::uint64_t OutputOffset;
@@ -190,14 +127,14 @@ struct SectionInfo {
 
 using SectionInfoVector =
     pstore::chunked_vector<SectionInfo,
-                           (std::size_t{1024} * 1024U) / sizeof(SectionInfo)>;
+                           (32 * 1024 * 1024) / sizeof(SectionInfo)>;
 struct Segment {
   Segment() : MaxAlign{1} {}
   std::array<SectionInfoVector, NumSectionKinds> Sections;
-  bool AlwaysEmit = false;
   std::uint64_t VAddr = 0;
   std::uint64_t VSize = 0;
-  std::atomic<std::size_t> MaxAlign;
+  std::atomic<unsigned> MaxAlign;
+  bool AlwaysEmit = false;
 
   bool shouldEmit() const { return AlwaysEmit || VSize > 0; }
 };
@@ -207,13 +144,13 @@ using LayoutOutput = std::array<Segment, NumSegments>;
 class LayoutBuilder {
 public:
   LayoutBuilder(Context &Ctx, NotNull<GlobalsStorage *> const Globals,
-                std::size_t NumCompilations);
+                uint32_t NumCompilations);
   // no copying or assignment.
   LayoutBuilder(LayoutBuilder const &) = delete;
   LayoutBuilder &operator=(LayoutBuilder const &) = delete;
 
   /// Call when a compilation scan has been completed.
-  void visited(std::size_t Index, LocalSymbolsContainer &&Locals);
+  void visited(uint32_t Ordinal, LocalSymbolsContainer &&Locals);
 
   /// The main layout thread entry point.
   void run();
@@ -223,7 +160,7 @@ public:
 private:
   Context &Ctx_;
   NotNull<GlobalsStorage *> const Globals_;
-  std::size_t const NumCompilations_;
+  uint32_t const NumCompilations_;
 
   /// Implements the ordered processing of input files.
   ///
@@ -232,14 +169,14 @@ private:
   /// monotonically increasing value.
   class Visited {
   public:
-    explicit Visited(std::size_t NumCompilations);
+    explicit Visited(uint32_t NumCompilations);
     /// Marks given index as visited.
-    void visit(std::size_t Index);
+    void visit(uint32_t Index);
     /// Blocks until a specified index is visited.
-    void waitFor(std::size_t Index);
+    void waitFor(uint32_t Index);
 
   private:
-    void resize(std::size_t NumCompilations);
+    void resize(uint32_t NumCompilations);
 
     std::vector<bool> Visited_;
     std::mutex Mut_;
@@ -273,6 +210,8 @@ private:
       pstore::typed_address<pstore::repo::fragment> FragmentAddress);
 
   LocalSymbolsContainer recoverDefinitionsFromCUMap(std::size_t Ordinal);
+  void addBody(Symbol::Body const &Body, uint32_t Ordinal,
+               StringAddress const Name);
 
   static std::uint64_t prevSectionEnd(SectionInfoVector const &SI);
   static void checkSectionToSegmentArray();

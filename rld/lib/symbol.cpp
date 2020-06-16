@@ -3,6 +3,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <algorithm>
 #include <type_traits>
 
 using pstore::repo::linkage;
@@ -58,7 +59,7 @@ inline auto
 Symbol::replaceIfLowerOrdinal(std::lock_guard<SpinLock> const & /*Lock*/,
                               pstore::database const &Db,
                               pstore::repo::compilation_member const &CM,
-                              std::size_t const InputOrdinal) -> Symbol * {
+                              uint32_t const InputOrdinal) -> Symbol * {
   assert(Definition_ && Definition_->size() == 1U &&
          Definition_->front().inputOrdinal() != InputOrdinal);
   if (InputOrdinal < Definition_->front().inputOrdinal()) {
@@ -79,14 +80,14 @@ Symbol::replaceIfLowerOrdinal(std::lock_guard<SpinLock> const & /*Lock*/,
 inline auto Symbol::defineImpl(std::lock_guard<SpinLock> const & /*Lock*/,
                                pstore::database const &Db,
                                pstore::repo::compilation_member const &CM,
-                               UndefsContainer &Undefs,
-                               std::size_t const InputOrdinal) -> Symbol * {
+                               NotNull<UndefsContainer *> const Undefs,
+                               uint32_t const InputOrdinal) -> Symbol * {
   assert(!Definition_ &&
          "defineImpl was called for a symbol which is already defined");
   Definition_.emplace(llvm::SmallVector<Body, 1>{
       {Body{CM.linkage(), pstore::repo::fragment::load(Db, CM.fext),
             CM.fext.addr, InputOrdinal}}});
-  Undefs.remove(this); // remove this symbol from the undef list.
+  Undefs->remove(this); // remove this symbol from the undef list.
   return this;
 }
 
@@ -95,7 +96,7 @@ inline auto Symbol::defineImpl(std::lock_guard<SpinLock> const & /*Lock*/,
 inline auto Symbol::replaceImpl(std::lock_guard<SpinLock> const & /*Lock*/,
                                 pstore::database const &Db,
                                 pstore::repo::compilation_member const &CM,
-                                std::size_t const InputOrdinal,
+                                uint32_t const InputOrdinal,
                                 FragmentPtr const &Fragment) -> Symbol * {
   assert(Definition_ &&
          "If we're replacing a definition, then we must already have one.");
@@ -107,17 +108,17 @@ inline auto Symbol::replaceImpl(std::lock_guard<SpinLock> const & /*Lock*/,
 inline auto Symbol::replaceImpl(std::lock_guard<SpinLock> const &Lock,
                                 pstore::database const &Db,
                                 pstore::repo::compilation_member const &CM,
-                                std::size_t const InputOrdinal) -> Symbol * {
+                                uint32_t const InputOrdinal) -> Symbol * {
   return this->replaceImpl(Lock, Db, CM, InputOrdinal,
                            pstore::repo::fragment::load(Db, CM.fext));
 }
 
-// updateAppendSymbol
-// ~~~~~~~~~~~~~~~~~~
+// update append symbol
+// ~~~~~~~~~~~~~~~~~~~~
 auto Symbol::updateAppendSymbol(pstore::database const &Db,
                                 pstore::repo::compilation_member const &CM,
-                                UndefsContainer &Undefs,
-                                std::size_t InputOrdinal) -> Symbol * {
+                                NotNull<UndefsContainer *> const Undefs,
+                                uint32_t InputOrdinal) -> Symbol * {
   assert(CM.linkage() == linkage::append);
 
   std::lock_guard<decltype(Mut_)> const Lock{Mut_};
@@ -126,24 +127,55 @@ auto Symbol::updateAppendSymbol(pstore::database const &Db,
     return this->defineImpl(Lock, Db, CM, Undefs, InputOrdinal);
   }
 
+  // Add this symbol to the existing sorted vector for this symbol.
+  auto &Bodies = Definition_.getValue();
+
   // We've already got a definition for this symbol. Append linkage may
   // only collide with another append-linkage symbol.
-  assert(Definition_->size() >= 1 &&
+  assert(Bodies.size() >= 1 &&
          "An append symbol definition must have at least 1 body");
-  if ((*Definition_)[0].linkage() != linkage::append) {
+  if (Bodies[0].linkage() != linkage::append) {
     return nullptr; // Error.
   }
 
-  assert(false); // FIXME:add this symbol to the existing list for this symbol.
-  return nullptr;
+  assert(!std::any_of(std::begin(Bodies), std::end(Bodies),
+                      [=](Symbol::Body const &B) {
+                        return B.inputOrdinal() == InputOrdinal;
+                      }) &&
+         "Found an existing symbol body associated with this input ordinal");
+  assert(std::all_of(std::begin(Bodies), std::end(Bodies),
+                     [](Symbol::Body const &B) {
+                       return B.linkage() == linkage::append;
+                     }) &&
+         "All bodies of an append-linkage symbol must have append linkage");
+
+  // We keep the collection of bodies sorted by input ordinal. That enables the
+  // layout thread to find the body associated with a specific file just with a
+  // binary search. We use an insertion-sort because we expect mostly to be
+  // inserting at the end of the collection. Other threads for later input files
+  // may have added their contribution to this list already so the search is
+  // essental.
+  auto const Pos = std::find_if(
+      std::rbegin(Bodies), std::rend(Bodies),
+      [=](Symbol::Body const &B) { return B.inputOrdinal() < InputOrdinal; });
+  Bodies.insert(Pos.base(),
+                Symbol::Body{linkage::append,
+                             pstore::repo::fragment::load(Db, CM.fext),
+                             CM.fext.addr, InputOrdinal});
+  assert(std::is_sorted(std::begin(Bodies), std::end(Bodies),
+                        [](Symbol::Body const &A, Symbol::Body const &B) {
+                          return A.inputOrdinal() < B.inputOrdinal();
+                        }) &&
+         "Append symbol bodies must be sorted by input ordinal");
+  return this;
 }
 
 // updateExternalSymbol
 // ~~~~~~~~~~~~~~~~~~~~
 auto Symbol::updateExternalSymbol(pstore::database const &Db,
                                   pstore::repo::compilation_member const &CM,
-                                  UndefsContainer &Undefs,
-                                  std::size_t InputOrdinal) -> Symbol * {
+                                  NotNull<UndefsContainer *> const Undefs,
+                                  uint32_t InputOrdinal) -> Symbol * {
   assert(CM.linkage() == linkage::external);
 
   std::lock_guard<decltype(Mut_)> const Lock{Mut_};
@@ -168,8 +200,8 @@ auto Symbol::updateExternalSymbol(pstore::database const &Db,
 // ~~~~~~~~~~~~~~~~~~
 auto Symbol::updateCommonSymbol(pstore::database const &Db,
                                 pstore::repo::compilation_member const &CM,
-                                UndefsContainer &Undefs,
-                                std::size_t InputOrdinal) -> Symbol * {
+                                NotNull<UndefsContainer *> const Undefs,
+                                uint32_t InputOrdinal) -> Symbol * {
   assert(CM.linkage() == linkage::common);
 
   std::lock_guard<decltype(Mut_)> const Lock{Mut_};
@@ -218,8 +250,8 @@ auto Symbol::updateCommonSymbol(pstore::database const &Db,
 // ~~~~~~~~~~~~~~~~~~~~
 auto Symbol::updateLinkOnceSymbol(pstore::database const &Db,
                                   pstore::repo::compilation_member const &CM,
-                                  UndefsContainer &Undefs,
-                                  std::size_t InputOrdinal) -> Symbol * {
+                                  NotNull<UndefsContainer *> const Undefs,
+                                  uint32_t InputOrdinal) -> Symbol * {
   assert(CM.linkage() == linkage::link_once_any ||
          CM.linkage() == linkage::link_once_odr);
 
@@ -245,8 +277,8 @@ auto Symbol::updateLinkOnceSymbol(pstore::database const &Db,
 // ~~~~~~~~~~~~~~~~
 auto Symbol::updateWeakSymbol(pstore::database const &Db,
                               pstore::repo::compilation_member const &CM,
-                              UndefsContainer &Undefs, std::size_t InputOrdinal)
-    -> Symbol * {
+                              NotNull<UndefsContainer *> const Undefs,
+                              uint32_t InputOrdinal) -> Symbol * {
   assert(CM.linkage() == linkage::weak_any ||
          CM.linkage() == linkage::weak_odr);
 
@@ -280,28 +312,30 @@ auto Symbol::updateWeakSymbol(pstore::database const &Db,
   llvm_unreachable("Unknown linkage");
 }
 
-// debugDumpSymbols
-// ~~~~~~~~~~~~~~~~
+// debug dump symbols
+// ~~~~~~~~~~~~~~~~~~
 void debugDumpSymbols(Context const &Ctx,
                       GlobalSymbolsContainer const &Globals) {
-  llvmDebug(DebugType, Ctx.IOMut, [&] {
     auto &OS = llvm::dbgs();
     OS << "There are " << Globals.size() << " symbols\n";
     for (auto const &S : Globals) {
-      llvm::Optional<llvm::SmallVector<Symbol::Body, 1>> const &Def =
-          S.definition();
+      auto X = S.definition();
+      auto const &Def = std::get<Symbol::DefinitionIndex>(X);
+
       auto const IsDefined = Def.hasValue();
       pstore::shared_sstring_view Owner;
       OS << "  " << stringViewAsRef(loadString(Ctx.Db, S.name(), &Owner))
          << ": defined: " << (IsDefined ? "Yes" : "No");
       if (IsDefined) {
+        auto Sep = "ordinals: [";
         for (auto const &Body : *Def) {
-          OS << ", ordinal:" << Body.inputOrdinal();
+          OS << Sep << Body.inputOrdinal();
+          Sep = ",";
         }
+        OS << ']';
       }
       OS << "\n";
     }
-  });
 }
 
 //*   ___ _     _          _    ___ _                          *
@@ -340,10 +374,11 @@ rld::GlobalSymbolsContainer GlobalsStorage::all() {
 // addUndefined
 // ~~~~~~~~~~~~
 auto SymbolResolver::addUndefined(
-    NotNull<GlobalSymbolsContainer *> const Globals, UndefsContainer &Undefs,
-    StringAddress const Name) -> Symbol * {
+    NotNull<GlobalSymbolsContainer *> const Globals,
+    NotNull<UndefsContainer *> const Undefs, StringAddress const Name)
+    -> Symbol * {
   Symbol *const Sym = &Globals->emplace_back(Name);
-  Undefs.insert(Sym);
+  Undefs->insert(Sym);
   return Sym;
 }
 
@@ -351,7 +386,7 @@ auto SymbolResolver::addUndefined(
 // ~~~
 auto SymbolResolver::add(NotNull<GlobalSymbolsContainer *> const Globals,
                          pstore::repo::compilation_member const &CM,
-                         std::size_t InputOrdinal) -> Symbol * {
+                         uint32_t InputOrdinal) -> Symbol * {
   return &Globals->emplace_back(
       CM.name, Symbol::Body(CM.linkage(),
                             pstore::repo::fragment::load(Context_.Db, CM.fext),
@@ -360,9 +395,12 @@ auto SymbolResolver::add(NotNull<GlobalSymbolsContainer *> const Globals,
 
 // defineSymbol
 // ~~~~~~~~~~~~
-Symbol *SymbolResolver::defineSymbol(
-    NotNull<GlobalSymbolsContainer *> const Globals, UndefsContainer &Undefs,
-    pstore::repo::compilation_member const &CM, std::size_t InputOrdinal) {
+Symbol *
+SymbolResolver::defineSymbol(NotNull<GlobalSymbolsContainer *> const Globals,
+                             NotNull<UndefsContainer *> const Undefs,
+                             pstore::repo::compilation_member const &CM,
+                             uint32_t InputOrdinal) {
+
   llvmDebug(DebugType, Context_.IOMut, [&] {
     pstore::shared_sstring_view Owner;
     llvm::dbgs() << "> " << CM.name.absolute() << ' '
@@ -417,8 +455,8 @@ Symbol *SymbolResolver::defineSymbol(
 
 Symbol *referenceSymbol(Context &Ctx, StringAddress Name,
                         LocalSymbolsContainer const &Locals,
-                        GlobalSymbolsContainer *const Globals,
-                        UndefsContainer &Undefs) {
+                        NotNull<GlobalSymbolsContainer *> const Globals,
+                        NotNull<UndefsContainer *> const Undefs) {
 
   // Do we have a local definition for this symbol?
   auto const NamePos = Locals.find(Name);

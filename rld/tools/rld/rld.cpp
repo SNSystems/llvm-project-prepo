@@ -51,6 +51,8 @@
 #include "llvm/Support/FileOutputBuffer.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/ThreadPool.h"
+#include "llvm/Support/Threading.h"
+#include "llvm/Support/Timer.h"
 #include "llvm/Support/ToolOutputFile.h"
 
 #include "pstore/core/database.hpp"
@@ -66,6 +68,7 @@
 #include "rld/IdentifyPass.h"
 #include "rld/LayoutBuilder.h"
 #include "rld/MathExtras.h"
+#include "rld/SectionArray.h"
 #include "rld/elf.h"
 #include "rld/scanner.h"
 #include "rld/types.h"
@@ -97,7 +100,7 @@ llvm::cl::opt<std::string> OutputFileName("o",
                                           llvm::cl::init("./a.out"));
 llvm::cl::opt<unsigned> NumWorkers(
     "workers", llvm::cl::desc("Number of worker threads"),
-    llvm::cl::init(std::max(std::thread::hardware_concurrency(), 1U)));
+    llvm::cl::init(std::max(llvm::heavyweight_hardware_concurrency(), 1U)));
 
 } // end anonymous namespace
 
@@ -112,6 +115,9 @@ static std::string getRepoPath() {
   return RepoPath;
 }
 
+// Use this group name for NamedRegionTimer.
+static const auto TimerGroupName = "rld";
+static const auto TimerGroupDescription = "rld prepo linker";
 
 template <typename T> class as_hex {
 public:
@@ -226,8 +232,7 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os, rld::SectionKind SKind) {
 void copyToOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
                   rld::LayoutOutput const &LO,
                   std::uint8_t *const Data /*output buffer*/,
-                  std::uint64_t const StartOffset,
-                  std::uint64_t const TotalSize) {
+                  std::uint64_t const StartOffset) {
   for (auto SegmentIndex = std::size_t{0}, NumSegments = LO.size();
        SegmentIndex < NumSegments; ++SegmentIndex) {
     rld::Segment const &Segment = LO[SegmentIndex];
@@ -264,8 +269,6 @@ void copyToOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
       });
     }
   }
-
-  WorkPool.wait();
 }
 
 template <typename ELFT>
@@ -415,23 +418,23 @@ auto generateFixedContent(pstore::database &Db, llvm::Triple const &Triple)
   auto Compilations =
       pstore::index::get_index<pstore::trailer::indices::compilation>(Db);
   if (Compilations == nullptr) {
-    return make_error_code(rld::ErrorCode::cannot_load_the_compilation_index);
+    return rld::ErrorCode::CompilationIndexNotFound;
   }
 
-  auto fragments =
+  auto Fragments =
       pstore::index::get_index<pstore::trailer::indices::fragment>(Db);
-  if (fragments == nullptr) {
-    return make_error_code(rld::ErrorCode::cannot_load_the_fragment_index);
+  if (Fragments == nullptr) {
+    return rld::ErrorCode::FragmentIndexNotFound;
   }
 
   auto names = pstore::index::get_index<pstore::trailer::indices::name>(Db);
   if (Compilations == nullptr) {
-    return make_error_code(rld::ErrorCode::cannot_load_the_names_index);
+    return rld::ErrorCode::NamesIndexNotFound;
   }
 
-  auto const InterpFragmentPos = fragments->find(Db, interp_fragment_digest);
+  auto const InterpFragmentPos = Fragments->find(Db, interp_fragment_digest);
   auto const InterpCompilationPos = Compilations->find(Db, interp_compilation);
-  auto const HaveInterpFragment = InterpFragmentPos != fragments->end(Db);
+  auto const HaveInterpFragment = InterpFragmentPos != Fragments->end(Db);
   auto const HaveInterpCompilation =
       InterpCompilationPos != Compilations->end(Db);
   if (HaveInterpFragment && HaveInterpCompilation) {
@@ -441,7 +444,7 @@ auto generateFixedContent(pstore::database &Db, llvm::Triple const &Triple)
   auto Transaction = pstore::begin(Db);
   auto const FragmentExtent = HaveInterpFragment
                                   ? InterpFragmentPos->second
-                                  : makeInterpFragment(Transaction, fragments);
+                                  : makeInterpFragment(Transaction, Fragments);
   pstore::extent<pstore::repo::compilation> const CompilationExtent =
       HaveInterpCompilation
           ? InterpCompilationPos->second
@@ -452,58 +455,191 @@ auto generateFixedContent(pstore::database &Db, llvm::Triple const &Triple)
   return CompilationExtent;
 }
 
-enum class RldErrorCode : int {
-  none,
-  DatabaseNotFound,
-  CompilationIndexNotFound,
-};
-
-class RldErrorCategory : public std::error_category {
-public:
-  // The need for this constructor was removed by CWG defect 253 but Clang
-  // (prior to 3.9.0) and GCC (before 4.6.4) require its presence.
-  RldErrorCategory() noexcept {} // NOLINT
-  char const *name() const noexcept override;
-  std::string message(int error) const override;
-};
-
-char const *RldErrorCategory::name() const noexcept { return "rld category"; }
-
-std::string RldErrorCategory::message(int const error) const {
-  auto *result = "unknown error";
-  switch (static_cast<RldErrorCode>(error)) {
-  case RldErrorCode::none:
-    result = "";
-    break;
-  case RldErrorCode::DatabaseNotFound:
-    result = "Repository was not found";
-    break;
-  case RldErrorCode::CompilationIndexNotFound:
-    result = "Compilation index was not found";
-    break;
-  }
-  return result;
-}
-
-RldErrorCategory const &getRldErrorCategory() noexcept {
-  static RldErrorCategory const cat;
-  return cat;
-}
-
-std::error_code make_error_code(RldErrorCode const e) {
-  static_assert(
-      std::is_same<std::underlying_type<decltype(e)>::type, int>::value,
-      "base type of error_code must be int to permit safe static cast");
-  return {static_cast<int>(e), getRldErrorCategory()};
-}
-
 static llvm::ErrorOr<std::unique_ptr<pstore::database>> openRepository() {
   std::string const FilePath = getRepoPath();
   if (!llvm::sys::fs::exists(FilePath)) {
-    return make_error_code(RldErrorCode::DatabaseNotFound);
+    return rld::ErrorCode::DatabaseNotFound;
   }
   return std::make_unique<pstore::database>(
       FilePath, pstore::database::access_mode::writable);
+}
+
+void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
+               rld::LayoutOutput const &Layout) {
+  llvm::NamedRegionTimer Timer("ELF Output", "Binary Output Phase",
+                               TimerGroupName, TimerGroupDescription);
+
+  using ELF64LE = llvm::object::ELFType<llvm::support::little, true>;
+  using Elf_Ehdr = llvm::object::ELFFile<ELF64LE>::Elf_Ehdr;
+  using Elf_Shdr = llvm::object::ELFFile<ELF64LE>::Elf_Shdr;
+  using Elf_Phdr = llvm::object::ELFFile<ELF64LE>::Elf_Phdr;
+
+  rld::SectionArray<rld::elf::ElfSectionInfo> ElfSections;
+  static constexpr auto NumImplicitSections = 1U; // The null section.
+
+  ElfSections[rld::SectionKind::shstrtab].Emit = true;
+  ElfSections[rld::SectionKind::shstrtab].Align = 1;
+
+  for_each_section(Layout, [&ElfSections](rld::SectionKind Kind,
+                                          rld::SectionInfo const &SI) {
+    if (SI.Size > 0) {
+      auto &ESI = ElfSections[Kind];
+      ESI.Emit = true;
+      ESI.Offset = std::min(ESI.Offset, SI.Offset);
+      ESI.Size += SI.Size;
+      ESI.Align = std::max(ESI.Align, SI.Align);
+    }
+  });
+
+  auto NumSections = NumImplicitSections;
+  auto SectionNameSize = std::uint64_t{1};
+  auto SectionHeaderNamesSectionIndex = 0;
+  for (rld::SectionKind Kind = rld::firstSectionKind();
+       Kind != rld::SectionKind::last; ++Kind) {
+    auto &ESI = ElfSections[Kind];
+    if (ESI.Emit) {
+      if (Kind == rld::SectionKind::shstrtab) {
+        SectionHeaderNamesSectionIndex = NumSections;
+      }
+      ++NumSections;
+
+      assert(ESI.NameOffset == 0);
+      ESI.NameOffset = SectionNameSize;
+      SectionNameSize += rld::elf::elfSectionNameAndLength(Kind).second + 1U;
+    }
+  }
+
+  auto NumSegments = 0U;
+  for_each_segment(Layout, [&NumSegments](rld::SegmentKind /*Kind*/,
+                                          rld::Segment const &Segment) {
+    if (Segment.shouldEmit()) {
+      ++NumSegments;
+    }
+  });
+
+  assert(NumSections == std::count_if(std::begin(ElfSections),
+                                      std::end(ElfSections),
+                                      [](rld::elf::ElfSectionInfo const &ESI) {
+                                        return ESI.Emit;
+                                      }) +
+                            NumImplicitSections);
+
+  uint64_t const TargetDataSize = std::accumulate(
+      std::begin(Layout), std::end(Layout), uint64_t{0},
+      [](uint64_t RunningTotal, rld::Segment const &Segment) {
+        return rld::alignTo(RunningTotal, Segment.MaxAlign) + Segment.VSize;
+      });
+
+  enum Region {
+    FileHeader,
+    SegmentTable,
+    TargetData,
+    SectionTable,
+    SectionNames,
+    Last
+  };
+  // Meaning of the two fields in RegionTuple.
+  enum LocationIndexes {
+    OffsetIndex,
+    SizeIndex
+  };
+  using RegionTuple = std::tuple<uint64_t, uint64_t>;
+  std::array<RegionTuple, Region::Last> FileRegions = {{
+      RegionTuple{0, sizeof(Elf_Ehdr)},
+  }};
+  auto RegionOffset = [&FileRegions](Region R) {
+    return std::get<OffsetIndex>(FileRegions[static_cast<size_t>(R)]);
+  };
+  auto RegionSize = [&FileRegions](Region R) {
+    return std::get<SizeIndex>(FileRegions[static_cast<size_t>(R)]);
+  };
+  auto RegionEnd = [&](Region R) { return RegionOffset(R) + RegionSize(R); };
+
+  FileRegions[Region::SegmentTable] = RegionTuple{
+      RegionEnd(Region::FileHeader), NumSegments * sizeof(Elf_Phdr)};
+  FileRegions[Region::TargetData] =
+      RegionTuple{RegionEnd(Region::SegmentTable), TargetDataSize};
+  FileRegions[Region::SectionTable] = RegionTuple{
+      RegionEnd(Region::TargetData), NumSections * sizeof(Elf_Shdr)};
+  FileRegions[Region::SectionNames] =
+      RegionTuple{RegionEnd(Region::SectionTable), SectionNameSize};
+
+  ElfSections[rld::SectionKind::shstrtab].Offset =
+      RegionOffset(Region::SectionNames);
+  ElfSections[rld::SectionKind::shstrtab].Size =
+      RegionSize(Region::SectionNames);
+
+  uint64_t const TotalSize = RegionEnd(Region::SectionNames);
+
+  rld::llvmDebug(DebugType, Ctxt.IOMut, [TotalSize]() {
+    llvm::dbgs() << "Output file size=" << TotalSize << '\n';
+  });
+
+  auto Out = ExitOnErr(llvm::FileOutputBuffer::create(
+      OutputFileName, TotalSize,
+      llvm::FileOutputBuffer::
+          F_executable /*| llvm::FileOutputBuffer::F_modify*/));
+
+  std::uint8_t *const BufferStart = Out->getBufferStart();
+
+  WorkPool.async([BufferStart, RegionOffset, NumSegments, NumSections,
+                  SectionHeaderNamesSectionIndex]() {
+    auto *const Ehdr = reinterpret_cast<Elf_Ehdr *>(
+        BufferStart + RegionOffset(Region::FileHeader));
+    initELFHeader<ELF64LE>(Ehdr, llvm::ELF::EM_X86_64);
+    Ehdr->e_type = llvm::ELF::ET_EXEC;
+    Ehdr->e_phnum = NumSegments;
+    Ehdr->e_phoff = RegionOffset(Region::SegmentTable);
+    Ehdr->e_shnum = NumSections;
+    Ehdr->e_shoff = RegionOffset(Region::SectionTable);
+    Ehdr->e_shstrndx = SectionHeaderNamesSectionIndex;
+  });
+
+  WorkPool.async(
+      [BufferStart, RegionOffset, RegionSize, NumSegments, &Layout]() {
+        auto *const PhdrStartPtr = reinterpret_cast<Elf_Phdr *>(
+            BufferStart + RegionOffset(Region::SegmentTable));
+        auto *const PhdrEndPtr = rld::elf::emitProgramHeaders<ELF64LE>(
+            PhdrStartPtr, RegionOffset(Region::TargetData), Layout);
+        (void)PhdrEndPtr;
+        assert(PhdrEndPtr - PhdrStartPtr == NumSegments);
+        assert(reinterpret_cast<std::uint8_t *>(PhdrStartPtr) +
+                   RegionSize(Region::SegmentTable) ==
+               reinterpret_cast<std::uint8_t *>(PhdrEndPtr));
+      });
+
+  WorkPool.async(
+      [BufferStart, RegionOffset, &ElfSections, NumSections, RegionSize]() {
+        auto *const ShdrStartPtr = reinterpret_cast<Elf_Shdr *>(
+            BufferStart + RegionOffset(Region::SectionTable));
+        auto *const ShdrEndPtr =
+            rld::elf::emitSectionHeaders<ELF64LE>(ShdrStartPtr, ElfSections);
+        (void)ShdrEndPtr;
+        assert(ShdrEndPtr - ShdrStartPtr == NumSections);
+        assert(reinterpret_cast<std::uint8_t *>(ShdrStartPtr) +
+                   RegionSize(Region::SectionTable) ==
+               reinterpret_cast<std::uint8_t *>(ShdrEndPtr));
+      });
+
+  WorkPool.async(
+      [BufferStart, RegionOffset, RegionSize, &ElfSections, SectionNameSize]() {
+        // Produce the section names string table.
+        auto *SectionNameStartPtr = reinterpret_cast<char *>(
+            BufferStart + RegionOffset(Region::SectionNames));
+        auto *SectionNameEndPtr =
+            emitSectionHeaderStringTable(SectionNameStartPtr, ElfSections);
+        (void)SectionNameEndPtr;
+        assert(SectionNameStartPtr + SectionNameSize == SectionNameEndPtr);
+        assert(reinterpret_cast<std::uint8_t *>(SectionNameStartPtr) +
+                   RegionSize(Region::SectionNames) ==
+               reinterpret_cast<std::uint8_t *>(SectionNameEndPtr));
+      });
+
+  copyToOutput(Ctxt, WorkPool, Layout, BufferStart,
+               RegionOffset(Region::TargetData));
+  WorkPool.wait();
+
+  ExitOnErr(Out->commit());
 }
 
 int main(int Argc, char *Argv[]) {
@@ -524,7 +660,7 @@ int main(int Argc, char *Argv[]) {
   if (!CompilationIndex) {
     llvm::errs()
         << "Error: "
-        << make_error_code(RldErrorCode::CompilationIndexNotFound).message()
+        << make_error_code(rld::ErrorCode::CompilationIndexNotFound).message()
         << '\n';
     return EXIT_FAILURE;
   }
@@ -542,202 +678,72 @@ int main(int Argc, char *Argv[]) {
   rld::UndefsContainer Undefs;
   auto GlobalSymbs = std::make_unique<rld::GlobalsStorage>(NumWorkerThreads);
 
-  // The plus one here allows for the linker-generated /interp/ file.
-  auto const NumCompilations = InputPaths.size() + std::size_t{1};
-  rld::LayoutBuilder Layout{Ctxt, GlobalSymbs.get(), NumCompilations};
-  std::thread LayoutThread{&rld::LayoutBuilder::run, &Layout};
-
-  llvm::Optional<llvm::Triple> Triple;
-
+  std::unique_ptr<rld::LayoutOutput> LO;
   {
-    rld::Scanner Scan{Ctxt, Layout, Undefs};
-    for (const auto &C : R->Compilations) {
-      WorkPool.async(
-          [&Scan, &GlobalSymbs](
-              const rld::Identifier::CompilationVector::value_type &V) {
-            Scan.run(std::get<std::string>(V), // path
-                     GlobalSymbs->getThreadSymbols(),
-                     std::get<pstore::extent<pstore::repo::compilation>>(
-                         V),             // compilation extent
-                     std::get<size_t>(V) // input ordinal
-            );
-          },
-          std::cref(C));
-    }
+    llvm::NamedRegionTimer LayoutTimer("Layout", "Output file layout",
+                                       TimerGroupName, TimerGroupDescription);
 
-    WorkPool.wait();
+    // The plus one here allows for the linker-generated /interp/ file.
+    auto const NumCompilations = InputPaths.size() + std::size_t{1};
+    if (NumCompilations > std::numeric_limits<uint32_t>::max()) {
+      llvm::errs() << "Error: Too many input files\n";
+      std::exit(EXIT_FAILURE);
+    }
+    rld::LayoutBuilder Layout{Ctxt, GlobalSymbs.get(),
+                              static_cast<uint32_t>(NumCompilations)};
+    std::thread LayoutThread{&rld::LayoutBuilder::run, &Layout};
 
-    Triple = Ctxt.triple();
-    if (!Triple) {
-      llvm::errs() << "Error: The output triple could not be determined.\n";
-      return EXIT_FAILURE;
+    llvm::Optional<llvm::Triple> Triple;
+
+    {
+      llvm::NamedRegionTimer ScanTimer("Scan", "Input file scanning",
+                                       TimerGroupName, TimerGroupDescription);
+
+      rld::Scanner Scan{Ctxt, Layout, &Undefs};
+      for (const auto &C : R->Compilations) {
+        WorkPool.async(
+            [&Scan, &GlobalSymbs](
+                const rld::Identifier::CompilationVector::value_type &V) {
+              Scan.run(std::get<std::string>(V), // path
+                       GlobalSymbs->getThreadSymbols(),
+                       std::get<pstore::extent<pstore::repo::compilation>>(
+                           V),             // compilation extent
+                       std::get<size_t>(V) // input ordinal
+              );
+            },
+            std::cref(C));
+      }
+
+      WorkPool.wait();
+
+      Triple = Ctxt.triple();
+      if (!Triple) {
+        llvm::errs() << "Error: The output triple could not be determined.\n";
+        return EXIT_FAILURE;
+      }
+      auto const FixedCompilationExtent =
+          generateFixedContent(Ctxt.Db, *Triple);
+      if (!FixedCompilationExtent) {
+        llvm::errs() << "Error: " << FixedCompilationExtent.getError().message()
+                     << '\n';
+        return EXIT_FAILURE;
+      }
+      Scan.run("/ident/", // path
+               GlobalSymbs->getThreadSymbols(),
+               *FixedCompilationExtent, // compilation extent
+               R->Compilations.size()   // input ordinal
+      );
     }
-    auto const FixedCompilationExtent = generateFixedContent(Ctxt.Db, *Triple);
-    if (!FixedCompilationExtent) {
-      llvm::errs() << "Error: " << FixedCompilationExtent.getError().message()
-                   << '\n';
-      return EXIT_FAILURE;
-    }
-    Scan.run("/ident/", // path
-             GlobalSymbs->getThreadSymbols(),
-             *FixedCompilationExtent, // compilation extent
-             R->Compilations.size()   // input ordinal
-    );
+    LayoutThread.join();
+    LO = Layout.flattenSegments();
   }
-  LayoutThread.join();
-  std::unique_ptr<rld::LayoutOutput> LO = Layout.flattenSegments();
 
-  rld::llvmDebug(DebugType, Ctxt.IOMut, [&Triple] {
-    llvm::dbgs() << "Output triple: " << Triple->normalize() << '\n';
+  rld::llvmDebug(DebugType, Ctxt.IOMut, [&Ctxt] {
+    llvm::dbgs() << "Output triple: " << Ctxt.triple()->normalize() << '\n';
   });
 
   // Now we set about emitting an ELF executable...
-
-  using ELF64LE = llvm::object::ELFType<llvm::support::little, true>;
-  using Elf_Ehdr = llvm::object::ELFFile<ELF64LE>::Elf_Ehdr;
-  using Elf_Shdr = llvm::object::ELFFile<ELF64LE>::Elf_Shdr;
-  using Elf_Phdr = llvm::object::ELFFile<ELF64LE>::Elf_Phdr;
-
-  std::array<rld::elf::ElfSectionInfo,
-             static_cast<size_t>(rld::SectionKind::last)>
-      ElfSections;
-  static constexpr auto NumImplicitSections = 1U; // The null section.
-
-  ElfSections[static_cast<size_t>(rld::SectionKind::shstrtab)].Emit = true;
-  ElfSections[static_cast<size_t>(rld::SectionKind::shstrtab)].Align = 1;
-
-  for_each_section(
-      *LO, [&ElfSections](rld::SectionKind Kind, rld::SectionInfo const &SI) {
-        if (SI.Size > 0) {
-          auto &ESI = ElfSections[static_cast<size_t>(Kind)];
-          ESI.Emit = true;
-          ESI.Offset = std::min(ESI.Offset, SI.Offset);
-          ESI.Size += SI.Size;
-          ESI.Align = std::max(ESI.Align, SI.Align);
-        }
-      });
-
-  auto NumSections = NumImplicitSections;
-  auto SectionNameSize = std::uint64_t{1};
-  auto SectionHeaderNamesSectionIndex = 0;
-  for (rld::SectionKind Kind = rld::firstSectionKind();
-       Kind != rld::SectionKind::last; ++Kind) {
-    auto &ESI = ElfSections[static_cast<size_t>(Kind)];
-    if (ESI.Emit) {
-      if (Kind == rld::SectionKind::shstrtab) {
-        SectionHeaderNamesSectionIndex = NumSections;
-      }
-      ++NumSections;
-
-      assert(ESI.NameOffset == 0);
-      ESI.NameOffset = SectionNameSize;
-      SectionNameSize += rld::elf::elfSectionNameAndLength(Kind).second + 1U;
-    }
-  }
-
-  auto TotalNumSegments = std::uint64_t{0};
-  for_each_segment(*LO, [&TotalNumSegments](rld::SegmentKind /*Kind*/,
-                                            rld::Segment const &Segment) {
-    if (Segment.shouldEmit()) {
-      ++TotalNumSegments;
-    }
-  });
-
-  assert(NumSections == std::count_if(std::begin(ElfSections),
-                                      std::end(ElfSections),
-                                      [](rld::elf::ElfSectionInfo const &ESI) {
-                                        return ESI.Emit;
-                                      }) +
-                            NumImplicitSections);
-
-  enum ElfFileRegions {
-    FileHeader,
-    SegmentTable,
-    SectionHeaderTable,
-    SectionNames,
-    TargetData
-  };
-  using RegionTuple = std::tuple<uint64_t, uint64_t>;
-  enum LocationIndexes {
-    OffsetIndex,
-    SizeIndex
-  }; // Meaning of the two fields in RegionTuple.
-  auto RegionEnd = [](RegionTuple const &Loc) {
-    return std::get<OffsetIndex>(Loc) + std::get<SizeIndex>(Loc);
-  };
-
-  uint64_t const TargetDataSize = std::accumulate(
-      std::begin(*LO), std::end(*LO), uint64_t{0},
-      [](uint64_t RunningTotal, rld::Segment const &Segment) {
-        return rld::alignTo(RunningTotal, Segment.MaxAlign) + Segment.VSize;
-      });
-
-  auto const FileHeaderLocation = RegionTuple{0, sizeof(Elf_Ehdr)};
-  auto const SegmentsLocation = RegionTuple{
-      RegionEnd(FileHeaderLocation), TotalNumSegments * sizeof(Elf_Phdr)};
-  auto const TargetDataLocation =
-      RegionTuple{RegionEnd(SegmentsLocation), TargetDataSize};
-  auto const SectionHeadersLocation = RegionTuple{
-      RegionEnd(TargetDataLocation), NumSections * sizeof(Elf_Shdr)};
-  auto const SectionNamesLocation =
-      RegionTuple{RegionEnd(SectionHeadersLocation), SectionNameSize};
-
-  ElfSections[static_cast<size_t>(rld::SectionKind::shstrtab)].Offset =
-      std::get<OffsetIndex>(SectionNamesLocation);
-  ElfSections[static_cast<size_t>(rld::SectionKind::shstrtab)].Size =
-      std::get<SizeIndex>(SectionNamesLocation);
-
-  uint64_t const TotalSize = RegionEnd(SectionNamesLocation);
-
-  rld::llvmDebug(DebugType, Ctxt.IOMut, [TotalSize]() {
-    llvm::dbgs() << "Output file size=" << TotalSize << '\n';
-  });
-
-  auto Out = ExitOnErr(llvm::FileOutputBuffer::create(
-      OutputFileName, TotalSize,
-      llvm::FileOutputBuffer::
-          F_executable /*| llvm::FileOutputBuffer::F_modify*/));
-
-  std::uint8_t *const BufferStart = Out->getBufferStart();
-  auto *const Ehdr = reinterpret_cast<Elf_Ehdr *>(BufferStart);
-  initELFHeader<ELF64LE>(Ehdr, llvm::ELF::EM_X86_64);
-  Ehdr->e_type = llvm::ELF::ET_EXEC;
-  Ehdr->e_phnum = TotalNumSegments;
-  Ehdr->e_phoff = std::get<OffsetIndex>(SegmentsLocation);
-  Ehdr->e_shnum = NumSections;
-  Ehdr->e_shoff = std::get<OffsetIndex>(SectionHeadersLocation);
-  Ehdr->e_shstrndx = SectionHeaderNamesSectionIndex;
-
-  Elf_Phdr *const ElfPhdrEndPtr = rld::elf::emitProgramHeaders<ELF64LE>(
-      reinterpret_cast<Elf_Phdr *>(BufferStart +
-                                   std::get<OffsetIndex>(SegmentsLocation)),
-      std::get<OffsetIndex>(TargetDataLocation), *LO);
-  (void)ElfPhdrEndPtr;
-  copyToOutput(Ctxt, WorkPool, *LO, BufferStart,
-               std::get<OffsetIndex>(TargetDataLocation), TotalSize);
-
-  auto *const ElfShdrStartPtr = reinterpret_cast<Elf_Shdr *>(
-      BufferStart + std::get<OffsetIndex>(SectionHeadersLocation));
-  Elf_Shdr *const ElfShdrEndPtr =
-      rld::elf::emitSectionHeaders<ELF64LE>(ElfShdrStartPtr, ElfSections);
-  (void)ElfShdrEndPtr;
-  assert(ElfShdrEndPtr - ElfShdrStartPtr == NumSections);
-
-  // Produce the section names string table.
-  char *SectionNameStartPtr = reinterpret_cast<char *>(
-      BufferStart + std::get<OffsetIndex>(SectionNamesLocation));
-  char *SectionNameEndPtr =
-      emitSectionHeaderStringTable(SectionNameStartPtr, ElfSections);
-  (void)SectionNameEndPtr;
-  assert(SectionNameStartPtr + SectionNameSize == SectionNameEndPtr);
-
-  //  assert(reinterpret_cast<uint8_t *>(SectionNameEndPtr) >= BufferStart);
-  //  assert(static_cast<uint64_t>(reinterpret_cast<uint8_t
-  //  *>(SectionNameEndPtr) - BufferStart) ==
-  //  std::get<OffsetIndex>(TargetDataLocation)); copyToOutput(Ctxt, WorkPool,
-  //  *LO, BufferStart,
-  //               std::get<OffsetIndex>(TargetDataLocation), TotalSize);
-  ExitOnErr(Out->commit());
+  elfOutput(Ctxt, WorkPool, *LO);
 
   // Avoid calling the destructors of some of our global objects. We can simply
   // let the O/S do that instead. Remove these calls if looking for memoryleaks,

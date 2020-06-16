@@ -8,9 +8,10 @@ namespace rld {
 
 enum ErrorCode : int {
   none,
-  cannot_load_the_compilation_index,
-  cannot_load_the_fragment_index,
-  cannot_load_the_names_index,
+  DatabaseNotFound,
+  CompilationIndexNotFound,
+  FragmentIndexNotFound,
+  NamesIndexNotFound,
 };
 
 class ErrorCategory : public std::error_category {

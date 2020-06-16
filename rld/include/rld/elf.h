@@ -9,6 +9,8 @@
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "rld/SectionArray.h"
+
 #include <memory>
 #include <type_traits>
 
@@ -126,6 +128,7 @@ constexpr auto elfSegmentKind(rld::SegmentKind Kind) ->
     assert(false); // Never appears in the layout.
     return Elf_Word{};
   }
+  llvm_unreachable("Invalid rld SegmentKind");
 }
 
 template <typename ELFT>
@@ -151,7 +154,7 @@ constexpr auto elfSegmentFlags(rld::SegmentKind const Kind) ->
   llvm_unreachable("Invalid segment kind");
 }
 
-constexpr bool hasPhysicalAddress(rld::SegmentKind const Kind) {
+inline bool hasPhysicalAddress(rld::SegmentKind const Kind) {
   switch (Kind) {
   case rld::SegmentKind::phdr:
   case rld::SegmentKind::data:
@@ -166,6 +169,7 @@ constexpr bool hasPhysicalAddress(rld::SegmentKind const Kind) {
   case rld::SegmentKind::last:
     return false;
   }
+  llvm_unreachable("Invalid rld SegmentKind");
 }
 
 template <typename ELFT>
@@ -398,17 +402,15 @@ struct ElfSectionInfo {
   unsigned Align = 1;
 };
 
-using ElfSectionInfoArray =
-    std::array<ElfSectionInfo, static_cast<size_t>(rld::SectionKind::last)>;
-
 template <typename ELFT>
 auto emitSectionHeaders(typename llvm::object::ELFFile<ELFT>::Elf_Shdr *Shdr,
-                        ElfSectionInfoArray const &ElfSections) ->
+                        const SectionArray<ElfSectionInfo> &ElfSections) ->
     typename llvm::object::ELFFile<ELFT>::Elf_Shdr *;
 
 // Produce the section names string table.
-char *emitSectionHeaderStringTable(char *SectionNamePtr,
-                                   ElfSectionInfoArray const &ElfSections);
+char *
+emitSectionHeaderStringTable(char *SectionNamePtr,
+                             const SectionArray<ElfSectionInfo> &ElfSections);
 
 } // end namespace elf
 } // end namespace rld

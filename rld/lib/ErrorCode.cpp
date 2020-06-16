@@ -8,13 +8,16 @@ std::string rld::ErrorCategory::message(int error) const {
   case ErrorCode::none:
     result = "no error";
     break;
-  case ErrorCode::cannot_load_the_compilation_index:
+  case ErrorCode::DatabaseNotFound:
+    result = "The database was not found";
+    break;
+  case ErrorCode::CompilationIndexNotFound:
     result = "Cannot load the compilation index";
     break;
-  case ErrorCode::cannot_load_the_fragment_index:
+  case ErrorCode::FragmentIndexNotFound:
     result = "Cannot load the fragment index";
     break;
-  case ErrorCode::cannot_load_the_names_index:
+  case ErrorCode::NamesIndexNotFound:
     result = "Cannot load the names index";
     break;
   }

@@ -64,32 +64,23 @@ namespace rld {
 
 class LayoutBuilder;
 
-using atomic_symbol_ptr = std::atomic<Symbol *>;
-class SymbolScanner;
-
 class Scanner {
 public:
-  Scanner(Context &Ctx, LayoutBuilder &Layout, UndefsContainer &Undefs)
+  Scanner(Context &Ctx, LayoutBuilder &Layout,
+          NotNull<UndefsContainer *> const Undefs)
       : Context_{Ctx}, Layout_{Layout}, Undefs_{Undefs} {}
+  Scanner(Scanner const &) = delete;
+  Scanner &operator=(Scanner const &) = delete;
 
   void run(std::string const &Path,
            NotNull<rld::GlobalSymbolsContainer *> const GlobalSymbols,
            pstore::extent<pstore::repo::compilation> const &CompilationExtent,
-           std::size_t InputOrdinal);
+           uint32_t InputOrdinal);
 
 private:
-  bool resolveXfixups(LocalSymbolsContainer const &Locals,
-                      NotNull<rld::GlobalSymbolsContainer *> const Globals);
-
-  template <pstore::repo::section_kind Kind>
-  void resolveSectionFixups(
-      pstore::typed_address<pstore::repo::fragment> FragmentAddress,
-      FragmentPtr const &Fragment, LocalSymbolsContainer const &Locals,
-      NotNull<rld::GlobalSymbolsContainer *> const);
-
   Context &Context_;
   LayoutBuilder &Layout_;
-  UndefsContainer &Undefs_;
+  NotNull<UndefsContainer *> const Undefs_;
 };
 
 } // namespace rld

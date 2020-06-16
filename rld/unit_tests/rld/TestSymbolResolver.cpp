@@ -1,10 +1,11 @@
 #include "rld/symbol.h"
 
+#include "CompilationBuilder.h"
 #include "EmptyStore.h"
+#include "ErrorFn.h"
+#include "StringAdder.h"
 
 #include "pstore/core/hamt_set.hpp"
-#include "pstore/os/memory_mapper.hpp"
-
 #include "rld/context.h"
 
 #include "gmock/gmock.h"
@@ -17,49 +18,6 @@ using pstore::repo::linkage;
 
 namespace {
 
-// FIXME: copied from gen.cpp
-class StringAdder {
-public:
-  explicit StringAdder(
-      std::shared_ptr<pstore::index::name_index> const NamesIndex)
-      : NamesIndex_{std::move(NamesIndex)} {}
-
-  template <typename Lock>
-  rld::StringAddress add(pstore::transaction<Lock> &Transaction,
-                         std::string const &Str) {
-    Strings_.emplace_back(Str, pstore::raw_sstring_view{});
-    auto &Back = Strings_.back();
-    Back.second =
-        pstore::raw_sstring_view{Back.first.data(), Back.first.size()};
-    auto const AddRes = Adder_.add(Transaction, NamesIndex_, &Back.second);
-    if (!AddRes.second) {
-      // FIXME: already there! Delete the last entry
-    }
-    return rld::StringAddress::make(AddRes.first.get_address());
-  }
-
-  template <typename Lock> void flush(pstore::transaction<Lock> &Transaction) {
-    Adder_.flush(Transaction);
-  }
-
-private:
-  std::shared_ptr<pstore::index::name_index> NamesIndex_;
-  std::list<std::pair<std::string, pstore::raw_sstring_view>> Strings_;
-  pstore::indirect_string_adder Adder_;
-};
-
-
-class ErrorFnInterface {
-public:
-  virtual ~ErrorFnInterface() = default;
-  virtual void invoke(rld::StringAddress) const = 0;
-  void operator()(rld::StringAddress Addr) const { return invoke(Addr); }
-};
-class ErrorFn : public ErrorFnInterface {
-public:
-  MOCK_CONST_METHOD1(invoke, void(rld::StringAddress));
-};
-
 //*  ___            _         _ ___                             *
 //* / __|_  _ _ __ | |__  ___| / __| __ __ _ _ _  _ _  ___ _ _  *
 //* \__ \ || | '  \| '_ \/ _ \ \__ \/ _/ _` | ' \| ' \/ -_) '_| *
@@ -67,51 +25,27 @@ public:
 //*      |__/                                                   *
 class SymbolScanner : public testing::Test, public EmptyStore {
 public:
-  SymbolScanner() = default;
+  SymbolScanner() : CompilationBuilder_{this->Db()} {}
 
 protected:
-  using Transaction = pstore::transaction<pstore::transaction_lock>;
-  using NameAndLinkagePair = std::pair<std::string, linkage>;
-
-  template <typename NameAndLinkageIterator, typename CreateFragmentFn>
-  static std::pair<pstore::index::digest,
-                   pstore::extent<pstore::repo::compilation>>
-  createCompilation(Transaction &T, StringAdder &NameAdder,
-                    NameAndLinkageIterator first, NameAndLinkageIterator last,
-                    CreateFragmentFn FragmentCreator);
-
-  static std::shared_ptr<pstore::index::fragment_index>
-  getFragmentIndex(pstore::database &Db) {
-    return pstore::index::get_index<pstore::trailer::indices::fragment>(Db);
-  }
-
-  static std::shared_ptr<pstore::index::compilation_index>
-  getCompilationIndex(pstore::database &Db) {
-    return pstore::index::get_index<pstore::trailer::indices::compilation>(Db);
-  }
-
-  static std::shared_ptr<pstore::index::name_index>
-  getNameIndex(pstore::database &Db) {
-    return pstore::index::get_index<pstore::trailer::indices::name>(Db);
-  }
-
   static rld::StringAddress getStringAddress(pstore::database const &Db,
                                              char const *Name);
 
   static void checkFragmentContents(
       std::shared_ptr<pstore::repo::fragment const> const &Fragment,
-      std::uint8_t Index);
+      uint8_t Index, pstore::repo::linkage Linkage);
 
+  /// A function which will create a compilation containing a single definition
+  /// with a particular name and linkage. There's unavoidable logic here because
+  /// definitions with common linkage _must_ contain a sole BSS section.
   std::shared_ptr<pstore::repo::compilation const>
-  compile(std::string const &Name, linkage Linkage);
+  compile(std::string const &DefinitionName, pstore::repo::linkage Linkage);
 
-  // Create a transaction which simply contains the supplied string if not
-  // already in the names index.
-  rld::StringAddress storeString(char const *Name);
+  CompilationBuilder CompilationBuilder_;
 };
 
-// getStringAddress
-// ~~~~~~~~~~~~~~~~
+// get string address
+// ~~~~~~~~~~~~~~~~~~
 rld::StringAddress SymbolScanner::getStringAddress(pstore::database const &Db,
                                                    char const *Name) {
   auto NameIndex = pstore::index::get_index<pstore::trailer::indices::name>(Db);
@@ -121,125 +55,37 @@ rld::StringAddress SymbolScanner::getStringAddress(pstore::database const &Db,
   return rld::StringAddress::make(Pos.get_address());
 }
 
-// createCompilation
-// ~~~~~~~~~~~~~~~~~
-/// \tparam NameAndLinkageIterator An iterator whose value-type must be
-///     NameAndLinkagePair.
-/// \tparam CreateFragmentFn  A function which is called to create a single
-///     fragment. It should be compatible with the signature:
-///     function<pair<digest, extent<fragment>>(Transaction&)>
-/// \param T  An open transaction to which the compilation will be added.
-/// \param NameAddr  A StringAdder instance which is responsible for
-///     managing strings that are added to the transaction.
-/// \param first  The beginning of an iterator range which produces
-///     NameAndLinkagePair instances.
-/// \param last  The end of an iterator range which produces
-///     NameAndLinkagePair instances.
-/// \param FragmentCreator  A function which will create a single fragment
-///     with the desired contents.
-/// \returns A pair containing the new fragment's digest and its extent.
-template <typename NameAndLinkageIterator, typename CreateFragmentFn>
-std::pair<pstore::index::digest, pstore::extent<pstore::repo::compilation>>
-SymbolScanner::createCompilation(Transaction &T, StringAdder &NameAdder,
-                                 NameAndLinkageIterator first,
-                                 NameAndLinkageIterator last,
-                                 CreateFragmentFn FragmentCreator) {
-  static_assert(
-      std::is_same<
-          typename std::iterator_traits<NameAndLinkageIterator>::value_type,
-          NameAndLinkagePair>::value,
-      "Iterator must produce NameAndLinkagePair");
-
-  auto FragmentIndex = getFragmentIndex(T.db());
-  auto CompilationIndex = getCompilationIndex(T.db());
-
-  using Digest = pstore::index::digest;
-  using Compilation = pstore::repo::compilation;
-  using CompilationMember = pstore::repo::compilation_member;
-
-  std::vector<CompilationMember> CompilationSymbols;
-  std::transform(
-      first, last, std::back_inserter(CompilationSymbols),
-      [&FragmentCreator, &T, &NameAdder](NameAndLinkagePair const &NL) {
-        auto const FragmentDigestAndExtent = FragmentCreator(T);
-        return CompilationMember{FragmentDigestAndExtent.first,
-                                 FragmentDigestAndExtent.second,
-                                 NameAdder.add(T, NL.first), NL.second};
-      });
-
-  constexpr auto Path = "/path";
-  constexpr auto Triple = "machine-vendor-os";
-  return *(CompilationIndex
-               ->insert(T, std::make_pair(Digest{CompilationIndex->size()},
-                                          Compilation::alloc(
-                                              T, NameAdder.add(T, Path),
-                                              NameAdder.add(T, Triple),
-                                              std::begin(CompilationSymbols),
-                                              std::end(CompilationSymbols))))
-               .first);
-}
-
-// checkFragmentContents
-// ~~~~~~~~~~~~~~~~~~~~~
-void SymbolScanner::checkFragmentContents(
-    std::shared_ptr<pstore::repo::fragment const> const &Fragment,
-    std::uint8_t Index) {
-  ASSERT_NE(Fragment.get(), nullptr);
-  EXPECT_EQ(Fragment->size(), 1U);
-  pstore::repo::generic_section const *const rodata =
-      Fragment->atp<pstore::repo::section_kind::read_only>();
-  ASSERT_NE(rodata, nullptr);
-  EXPECT_THAT(rodata->payload(), testing::ElementsAre(Index))
-      << "Expected fragment #" << unsigned{Index};
-}
-
 // compile
 // ~~~~~~~
 std::shared_ptr<pstore::repo::compilation const>
-SymbolScanner::compile(std::string const &Name, linkage Linkage) {
-  using namespace pstore::repo;
-
-  auto Transaction = pstore::begin(this->Db());
-  StringAdder NameAdder(getNameIndex(this->Db()));
-  auto const CreateFragment = [](decltype(Transaction) &T)
-      -> std::pair<pstore::index::digest,
-                   pstore::extent<pstore::repo::fragment>> {
-    auto FragmentIndex = getFragmentIndex(T.db());
-    auto const NumFragments = FragmentIndex->size();
-
-    section_content DataSection{section_kind::read_only,
-                                std::uint8_t{1} /*alignment*/};
-    assert(NumFragments <
-           std::numeric_limits<decltype(DataSection.data)::value_type>::max());
-    DataSection.data.push_back(NumFragments);
-
-    std::array<generic_section_creation_dispatcher, 1> Dispatchers{
-        {{section_kind::read_only, &DataSection}}};
-    return *FragmentIndex
-                ->insert(T, std::make_pair(
-                                pstore::index::digest{NumFragments},
-                                fragment::alloc(T, std::begin(Dispatchers),
-                                                std::end(Dispatchers))))
-                .first;
-  };
-  std::array<NameAndLinkagePair, 1> NameAndLinkage{{{Name, Linkage}}};
-  auto const CompilationDigestAndExtent =
-      createCompilation(Transaction, NameAdder, std::begin(NameAndLinkage),
-                        std::end(NameAndLinkage), CreateFragment);
-  NameAdder.flush(Transaction); // Write the bodies of the strings.
-  Transaction.commit();
-  return compilation::load(this->Db(), CompilationDigestAndExtent.second);
+SymbolScanner::compile(std::string const &DefinitionName,
+                       pstore::repo::linkage Linkage) {
+  if (Linkage == pstore::repo::linkage::common) {
+    return CompilationBuilder_.compileWithCommonSymbol(DefinitionName,
+                                                       1U /*size*/);
+  }
+  return CompilationBuilder_.compile(DefinitionName, Linkage);
 }
 
-// storeString
-// ~~~~~~~~~~~
-rld::StringAddress SymbolScanner::storeString(char const *Name) {
-  auto Transaction = pstore::begin(this->Db());
-  StringAdder NameAdder(getNameIndex(this->Db()));
-  rld::StringAddress const SAddr = NameAdder.add(Transaction, Name);
-  NameAdder.flush(Transaction); // Write the bodies of the strings.
-  Transaction.commit();
-  return SAddr;
+// check fragment contents [static]
+// ~~~~~~~~~~~~~~~~~~~~~~~
+void SymbolScanner::checkFragmentContents(
+    std::shared_ptr<pstore::repo::fragment const> const &Fragment,
+    uint8_t Index, pstore::repo::linkage Linkage) {
+  ASSERT_NE(Fragment.get(), nullptr);
+  EXPECT_EQ(Fragment->size(), 1U);
+  if (Linkage == pstore::repo::linkage::common) {
+    pstore::repo::bss_section const *const bss =
+        Fragment->atp<pstore::repo::section_kind::bss>();
+    ASSERT_NE(bss, nullptr) << "Expected the fragment to have a BSS section";
+  } else {
+    pstore::repo::generic_section const *const rodata =
+        Fragment->atp<pstore::repo::section_kind::read_only>();
+    ASSERT_NE(rodata, nullptr)
+        << "Expected the fragment to have a read-only section";
+    EXPECT_THAT(rodata->payload(), testing::ElementsAre(Index))
+        << "Expected fragment #" << unsigned{Index};
+  }
 }
 
 //*  ____  _             _      ____                  _           _  *
@@ -269,14 +115,14 @@ TEST_P(SingleSymbol, SingleSymbol) {
   EXPECT_CALL(ErrorCallback, invoke(_)).Times(0);
 
   constexpr auto InputOrdinal =
-      std::size_t{43}; // (Using an unimportant small prime.)
+      uint32_t{43}; // (Using an unimportant small prime.)
 
   rld::UndefsContainer Undefs;
   // Simulate a CU containing a single symbol ("f0") of type 'Linkage'. Create a
   // symbol resolver and get it to examine our new compilation.
   rld::GlobalSymbolsContainer Globals;
   ReturnType const C0Locals =
-      Resolver_.defineSymbols(Undefs, &Globals, *this->compile("f0", Linkage),
+      Resolver_.defineSymbols(&Globals, &Undefs, *compile("f0", Linkage),
                               InputOrdinal, std::cref(ErrorCallback));
 
   ASSERT_TRUE(C0Locals.hasValue());
@@ -285,15 +131,23 @@ TEST_P(SingleSymbol, SingleSymbol) {
   {
     ASSERT_EQ(Globals.size(), 1U);
     rld::Symbol const &Sym = *Globals.begin();
-    ASSERT_TRUE(Sym.definition().hasValue());
-    llvm::SmallVector<rld::Symbol::Body, 1> const &Definition =
-        *Sym.definition();
-    ASSERT_EQ(Definition.size(), 1U);
-    EXPECT_EQ(Definition.front().inputOrdinal(), InputOrdinal);
-    EXPECT_EQ(Definition.front().linkage(), Linkage);
+    ASSERT_TRUE(Sym.hasDefinition()) << "The symbol must be be defined";
+    auto DefinitionAndLock = Sym.definition();
+    auto const &Bodies =
+        std::get<rld::Symbol::OptionalBodies const &>(DefinitionAndLock);
+    auto const &Lock =
+        std::get<std::unique_lock<rld::Symbol::Mutex>>(DefinitionAndLock);
+    ASSERT_TRUE(Lock.owns_lock()) << "definition() must return an owned lock";
+    ASSERT_TRUE(Bodies.hasValue()) << "The symbol should be defined [and must "
+                                      "agree with Sym.hasDefinition()]";
+
+    ASSERT_EQ(Bodies->size(), 1U);
+    rld::Symbol::Body const &B = Bodies->front();
+    EXPECT_EQ(B.inputOrdinal(), InputOrdinal);
+    EXPECT_EQ(B.linkage(), Linkage);
 
     SCOPED_TRACE("SingleSymbol,SingleSymbol");
-    this->checkFragmentContents(Definition.front().fragment(), std::uint8_t{0});
+    this->checkFragmentContents(B.fragment(), uint8_t{0}, Linkage);
   }
   // Now that the CU-local view of the symbols is correct.
   {
@@ -325,12 +179,12 @@ public:
 protected:
   using ReturnType = llvm::Optional<rld::LocalSymbolsContainer>;
   void checkSymbol(rld::Symbol const &Symbol, unsigned TicketFileIndex,
-                   linkage Linkage, std::uint8_t FragmentIndex);
+                   linkage Linkage, uint8_t FragmentIndex);
   rld::Symbol const &getSymbol(rld::GlobalSymbolsContainer const &Globals,
                                unsigned Index);
 
-  static constexpr auto Input0_ = 0U;
-  static constexpr auto Input1_ = 1U;
+  static constexpr uint32_t Input0_ = 0;
+  static constexpr uint32_t Input1_ = 1;
 
   void checkCompilationLocalView(
       llvm::Optional<rld::LocalSymbolsContainer> const &LocalView,
@@ -340,8 +194,11 @@ protected:
   rld::SymbolResolver Resolver_;
 };
 
-// getSymbol
-// ~~~~~~~~~
+constexpr uint32_t TwoSymbols::Input0_;
+constexpr uint32_t TwoSymbols::Input1_;
+
+// get symbol
+// ~~~~~~~~~~
 rld::Symbol const &
 TwoSymbols::getSymbol(rld::GlobalSymbolsContainer const &Globals,
                       unsigned Index) {
@@ -352,24 +209,32 @@ TwoSymbols::getSymbol(rld::GlobalSymbolsContainer const &Globals,
   return *It;
 }
 
-// checkSymbol
-// ~~~~~~~~~~~
-void TwoSymbols::checkSymbol(rld::Symbol const &Symbol,
-                             unsigned TicketFileOrdinal, linkage Linkage,
-                             std::uint8_t FragmentIndex) {
-  ASSERT_TRUE(Symbol.definition().hasValue());
-  auto const &Definition = *Symbol.definition();
-  ASSERT_EQ(Definition.size(), 1U) << "Symbol must have a single body";
-  EXPECT_EQ(Definition.front().inputOrdinal(), TicketFileOrdinal);
-  EXPECT_EQ(Definition.front().linkage(), Linkage);
+// check symbol
+// ~~~~~~~~~~~~
+void TwoSymbols::checkSymbol(const rld::Symbol &Symbol,
+                             uint32_t TicketFileOrdinal, linkage Linkage,
+                             uint8_t FragmentIndex) {
+  ASSERT_TRUE(Symbol.hasDefinition()) << "The symbol must be be defined";
+  auto DefinitionAndLock = Symbol.definition();
+  auto const &Bodies =
+      std::get<rld::Symbol::OptionalBodies const &>(DefinitionAndLock);
+  auto const &Lock =
+      std::get<std::unique_lock<rld::Symbol::Mutex>>(DefinitionAndLock);
+  ASSERT_TRUE(Lock.owns_lock()) << "definition() must return an owned lock";
+  ASSERT_TRUE(Bodies.hasValue()) << "The symbol should be defined [and must "
+                                    "agree with Symbol.hasDefinition()]";
+  ASSERT_EQ(Bodies->size(), 1U) << "Symbol must have a single body";
+  const rld::Symbol::Body &B = Bodies->front();
+  EXPECT_EQ(B.inputOrdinal(), TicketFileOrdinal);
+  EXPECT_EQ(B.linkage(), Linkage);
   // Ensure that we have the expected fragment associated with this symbol. We
   // create fragments with a single section whose data payload is a single byte
   // derived from the fragment-index size at the time it was created.
-  this->checkFragmentContents(Definition.front().fragment(), FragmentIndex);
+  this->checkFragmentContents(B.fragment(), FragmentIndex, Linkage);
 }
 
-// checkCompilationLocalView
-// ~~~~~~~~~~~~~~~~~~~~~~~~~
+// check compilation local view
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 void TwoSymbols::checkCompilationLocalView(
     llvm::Optional<rld::LocalSymbolsContainer> const &LocalView,
     rld::Symbol const &S) const {
@@ -393,8 +258,8 @@ public:
   TwoCompilations();
 
 protected:
-  std::shared_ptr<pstore::repo::compilation const> const CU0_;
-  std::shared_ptr<pstore::repo::compilation const> const CU1_;
+  std::shared_ptr<pstore::repo::compilation const> CU0_;
+  std::shared_ptr<pstore::repo::compilation const> CU1_;
 
   void checkSuccess(ReturnType const &C0, ReturnType const &C1,
                     rld::Symbol const &Symbol0) const;
@@ -402,12 +267,13 @@ protected:
 
 // ctor
 // ~~~~
-TwoCompilations::TwoCompilations()
-    : CU0_{this->compile("f", std::get<0>(GetParam()))},
-      CU1_{this->compile("f", std::get<1>(GetParam()))} {}
+TwoCompilations::TwoCompilations() {
+  CU0_ = this->compile("f", std::get<0>(GetParam()));
+  CU1_ = this->compile("f", std::get<1>(GetParam()));
+}
 
-// checkSuccess
-// ~~~~~~~~~~~~
+// check success
+// ~~~~~~~~~~~~~
 void TwoCompilations::checkSuccess(ReturnType const &C0, ReturnType const &C1,
                                    rld::Symbol const &Symbol0) const {
 
@@ -447,12 +313,12 @@ TEST_P(LowestOrdinal, LowerOrdinalFirst) {
 
   // Define the symbol in the first compilation (Input0_) before the second
   // (Input1_).
-  ReturnType C0 = Resolver_.defineSymbols(Undefs, &Globals, *CU0_, Input0_,
-                                          std::cref(ErrorCallback));
-  ASSERT_TRUE(C0);
-  ReturnType C1 = Resolver_.defineSymbols(Undefs, &Globals, *CU1_, Input1_,
-                                          std::cref(ErrorCallback));
-  ASSERT_TRUE(C1);
+  ReturnType const C0 = Resolver_.defineSymbols(
+      &Globals, &Undefs, *CU0_, Input0_, std::cref(ErrorCallback));
+  ASSERT_TRUE(C0.hasValue());
+  ReturnType const C1 = Resolver_.defineSymbols(
+      &Globals, &Undefs, *CU1_, Input1_, std::cref(ErrorCallback));
+  ASSERT_TRUE(C1.hasValue());
 
   // Check that the resolver did the right thing. First that the global symbol
   // table is as expected.
@@ -477,10 +343,10 @@ TEST_P(LowestOrdinal, LowerOrdinalSecond) {
   rld::GlobalSymbolsContainer Globals;
   // Define the symbol in the second compilation (Input1_) before the first
   // (Input0_).
-  ReturnType C1 = Resolver_.defineSymbols(Undefs, &Globals, *CU1_, Input1_,
+  ReturnType C1 = Resolver_.defineSymbols(&Globals, &Undefs, *CU1_, Input1_,
                                           std::cref(ErrorCallback));
   ASSERT_TRUE(C1);
-  ReturnType C0 = Resolver_.defineSymbols(Undefs, &Globals, *CU0_, Input0_,
+  ReturnType C0 = Resolver_.defineSymbols(&Globals, &Undefs, *CU0_, Input0_,
                                           std::cref(ErrorCallback));
   ASSERT_TRUE(C0);
 
@@ -532,15 +398,15 @@ TEST_P(Replaces, Replaces) {
   rld::UndefsContainer Undefs;
   rld::GlobalSymbolsContainer Globals;
 
-  // Two compilations defining the name name: the first with a symbol linkage
+  // Two compilations defining the same name: the first with a symbol linkage
   // from the first test parameter, the second with the second parameter symbol
   // linkage.
-  ReturnType C0 = Resolver_.defineSymbols(Undefs, &Globals, *CU0_, Input0_,
+  ReturnType C0 = Resolver_.defineSymbols(&Globals, &Undefs, *CU0_, Input0_,
                                           std::cref(ErrorCallback));
-  ASSERT_TRUE(C0);
-  ReturnType C1 = Resolver_.defineSymbols(Undefs, &Globals, *CU1_, Input1_,
+  ASSERT_TRUE(C0) << "Expected symbol resolution for CU0 to succeed";
+  ReturnType C1 = Resolver_.defineSymbols(&Globals, &Undefs, *CU1_, Input1_,
                                           std::cref(ErrorCallback));
-  ASSERT_TRUE(C1);
+  ASSERT_TRUE(C1) << "Expected symbol resolution for CU1 to succeed";
 
   // Check that the resolver did the right thing. First that the global symbol
   // table is as expected.
@@ -582,13 +448,13 @@ TEST_P(Ignored, Ignored) {
   rld::UndefsContainer Undefs;
   rld::GlobalSymbolsContainer Globals;
 
-  // Two compilations defining the name name: the first with a symbol linkage
+  // Two compilations defining the same name: the first with a symbol linkage
   // from the first test parameter, the second with the second parameter symbol
   // linkage.
-  ReturnType C0 = Resolver_.defineSymbols(Undefs, &Globals, *CU0_, Input0_,
+  ReturnType C0 = Resolver_.defineSymbols(&Globals, &Undefs, *CU0_, Input0_,
                                           std::cref(ErrorCallback));
   ASSERT_TRUE(C0);
-  ReturnType C1 = Resolver_.defineSymbols(Undefs, &Globals, *CU1_, Input1_,
+  ReturnType C1 = Resolver_.defineSymbols(&Globals, &Undefs, *CU1_, Input1_,
                                           std::cref(ErrorCallback));
   ASSERT_TRUE(C1);
 
@@ -638,12 +504,12 @@ TEST_P(Collision, OtherHits) {
   rld::UndefsContainer Undefs;
   rld::GlobalSymbolsContainer Globals;
 
-  // Two compilations defining the name name: the first with an symbol linkage
+  // Two compilations defining the same name: the first with an symbol linkage
   // from the first test parameter, the second with the second parameter symbol
   // linkage.
-  ReturnType C0 = Resolver_.defineSymbols(Undefs, &Globals, *CU0_, Input0_,
+  ReturnType C0 = Resolver_.defineSymbols(&Globals, &Undefs, *CU0_, Input0_,
                                           std::cref(ErrorCallback));
-  ReturnType C1 = Resolver_.defineSymbols(Undefs, &Globals, *CU1_, Input1_,
+  ReturnType C1 = Resolver_.defineSymbols(&Globals, &Undefs, *CU1_, Input1_,
                                           std::cref(ErrorCallback));
 
   // Check that the resolver did the right thing. First that the global symbol
@@ -715,6 +581,120 @@ INSTANTIATE_TEST_CASE_P(
                     TwoLinkages{linkage::weak_odr, linkage::link_once_any},
                     TwoLinkages{linkage::weak_odr, linkage::link_once_odr}), );
 
+namespace {
+
+class Append : public TwoSymbols {
+public:
+  Append()
+      : CU0_{CompilationBuilder_.compile("f", linkage::append)},
+        CU1_{CompilationBuilder_.compile("f", linkage::append)} {}
+
+protected:
+  void checkSymbolTableEntry(rld::Symbol const &Symbol0);
+  void checkLocalSymbolView(ReturnType const &C0, ReturnType const &C1,
+                            rld::Symbol const &Symbol) const;
+
+  std::shared_ptr<pstore::repo::compilation const> const CU0_;
+  std::shared_ptr<pstore::repo::compilation const> const CU1_;
+};
+
+// check symbol table entry
+// ~~~~~~~~~~~~~~~~~~~~~~~~
+void Append::checkSymbolTableEntry(rld::Symbol const &Symbol0) {
+  ASSERT_TRUE(Symbol0.hasDefinition()) << "The symbol must be be defined";
+  auto DefinitionAndLock = Symbol0.definition();
+  auto const &Bodies =
+      std::get<rld::Symbol::OptionalBodies const &>(DefinitionAndLock);
+  auto const &Lock =
+      std::get<std::unique_lock<rld::Symbol::Mutex>>(DefinitionAndLock);
+  ASSERT_TRUE(Lock.owns_lock()) << "definition() must return an owned lock";
+  ASSERT_TRUE(Bodies.hasValue()) << "The symbol should be defined [and must "
+                                    "agree with Symbol.hasDefinition()]";
+  ASSERT_EQ(Bodies->size(), 2U) << "Symbol must have two bodies";
+  {
+    const rld::Symbol::Body &B0 = (*Bodies)[0];
+    EXPECT_EQ(B0.inputOrdinal(), Input0_)
+        << "Body 0 must be from the first compilation";
+    EXPECT_EQ(B0.linkage(), linkage::append);
+    // Ensure that we have the expected fragment associated with this symbol. We
+    // create fragments with a single section whose data payload is a single
+    // byte derived from the fragment-index size at the time it was created.
+    this->checkFragmentContents(B0.fragment(), 0, linkage::append);
+  }
+  {
+    const rld::Symbol::Body &B1 = (*Bodies)[1];
+    EXPECT_EQ(B1.inputOrdinal(), Input1_)
+        << "Body 1 must be from the second compilation";
+    EXPECT_EQ(B1.linkage(), linkage::append);
+    this->checkFragmentContents(B1.fragment(), 1, linkage::append);
+  }
+}
+
+// check local symbol view
+// ~~~~~~~~~~~~~~~~~~~~~~~
+void Append::checkLocalSymbolView(ReturnType const &C0, ReturnType const &C1,
+                                  rld::Symbol const &Symbol) const {
+  // Now check the CU-local view of the symbols is correct for the first
+  // compilation.
+  ASSERT_TRUE(C0.hasValue());
+  EXPECT_EQ(C0->size(), 1U);
+  EXPECT_EQ(C0->begin()->second, &Symbol);
+
+  // Now check the CU-local view of the symbols is correct for the second
+  // compilation.
+  ASSERT_TRUE(C1.hasValue());
+  EXPECT_EQ(C1->size(), 1U);
+  EXPECT_EQ(C1->begin()->second, &Symbol);
+}
+
+} // end anonymous namespace
+
+TEST_F(Append, LowerOrdinalFirst) {
+  // No errors.
+  ErrorFn ErrorCallback;
+  EXPECT_CALL(ErrorCallback, invoke(_)).Times(0);
+
+  rld::UndefsContainer Undefs;
+  rld::GlobalSymbolsContainer Globals;
+
+  // Two compilations defining the same name with append linkage.
+  ReturnType C0 = Resolver_.defineSymbols(&Globals, &Undefs, *CU0_, Input0_,
+                                          std::cref(ErrorCallback));
+  ASSERT_TRUE(C0);
+  ReturnType C1 = Resolver_.defineSymbols(&Globals, &Undefs, *CU1_, Input1_,
+                                          std::cref(ErrorCallback));
+  ASSERT_TRUE(C1);
+
+  ASSERT_EQ(Globals.size(), 1U) << "A single symbol table entry is expected";
+  EXPECT_TRUE(Undefs.empty()) << "There should be no undefined symbols";
+  rld::Symbol const &Symbol = this->getSymbol(Globals, 0U);
+  checkSymbolTableEntry(Symbol);
+  checkLocalSymbolView(C0, C1, Symbol);
+}
+
+TEST_F(Append, LowerOrdinalSecond) {
+  // No errors.
+  ErrorFn ErrorCallback;
+  EXPECT_CALL(ErrorCallback, invoke(_)).Times(0);
+
+  rld::UndefsContainer Undefs;
+  rld::GlobalSymbolsContainer Globals;
+
+  // Two compilations defining the same name with append linkage.
+  ReturnType C1 = Resolver_.defineSymbols(&Globals, &Undefs, *CU1_, Input1_,
+                                          std::cref(ErrorCallback));
+  ASSERT_TRUE(C1);
+  ReturnType C0 = Resolver_.defineSymbols(&Globals, &Undefs, *CU0_, Input0_,
+                                          std::cref(ErrorCallback));
+  ASSERT_TRUE(C0);
+
+  ASSERT_EQ(Globals.size(), 1U) << "A single symbol table entry is expected";
+  EXPECT_TRUE(Undefs.empty()) << "There should be no undefined symbols";
+  rld::Symbol const &Symbol = this->getSymbol(Globals, 0U);
+  checkSymbolTableEntry(Symbol);
+  checkLocalSymbolView(C0, C1, Symbol);
+}
+
 //*  _                         _    *
 //* | |   __ _ _ _ __ _ ___ __| |_  *
 //* | |__/ _` | '_/ _` / -_|_-<  _| *
@@ -725,60 +705,33 @@ namespace {
 class Largest : public TwoSymbols {
 protected:
   //  using ReturnType = llvm::Optional<rld::LocalSymbolsContainer>;
-  static constexpr auto OrdinalA_ = std::size_t{43};
-  static constexpr auto OrdinalB_ = std::size_t{47};
+  static constexpr auto OrdinalA_ = uint32_t{43};
+  static constexpr auto OrdinalB_ = uint32_t{47};
   static constexpr auto Name_ = "f";
-
-  std::shared_ptr<pstore::repo::compilation const>
-  compileWithCommonSymbol(std::string const &Name, unsigned CommonSize);
 
   void checkCommonSymbol(rld::Symbol const &Sym, std::size_t ExpectedOrdinal,
                          std::size_t ExpectedSize);
 };
-
-// compileWithCommonSymbol
-// ~~~~~~~~~~~~~~~~~~~~~~~
-std::shared_ptr<pstore::repo::compilation const>
-Largest::compileWithCommonSymbol(std::string const &Name, unsigned CommonSize) {
-  using namespace pstore::repo;
-
-  auto Transaction = pstore::begin(this->Db());
-  StringAdder NameAdder(getNameIndex(this->Db()));
-  auto const CreateFragment = [CommonSize](decltype(Transaction) &T)
-      -> std::pair<pstore::index::digest,
-                   pstore::extent<pstore::repo::fragment>> {
-    auto FragmentIndex = getFragmentIndex(T.db());
-    auto const NumFragments = FragmentIndex->size();
-
-    section_content BSSSection{section_kind::bss,
-                               std::uint8_t{1} /*alignment*/};
-    BSSSection.data.resize(CommonSize); //, std::uint8_t{0});
-    bss_section_creation_dispatcher CD{&BSSSection};
-    return *FragmentIndex
-                ->insert(T, std::make_pair(pstore::index::digest{NumFragments},
-                                           fragment::alloc(T, &CD, &CD + 1)))
-                .first;
-  };
-  std::array<NameAndLinkagePair, 1> NameAndLinkage{{{Name, linkage::common}}};
-  auto const CompilationDigestAndExtent =
-      createCompilation(Transaction, NameAdder, std::begin(NameAndLinkage),
-                        std::end(NameAndLinkage), CreateFragment);
-  NameAdder.flush(Transaction); // Write the bodies of the strings.
-  Transaction.commit();
-  return compilation::load(this->Db(), CompilationDigestAndExtent.second);
-}
 
 // checkCommonSymbol
 // ~~~~~~~~~~~~~~~~~
 void Largest::checkCommonSymbol(rld::Symbol const &Sym,
                                 std::size_t ExpectedOrdinal,
                                 std::size_t ExpectedSize) {
-  llvm::Optional<llvm::SmallVector<rld::Symbol::Body, 1>> const &Definition =
-      Sym.definition();
-  ASSERT_TRUE(Definition.hasValue()) << "The symbol should be defined";
-  ASSERT_EQ(Definition->size(), 1U)
-      << "The must be a single definition of the symbol";
-  auto const &Body = Definition->front();
+  ASSERT_TRUE(Sym.hasDefinition()) << "The symbol must be defined";
+  auto DefinitionAndLock = Sym.definition();
+  auto const &Bodies =
+      std::get<rld::Symbol::OptionalBodies const &>(DefinitionAndLock);
+  auto const &Lock =
+      std::get<std::unique_lock<rld::Symbol::Mutex>>(DefinitionAndLock);
+  ASSERT_TRUE(Lock.owns_lock()) << "definition() must return an owned lock";
+  ASSERT_TRUE(Bodies.hasValue()) << "The symbol should be defined [and must "
+                                    "agree with Sym.hasDefinition()]";
+
+  ASSERT_EQ(Bodies->size(), 1U)
+      << "There must be a single definition of the symbol";
+
+  auto const &Body = Bodies->front();
   EXPECT_EQ(Body.linkage(), linkage::common)
       << "Expected the symbol to have common linkage";
   EXPECT_EQ(Body.inputOrdinal(), ExpectedOrdinal)
@@ -802,20 +755,20 @@ TEST_F(Largest, ALtB) {
 
   constexpr auto SizeA = 1U;
   constexpr auto SizeB = 2U;
-  auto CompilationA = this->compileWithCommonSymbol(Name_, SizeA);
-  auto CompilationB = this->compileWithCommonSymbol(Name_, SizeB);
+  auto CompilationA = CompilationBuilder_.compileWithCommonSymbol(Name_, SizeA);
+  auto CompilationB = CompilationBuilder_.compileWithCommonSymbol(Name_, SizeB);
 
   rld::UndefsContainer Undefs;
   rld::GlobalSymbolsContainer Globals;
 
-  ReturnType CA = Resolver_.defineSymbols(Undefs, &Globals, *CompilationA,
+  ReturnType CA = Resolver_.defineSymbols(&Globals, &Undefs, *CompilationA,
                                           OrdinalA_, std::cref(ErrorCallback));
   ASSERT_TRUE(CA.hasValue())
       << "Symbol resolution for OrdinalA_ produced an error";
   EXPECT_EQ(Globals.size(), 1U)
       << "The global symbol table should hold 1 entry";
 
-  ReturnType CB = Resolver_.defineSymbols(Undefs, &Globals, *CompilationB,
+  ReturnType CB = Resolver_.defineSymbols(&Globals, &Undefs, *CompilationB,
                                           OrdinalB_, std::cref(ErrorCallback));
 
   EXPECT_TRUE(Undefs.empty());
@@ -835,15 +788,15 @@ TEST_F(Largest, AGtB) {
 
   constexpr auto SizeA = 2U;
   constexpr auto SizeB = 1U;
-  auto CompilationA = this->compileWithCommonSymbol(Name_, SizeA);
-  auto CompilationB = this->compileWithCommonSymbol(Name_, SizeB);
+  auto CompilationA = CompilationBuilder_.compileWithCommonSymbol(Name_, SizeA);
+  auto CompilationB = CompilationBuilder_.compileWithCommonSymbol(Name_, SizeB);
   rld::UndefsContainer Undefs;
   rld::GlobalSymbolsContainer Globals;
 
-  ReturnType CA = Resolver_.defineSymbols(Undefs, &Globals, *CompilationA,
+  ReturnType CA = Resolver_.defineSymbols(&Globals, &Undefs, *CompilationA,
                                           OrdinalA_, std::cref(ErrorCallback));
   ASSERT_TRUE(CA.hasValue());
-  ReturnType CB = Resolver_.defineSymbols(Undefs, &Globals, *CompilationB,
+  ReturnType CB = Resolver_.defineSymbols(&Globals, &Undefs, *CompilationB,
                                           OrdinalB_, std::cref(ErrorCallback));
 
   EXPECT_TRUE(Undefs.empty());
@@ -861,14 +814,14 @@ TEST_F(Largest, AEqBLowestOrdinalFirst) {
   EXPECT_CALL(ErrorCallback, invoke(_)).Times(0);
 
   constexpr auto Size = 1U;
-  auto CompilationA = this->compileWithCommonSymbol(Name_, Size);
-  auto CompilationB = this->compileWithCommonSymbol(Name_, Size);
+  auto CompilationA = CompilationBuilder_.compileWithCommonSymbol(Name_, Size);
+  auto CompilationB = CompilationBuilder_.compileWithCommonSymbol(Name_, Size);
   rld::UndefsContainer Undefs;
   rld::GlobalSymbolsContainer Globals;
-  ReturnType CA = Resolver_.defineSymbols(Undefs, &Globals, *CompilationA,
+  ReturnType CA = Resolver_.defineSymbols(&Globals, &Undefs, *CompilationA,
                                           OrdinalA_, std::cref(ErrorCallback));
   ASSERT_TRUE(CA.hasValue());
-  ReturnType CB = Resolver_.defineSymbols(Undefs, &Globals, *CompilationB,
+  ReturnType CB = Resolver_.defineSymbols(&Globals, &Undefs, *CompilationB,
                                           OrdinalB_, std::cref(ErrorCallback));
 
   EXPECT_TRUE(Undefs.empty());
@@ -887,15 +840,15 @@ TEST_F(Largest, AEqBHighestOrdinalFirst) {
   EXPECT_CALL(ErrorCallback, invoke(_)).Times(0);
 
   constexpr auto Size = 1U;
-  auto CompilationA = this->compileWithCommonSymbol(Name_, Size);
-  auto CompilationB = this->compileWithCommonSymbol(Name_, Size);
+  auto CompilationA = CompilationBuilder_.compileWithCommonSymbol(Name_, Size);
+  auto CompilationB = CompilationBuilder_.compileWithCommonSymbol(Name_, Size);
   rld::UndefsContainer Undefs;
   rld::GlobalSymbolsContainer Globals;
   // Define the symbol from the file with the higher ordinal _first_,
-  ReturnType CB = Resolver_.defineSymbols(Undefs, &Globals, *CompilationA,
+  ReturnType CB = Resolver_.defineSymbols(&Globals, &Undefs, *CompilationA,
                                           OrdinalB_, std::cref(ErrorCallback));
   ASSERT_TRUE(CB.hasValue());
-  ReturnType CA = Resolver_.defineSymbols(Undefs, &Globals, *CompilationB,
+  ReturnType CA = Resolver_.defineSymbols(&Globals, &Undefs, *CompilationB,
                                           OrdinalA_, std::cref(ErrorCallback));
 
   EXPECT_TRUE(Undefs.empty());
@@ -931,10 +884,11 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
   rld::UndefsContainer Undefs;
   rld::GlobalSymbolsContainer Globals;
   rld::LocalSymbolsContainer S0;
-  rld::referenceSymbol(Ctx_, this->storeString(Name), S0, &Globals, Undefs);
+  rld::referenceSymbol(Ctx_, CompilationBuilder_.storeString(Name), S0,
+                       &Globals, &Undefs);
   EXPECT_EQ(S0.size(), 0U);
   ASSERT_EQ(Globals.size(), 1U);
-  EXPECT_FALSE(this->getSymbol(Globals, 0U).definition().hasValue());
+  EXPECT_FALSE(this->getSymbol(Globals, 0U).hasDefinition());
 
   // Check that the undef list contains this symbol.
   {
@@ -948,7 +902,7 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
   constexpr auto InputNo = 1U;
   std::shared_ptr<pstore::repo::compilation const> C1 = this->compile(Name, Linkage);
   llvm::Optional<rld::LocalSymbolsContainer> S1 = Resolver_.defineSymbols(
-      Undefs, &Globals, *C1, InputNo, std::cref(ErrorCallback));
+      &Globals, &Undefs, *C1, InputNo, std::cref(ErrorCallback));
   ASSERT_TRUE(S1.hasValue());
 
   // Check that the undef list is now empty again.
@@ -964,7 +918,7 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
       this->checkCompilationLocalView(*S1, Symbol0);
     }
     EXPECT_EQ(rld::referenceSymbol(Ctx_, getStringAddress(this->Db(), Name),
-                                   *S1, &Globals, Undefs),
+                                   *S1, &Globals, &Undefs),
               &Symbol0);
   }
 }
@@ -984,7 +938,7 @@ namespace {
 //*                                                                  *
 
 // If two CUs define a symbol with the same name but one of them has internal
-// linkage, then the internal symbol is only visible inside of its defining CU.
+// linkage, then the internal symbol is only visible inside its defining CU.
 class InternalCollision : public TwoSymbols,
                           public testing::WithParamInterface<linkage> {
 protected:
@@ -1004,12 +958,12 @@ TEST_P(InternalCollision, InternalAfter) {
   rld::UndefsContainer Undefs;
   rld::GlobalSymbolsContainer Globals;
 
-  ReturnType C0 = Resolver_.defineSymbols(Undefs, &Globals,
+  ReturnType C0 = Resolver_.defineSymbols(&Globals, &Undefs,
                                           *this->compile(Name_, OtherLinkage),
                                           Input0_, std::cref(ErrorCallback));
   ASSERT_TRUE(C0.hasValue());
   ReturnType C1 = Resolver_.defineSymbols(
-      Undefs, &Globals, *this->compile(Name_, linkage::internal), Input1_,
+      &Globals, &Undefs, *this->compile(Name_, linkage::internal), Input1_,
       std::cref(ErrorCallback));
   ASSERT_TRUE(C1.hasValue());
 
@@ -1025,10 +979,10 @@ TEST_P(InternalCollision, InternalAfter) {
     this->checkCompilationLocalView(*C1, Symbol1);
   }
   EXPECT_EQ(rld::referenceSymbol(Ctx_, getStringAddress(this->Db(), Name_), *C0,
-                                 &Globals, Undefs),
+                                 &Globals, &Undefs),
             &Symbol0);
   EXPECT_EQ(rld::referenceSymbol(Ctx_, getStringAddress(this->Db(), Name_), *C1,
-                                 &Globals, Undefs),
+                                 &Globals, &Undefs),
             &Symbol1);
   EXPECT_TRUE(Undefs.empty());
 }
@@ -1045,16 +999,16 @@ TEST_P(InternalCollision, InternalBefore) {
   rld::GlobalSymbolsContainer Globals;
 
   ReturnType C0 = Resolver_.defineSymbols(
-      Undefs, &Globals, *this->compile(Name_, linkage::internal), Input0_,
+      &Globals, &Undefs, *this->compile(Name_, linkage::internal), Input0_,
       std::cref(ErrorCallback));
   ASSERT_TRUE(C0.hasValue());
-  ReturnType C1 = Resolver_.defineSymbols(Undefs, &Globals,
+  ReturnType C1 = Resolver_.defineSymbols(&Globals, &Undefs,
                                           *this->compile(Name_, OtherLinkage),
                                           Input1_, std::cref(ErrorCallback));
+  ASSERT_TRUE(C1.hasValue());
 
   // Check that the resolver did the right thing. First that the symbol table is
   // as expected.
-  ASSERT_TRUE(C1.hasValue());
   EXPECT_TRUE(Undefs.empty());
   rld::Symbol const &Symbol0 = this->getSymbol(Globals, 0U);
   rld::Symbol const &Symbol1 = this->getSymbol(Globals, 1U);
@@ -1066,17 +1020,17 @@ TEST_P(InternalCollision, InternalBefore) {
     this->checkCompilationLocalView(*C1, Symbol1);
   }
   EXPECT_EQ(rld::referenceSymbol(Ctx_, getStringAddress(this->Db(), Name_), *C0,
-                                 &Globals, Undefs),
+                                 &Globals, &Undefs),
             &Symbol0);
   EXPECT_EQ(rld::referenceSymbol(Ctx_, getStringAddress(this->Db(), Name_), *C1,
-                                 &Globals, Undefs),
+                                 &Globals, &Undefs),
             &Symbol1);
 }
 
 INSTANTIATE_TEST_CASE_P(InternalWithCollision, InternalCollision,
-                        testing::Values(
-                            /*pstore::repo::linkage::append,*/
-                            linkage::common, linkage::external,
-                            linkage::internal, linkage::link_once_any,
-                            linkage::link_once_odr, linkage::weak_any,
-                            linkage::weak_odr), );
+                        testing::Values(linkage::append, linkage::common,
+                                        linkage::external, linkage::internal,
+                                        linkage::link_once_any,
+                                        linkage::link_once_odr,
+                                        linkage::weak_any,
+                                        linkage::weak_odr), );
