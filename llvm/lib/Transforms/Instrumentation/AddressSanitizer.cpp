@@ -1940,6 +1940,7 @@ StringRef ModuleAddressSanitizer::getGlobalMetadataSection() const {
   case Triple::MachO: return "__DATA,__asan_globals,regular";
   case Triple::Wasm:
   case Triple::XCOFF:
+  case Triple::Repo:
     report_fatal_error(
         "ModuleAddressSanitizer not implemented for object file format.");
   case Triple::UnknownObjectFormat:

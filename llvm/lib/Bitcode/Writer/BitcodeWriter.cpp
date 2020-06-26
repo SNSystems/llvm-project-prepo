@@ -4707,6 +4707,8 @@ static const char *getSectionNameForBitcode(const Triple &T) {
     return ".llvmbc";
   case Triple::XCOFF:
     llvm_unreachable("XCOFF is not yet implemented");
+  case Triple::Repo:
+    llvm_unreachable("Repo is not yet implemented");
     break;
   }
   llvm_unreachable("Unimplemented ObjectFormatType");
@@ -4723,6 +4725,8 @@ static const char *getSectionNameForCommandline(const Triple &T) {
     return ".llvmcmd";
   case Triple::XCOFF:
     llvm_unreachable("XCOFF is not yet implemented");
+  case Triple::Repo:
+    llvm_unreachable("Repo is not yet implemented");
     break;
   }
   llvm_unreachable("Unimplemented ObjectFormatType");

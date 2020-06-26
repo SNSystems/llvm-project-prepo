@@ -312,8 +312,8 @@ TEST_F(VariableHash, CheckLinkage) {
 
 // The alignment will affect the hash value.
 TEST_F(VariableHash, CheckAlignment) {
-  GV0->setAlignment(1);
-  GV1->setAlignment(4);
+  GV0->setAlignment(MaybeAlign(1));
+  GV1->setAlignment(MaybeAlign(4));
   EXPECT_FALSE(isEqualHash());
 }
 
