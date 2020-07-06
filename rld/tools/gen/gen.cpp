@@ -497,6 +497,55 @@ static llvm::SmallString<128> getTicketFilePath(llvm::StringRef OutputDir,
   return TicketFilePath;
 }
 
+static std::string getRepositoryPath() {
+  if (DbPath.getNumOccurrences() > 0) {
+    return DbPath.getValue();
+  }
+  llvm::SmallString<128> Result;
+  Result = OutputDirOpt;
+  llvm::sys::path::append(Result, "repo.db");
+  return Result.str();
+}
+
+static llvm::SmallString<128> quoteAndEscape (llvm::StringRef const & S) {
+    llvm::SmallString<128> Result;
+    Result += '"';
+    for (auto C: S) {
+        if (C == '\\' || C == '"') {
+            Result += '\\';
+        }
+        Result += C;
+    }
+    Result += '"';
+    return Result;
+}
+
+static std::error_code writeConfigFile(llvm::StringRef const & Dir) {
+  llvm::SmallString<128> ConfigFilePath = Dir;
+  llvm::sys::path::append(ConfigFilePath, "rld-gen.json");
+
+  std::error_code EC;
+  llvm::raw_fd_ostream OutFile(ConfigFilePath, EC);
+  if (EC) {
+    return EC;
+  }
+
+  constexpr auto Indent = "    ";
+  OutFile << "{\n";
+  OutFile << Indent << "\"repo-path\": " << quoteAndEscape (DbPath) << ",\n";
+  OutFile << Indent << "\"external\": " << ExternalPerModule << ",\n";
+  OutFile << Indent << "\"append\": " << AppendPerModule << ",\n";
+  OutFile << Indent << "\"linkonce\": " << LinkOncePerModule << ",\n";
+  OutFile << Indent << "\"modules\": " << Modules << ",\n";
+  OutFile << Indent << "\"output-dir\": " << quoteAndEscape (OutputDirOpt) << ",\n";
+  OutFile << Indent << "\"section-size\": " << SectionSize << ",\n";
+  OutFile << Indent << "\"triple\": " << quoteAndEscape (Triple) << ",\n";
+  OutFile << Indent << "\"data-fibonacci\": " << DataFibonacci << "\n";
+  OutFile << "}\n";
+  return OutFile.error();
+}
+
+
 int main(int argc, char *argv[]) {
   llvm::cl::ParseCommandLineOptions(argc, argv,
                                     "Repository Test Data Generator");
@@ -504,7 +553,7 @@ int main(int argc, char *argv[]) {
   static auto const ExternalPrefix = "external_"s;
   static auto const AppendPrefix = "append_"s;
 
-  pstore::database Db{DbPath, pstore::database::access_mode::writable};
+  pstore::database Db{getRepositoryPath(), pstore::database::access_mode::writable};
 
   Indices Idx{Db};
   LinkOnce LOInfo{Idx.Fragments, LinkOncePerModule};
@@ -515,10 +564,16 @@ int main(int argc, char *argv[]) {
                       Idx.Names};
 
   llvm::SmallString<128> OutputDir = llvm::StringRef{OutputDirOpt};
-  if (std::error_code EC = llvm::sys::fs::make_absolute(OutputDir)) {
+  if (const std::error_code EC = llvm::sys::fs::make_absolute(OutputDir)) {
     llvm::errs() << "failed to obtain absolute path for " << OutputDir << '\n';
     return EXIT_FAILURE;
   }
+
+  if (const std::error_code EC = writeConfigFile(OutputDir)) {
+    llvm::errs() << "failed to write configuration file\n";
+    return EXIT_FAILURE;
+  }
+
   IStringAddress TicketPath = Strings.add(Transaction, OutputDir);
   IStringAddress TripleName = Strings.add(Transaction, Triple);
 
