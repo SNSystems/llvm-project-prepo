@@ -1,10 +1,10 @@
-//*  _                          *
-//* | |_ _   _ _ __   ___  ___  *
-//* | __| | | | '_ \ / _ \/ __| *
-//* | |_| |_| | |_) |  __/\__ \ *
-//*  \__|\__, | .__/ \___||___/ *
-//*      |___/|_|               *
-//===- include/rld/types.h ------------------------------------------------===//
+//*     _    _                  _ _   _                *
+//*    / \  | | __ _  ___  _ __(_) |_| |__  _ __ ___   *
+//*   / _ \ | |/ _` |/ _ \| '__| | __| '_ \| '_ ` _ \  *
+//*  / ___ \| | (_| | (_) | |  | | |_| | | | | | | | | *
+//* /_/   \_\_|\__, |\___/|_|  |_|\__|_| |_|_| |_| |_| *
+//*            |___/                                   *
+//===- include/rld/Algorithm.h --------------------------------------------===//
 // Copyright (c) 2017-2020 by Sony Interactive Entertainment, Inc.
 // All rights reserved.
 //
@@ -41,48 +41,46 @@
 // TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 // SOFTWARE OR THE USE OR OTHER DEALINGS WITH THE SOFTWARE.
 //===----------------------------------------------------------------------===//
-#ifndef RLD_TYPES_H
-#define RLD_TYPES_H
+#ifndef RLD_ALGORITHM_H
+#define RLD_ALGORITHM_H
 
-#include "pstore/core/hamt_map.hpp"
-#include "pstore/core/indirect_string.hpp"
-#include "pstore/mcrepo/compilation.hpp"
-#include "pstore/mcrepo/fragment.hpp"
-#include "pstore/support/gsl.hpp"
-
-#include "llvm/ADT/DenseMap.h"
-
-#include <memory>
+#include <atomic>
+#include <utility>
 
 namespace rld {
 
-using StringAddress = pstore::typed_address<pstore::indirect_string>;
-using FragmentAddress = pstore::typed_address<pstore::repo::fragment>;
-using CompilationIndexPtr = std::shared_ptr<pstore::index::compilation_index const>;
-using FragmentPtr = std::shared_ptr<pstore::repo::fragment const>;
+// update maximum
+// ~~~~~~~~~~~~~~
+/// An atomic equivalent to std::max(). Sets Maximum to the greater of its
+/// current value and Value.
+template <typename T>
+inline void updateMaximum(std::atomic<T> &Maximum, T const &Value) noexcept {
+  T Prev = Maximum;
+  while (Prev < Value && !Maximum.compare_exchange_weak(
+                             Prev, Value, std::memory_order_relaxed)) {
+  }
+}
 
-template <typename T> using NotNull = pstore::gsl::not_null<T>;
+template <typename Function> class Once {
+public:
+  explicit Once(Function F) : F_{F} {}
+  template <typename... Args> void operator()(Args &&... args) {
+    if (!Done_) {
+      Done_ = true;
+      F_(std::forward<Args>(args)...);
+    }
+  }
+  void reset() { Done_ = false; }
+
+private:
+  bool Done_ = false;
+  Function F_;
+};
+
+template <typename Function> decltype(auto) makeOnce(Function fn) {
+  return Once<Function>{fn};
+}
 
 } // end namespace rld
 
-namespace llvm {
-
-template <> struct DenseMapInfo<rld::StringAddress> {
-  using string_address = rld::StringAddress;
-  static inline constexpr string_address getEmptyKey() {
-    return string_address::null();
-  }
-  static constexpr string_address getTombstoneKey() {
-    return string_address::make(std::numeric_limits<std::uint64_t>::max());
-  }
-  static constexpr unsigned getHashValue(string_address Address) {
-    return static_cast<unsigned>(Address.absolute());
-  }
-  static constexpr bool isEqual(string_address Lhs, string_address Rhs) {
-    return Lhs == Rhs;
-  }
-};
-
-} // end namespace llvm
-
-#endif // RLD_TYPES_H
+#endif // RLD_ALGORITHM_H

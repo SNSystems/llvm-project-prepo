@@ -366,15 +366,15 @@ void debugDumpSymbols(Context const &Ctx,
       // object. That means that we need to get the name first since accessing
       // both will try to acquire the same lock.
       StringAddress const Name = S.name();
-      auto X = S.definition();
+      auto const X = S.definition();
       auto const &Def = std::get<Symbol::DefinitionIndex>(X);
 
       auto const IsDefined = Def.hasValue();
       pstore::shared_sstring_view Owner;
       OS << "  " << stringViewAsRef(loadString(Ctx.Db, Name, &Owner))
-         << ": defined: " << (IsDefined ? "Yes" : "No");
+         << ": defined: " << (IsDefined ? "yes" : "no");
       if (IsDefined) {
-        auto Sep = "ordinals: [";
+        auto Sep = ", ordinals: [";
         for (auto const &Body : *Def) {
           OS << Sep << Body.inputOrdinal();
           Sep = ",";

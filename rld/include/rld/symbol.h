@@ -64,6 +64,7 @@
 
 namespace rld {
 
+//-MARK: SpinLock
 class SpinLock {
 public:
   static constexpr uint64_t SpinsBeforeYield = 1000;
@@ -84,6 +85,7 @@ private:
 
 class Symbol;
 
+//-MARK: UndefsContainer
 class UndefsContainer {
 public:
   using container = llvm::simple_ilist<Symbol>;
@@ -107,14 +109,14 @@ private:
   container list_;
 };
 
+//-MARK: Symbol
 class Symbol : public llvm::ilist_node<Symbol> {
 public:
   class Body {
   public:
     Body(pstore::repo::linkage Linkage,
          std::shared_ptr<const pstore::repo::fragment> const &Fragment,
-         pstore::typed_address<pstore::repo::fragment> FAddr,
-         uint32_t InputOrdinal)
+         FragmentAddress FAddr, uint32_t InputOrdinal)
         : InputOrdinal_{InputOrdinal}, Linkage_{Linkage}, Fragment_{Fragment},
           FAddr_{FAddr} {}
 
@@ -125,9 +127,7 @@ public:
     const std::shared_ptr<const pstore::repo::fragment> &fragment() const {
       return Fragment_;
     }
-    pstore::typed_address<pstore::repo::fragment> fragmentAddress() const {
-      return FAddr_;
-    }
+    FragmentAddress fragmentAddress() const { return FAddr_; }
 
   private:
     /// The index number of the object file which defined this symbol. Used to
@@ -138,9 +138,9 @@ public:
     /// The symbol's linkage.
     pstore::repo::linkage Linkage_;
     /// The fragment which provides the definition of this symbol.
-    std::shared_ptr<const pstore::repo::fragment> Fragment_;
+    FragmentPtr Fragment_;
     /// The fragment's address. Used to find its shadow memory offset.
-    pstore::typed_address<pstore::repo::fragment> FAddr_;
+    FragmentAddress FAddr_;
   };
 
   explicit Symbol(StringAddress N) {
@@ -418,6 +418,7 @@ void debugDumpSymbols(Context const &Ctx,
 //* | (_ | / _ \ '_ \/ _` | (_-<__ \  _/ _ \ '_/ _` / _` / -_) *
 //*  \___|_\___/_.__/\__,_|_/__/___/\__\___/_| \__,_\__, \___| *
 //*                                                 |___/      *
+//-MARK: GlobalsStorage
 class GlobalsStorage {
 public:
   explicit GlobalsStorage(unsigned NumWorkerThreads)
@@ -441,6 +442,7 @@ private:
 //* \__ \ || | '  \| '_ \/ _ \ | |   / -_|_-</ _ \ \ V / -_) '_| *
 //* |___/\_, |_|_|_|_.__/\___/_| |_|_\___/__/\___/_|\_/\___|_|   *
 //*      |__/                                                    *
+//-MARK: SymbolResolver
 class SymbolResolver {
 public:
   explicit SymbolResolver(Context &Ctx) : Context_{Ctx} {}

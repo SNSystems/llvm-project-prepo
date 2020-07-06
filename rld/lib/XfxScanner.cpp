@@ -69,8 +69,7 @@ struct State {
 // resolve
 // ~~~~~~~
 template <pstore::repo::section_kind Kind>
-void resolve(State &S,
-             pstore::typed_address<pstore::repo::fragment> FragmentAddress,
+void resolve(State &S, FragmentAddress FAddr,
              const pstore::repo::fragment &Fragment) {
 
   const auto *const Section = Fragment.atp<Kind>();
@@ -79,7 +78,7 @@ void resolve(State &S,
   const auto *const SectionBase = reinterpret_cast<const uint8_t *>(Section);
   assert(SectionBase > FragmentBase);
   auto const SectionOffset = SectionBase - FragmentBase;
-  auto ShadowXfx = UintptrAddress{FragmentAddress.to_address() + SectionOffset};
+  auto ShadowXfx = UintptrAddress{FAddr.to_address() + SectionOffset};
 
   for (pstore::repo::external_fixup const &Xfx : Section->xfixups()) {
     llvmDebug(DebugType, S.Ctxt.IOMut, [&]() {
@@ -87,7 +86,9 @@ void resolve(State &S,
     });
     std::atomic<Symbol *> *const Shadow = shadowPointer(S.Ctxt, ShadowXfx++);
     assert(Shadow != nullptr && *Shadow == nullptr);
-    *Shadow = referenceSymbol(S.Ctxt, Xfx.name, S.Locals, S.Globals, S.Undefs);
+    Symbol *const R =
+        referenceSymbol(S.Ctxt, Xfx.name, S.Locals, S.Globals, S.Undefs);
+    Shadow->store(R); // TODO: get the ordering right for this atomic write.
   }
 }
 

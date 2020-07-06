@@ -73,8 +73,7 @@ struct IdentifyResult {
 llvm::ErrorOr<IdentifyResult>
 identifyPass(Context &Ctxt, llvm::ThreadPool &IdentifyPool,
              const CompilationIndexPtr &CompilationIndex,
-             const llvm::ArrayRef<std::string> &InputPaths,
-             unsigned NumWorkers);
+             const llvm::ArrayRef<std::string> &InputPaths);
 
 } // end namespace rld
 

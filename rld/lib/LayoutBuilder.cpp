@@ -43,6 +43,7 @@
 //===----------------------------------------------------------------------===//
 #include "rld/LayoutBuilder.h"
 
+#include "rld/Algorithm.h"
 #include "rld/MathExtras.h"
 #include "rld/context.h"
 
@@ -192,24 +193,12 @@ template <SectionKind SK> struct ToPstoreSectionKind {};
 PSTORE_MCREPO_SECTION_KINDS
 #undef X
 
-// update maximum
-// ~~~~~~~~~~~~~~
-template <typename T>
-static inline void updateMaximum(std::atomic<T> &maximum_value,
-                                 T const &value) noexcept {
-  T prev_value = maximum_value;
-  while (prev_value < value &&
-         !maximum_value.compare_exchange_weak(prev_value, value,
-                                              std::memory_order_relaxed)) {
-  }
-}
-
 // add section to layout
 // ~~~~~~~~~~~~~~~~~~~~~
 template <pstore::repo::section_kind SKind>
-void LayoutBuilder::addSectionToLayout(
-    FragmentPtr const &F,
-    pstore::typed_address<pstore::repo::fragment> FragmentAddress) {
+void LayoutBuilder::addSectionToLayout(FragmentPtr const &F,
+                                       FragmentAddress FAddr,
+                                       StringAddress Name) {
   assert(F->has_section(SKind) &&
          "Layout can't contain a section that doesn't exist");
 
@@ -229,16 +218,15 @@ void LayoutBuilder::addSectionToLayout(
   assert(Section != nullptr);
   assert(reinterpret_cast<std::uint8_t const *>(Section) >
          reinterpret_cast<std::uint8_t const *>(F.get()));
-  auto const SectionAddress =
-      UintptrAddress{FragmentAddress.to_address() +
-                     (reinterpret_cast<std::uint8_t const *>(Section) -
-                      reinterpret_cast<std::uint8_t const *>(F.get()))};
+  auto const SectionAddress = UintptrAddress{
+      FAddr.to_address() + (reinterpret_cast<std::uint8_t const *>(Section) -
+                            reinterpret_cast<std::uint8_t const *>(F.get()))};
 
   auto const Alignment = pstore::repo::section_alignment(*Section);
   updateMaximum(Seg.MaxAlign, Alignment);
   SI.emplace_back(Section, SectionAddress,
                   alignTo(LayoutBuilder::prevSectionEnd(SI), Alignment),
-                  pstore::repo::section_size(*Section), Alignment);
+                  pstore::repo::section_size(*Section), Alignment, Name);
 
   llvmDebug(DebugType, Ctx_.IOMut, [&] {
     auto const &Entry = SI.back();
@@ -277,7 +265,7 @@ void LayoutBuilder::addBody(Symbol::Body const &Body, uint32_t Ordinal,
 #define X(a)                                                                   \
   case pstore::repo::section_kind::a:                                          \
     this->addSectionToLayout<pstore::repo::section_kind::a>(                   \
-        Body.fragment(), Body.fragmentAddress());                              \
+        Body.fragment(), Body.fragmentAddress(), Name);                        \
     break;
 
     switch (Section) {
@@ -286,6 +274,43 @@ void LayoutBuilder::addBody(Symbol::Body const &Body, uint32_t Ordinal,
       llvm_unreachable("Unknown fragment section kind");
     }
 #undef X
+  }
+}
+
+struct AsHex {
+  uint64_t N;
+};
+llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, AsHex const &H) {
+  return OS.write_hex(H.N);
+}
+
+void LayoutBuilder::debugDumpLayout() const {
+  auto EmitSegment = makeOnce([this](SegmentKind Seg) {
+    auto &OS = llvm::dbgs();
+    auto const &Segment = (*Segments_)[segmentNum(Seg)];
+    OS << Seg << '\t' << AsHex{Segment.VAddr} << '\t' << AsHex{Segment.VSize}
+       << '\t' << AsHex{Segment.MaxAlign} << '\n';
+  });
+  auto EmitSection =
+      makeOnce([](SectionKind Scn) { llvm::dbgs() << '\t' << Scn << '\n'; });
+
+  pstore::shared_sstring_view Owner;
+  for (auto SegmentK = SegmentKind::phdr; SegmentK < SegmentKind::last;
+       ++SegmentK) {
+    for (auto SectionK = SectionKind::text; SectionK < SectionKind::last;
+         ++SectionK) {
+      for (SectionInfo const &SI :
+           (*Segments_)[segmentNum(SegmentK)].Sections[sectionNum(SectionK)]) {
+        EmitSegment(SegmentK);
+        EmitSection(SectionK);
+        llvm::dbgs() << "\t\t" << AsHex{SI.VAddr} << '\t' << AsHex{SI.Size}
+                     << '\t' << AsHex{SI.Align} << '\t'
+                     << stringViewAsRef(loadString(Ctx_.Db, SI.Name, &Owner))
+                     << '\n';
+      }
+      EmitSection.reset();
+    }
+    EmitSegment.reset();
   }
 }
 
@@ -307,6 +332,12 @@ void LayoutBuilder::run() {
     for (auto const &Definition : recoverDefinitionsFromCUMap(Ordinal)) {
       StringAddress const Name = Definition.first;
       Symbol const *const Sym = Definition.second;
+
+      llvmDebug(DebugType, Ctx_.IOMut, [&] {
+        llvm::dbgs() << "Examining symbol:" << loadStdString(Ctx_.Db, Name)
+                     << '\n';
+      });
+
       // Get the symbol definition and a lock on the symbol table entry.
       auto const SymDef = Sym->definition();
 
@@ -356,7 +387,7 @@ std::unique_ptr<LayoutOutput> LayoutBuilder::flattenSegments() {
     for (auto &OutputSection : Segment.Sections) {
       for (SectionInfo &SI : OutputSection) {
         Base = alignTo(Base, Segment.MaxAlign);
-        SI.OutputOffset = Base;
+        SI.VAddr = Base;
         Base += SI.Size;
       }
     }
@@ -364,6 +395,7 @@ std::unique_ptr<LayoutOutput> LayoutBuilder::flattenSegments() {
     Base = alignTo(Base, PageSize);
   }
 
+  debugDumpLayout();
   return std::move(Segments_);
 }
 

@@ -105,6 +105,10 @@ template <typename Function>
 inline void llvmDebug(char const *, std::mutex &, Function) {}
 #endif
 
+// Use this group name for NamedRegionTimer.
+extern const char *TimerGroupName;
+extern const char *TimerGroupDescription;
+
 } // end namespace rld
 
 namespace rld {

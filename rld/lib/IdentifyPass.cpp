@@ -42,22 +42,21 @@
 // SOFTWARE OR THE USE OR OTHER DEALINGS WITH THE SOFTWARE.
 //===----------------------------------------------------------------------===//
 #include "rld/IdentifyPass.h"
+
+#include "rld/Algorithm.h"
 #include "rld/Identify.h"
 
 #include "llvm/Support/ThreadPool.h"
+#include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
+
 #include <atomic>
 
 namespace {
-const char *DebugType = "rld-Identify";
-} // end anonymous namespace
 
-template <typename T>
-static void updateMaximum(std::atomic<T> &MaxValue, const T &Value) {
-  T PrevMax = MaxValue;
-  while (PrevMax < Value && !MaxValue.compare_exchange_weak(PrevMax, Value)) {
-  }
-}
+const char *DebugType = "rld-Identify";
+
+} // end anonymous namespace
 
 static void dump(pstore::database const &Db, llvm::raw_ostream &OS,
                  rld::IdentifyResult const &R, size_t MaxArchiveMembers) {
@@ -79,18 +78,22 @@ static void dump(pstore::database const &Db, llvm::raw_ostream &OS,
 
 auto rld::identifyPass(rld::Context &Ctxt, llvm::ThreadPool &IdentifyPool,
                        const rld::CompilationIndexPtr &CompilationIndex,
-                       const llvm::ArrayRef<std::string> &InputPaths,
-                       unsigned NumWorkers) -> llvm::ErrorOr<IdentifyResult> {
+                       const llvm::ArrayRef<std::string> &InputPaths)
+    -> llvm::ErrorOr<IdentifyResult> {
+
+  llvm::NamedRegionTimer ScanTimer("Identify", "Identify pass", TimerGroupName,
+                                   TimerGroupDescription);
+
   ArchiveSymbolMap ArchSymbols;
   Identifier::CompilationVector Compilations;
   std::atomic<bool> Okay{true};
   std::atomic<size_t> MaxArchiveMembers{0};
 
-  auto InputOrdinal = std::size_t{0};
+  auto InputOrdinal = uint32_t{0};
   rld::Identifier Ident{Ctxt.Db, CompilationIndex, Ctxt.IOMut};
   for (auto const &InputPath : InputPaths) {
     IdentifyPool.async(
-        [&](std::string const &Path, unsigned Ordinal) {
+        [&](std::string const &Path, uint32_t Ordinal) {
           bool Success;
           size_t Members;
           std::tie(Success, Members) = Ident.add(Path, Ordinal);

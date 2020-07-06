@@ -48,6 +48,10 @@
 #include "llvm/Support/Memory.h"
 #include "llvm/Support/raw_ostream.h"
 
+// Use this group name for NamedRegionTimer.
+const char *rld::TimerGroupName = "rld";
+const char *rld::TimerGroupDescription = "rld prepo linker";
+
 pstore::raw_sstring_view
 rld::loadString(pstore::database const &Db,
                 pstore::typed_address<pstore::indirect_string> Addr,

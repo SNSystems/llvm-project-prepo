@@ -115,23 +115,19 @@ static std::string getRepoPath() {
   return RepoPath;
 }
 
-// Use this group name for NamedRegionTimer.
-static const auto TimerGroupName = "rld";
-static const auto TimerGroupDescription = "rld prepo linker";
-
-template <typename T> class as_hex {
+template <typename T> class AsHex {
 public:
-  explicit as_hex(T t) : t_{t} {}
+  explicit AsHex(T t) : t_{t} {}
   T value() const noexcept { return t_; }
 
 private:
   T t_;
 };
 
-template <typename T> as_hex<T> to_hex(T t) { return as_hex<T>{t}; }
+template <typename T> AsHex<T> toHex(T t) { return AsHex<T>{t}; }
 
 template <typename T>
-llvm::raw_ostream &operator<<(llvm::raw_ostream &os, as_hex<T> const &v) {
+llvm::raw_ostream &operator<<(llvm::raw_ostream &os, AsHex<T> const &v) {
   os << "0x";
   return os.write_hex(v.value());
 }
@@ -143,7 +139,7 @@ void copy_section(rld::Context &Ctxt, rld::SectionInfo const &S,
   auto *const Section = reinterpret_cast<SType const *>(S.Section);
 
   rld::llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
-    llvm::dbgs() << "copy to " << to_hex(reinterpret_cast<std::uintptr_t>(Dest))
+    llvm::dbgs() << "copy to " << toHex(reinterpret_cast<std::uintptr_t>(Dest))
                  << '\n';
   });
 
@@ -467,7 +463,7 @@ static llvm::ErrorOr<std::unique_ptr<pstore::database>> openRepository() {
 void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
                rld::LayoutOutput const &Layout) {
   llvm::NamedRegionTimer Timer("ELF Output", "Binary Output Phase",
-                               TimerGroupName, TimerGroupDescription);
+                               rld::TimerGroupName, rld::TimerGroupDescription);
 
   using ELF64LE = llvm::object::ELFType<llvm::support::little, true>;
   using Elf_Ehdr = llvm::object::ELFFile<ELF64LE>::Elf_Ehdr;
@@ -668,8 +664,8 @@ int main(int Argc, char *Argv[]) {
   const unsigned NumWorkerThreads = NumWorkers;
 
   llvm::ThreadPool WorkPool{NumWorkerThreads};
-  llvm::ErrorOr<rld::IdentifyResult> R = rld::identifyPass(
-      Ctxt, WorkPool, CompilationIndex, InputPaths, NumWorkerThreads);
+  llvm::ErrorOr<rld::IdentifyResult> R =
+      rld::identifyPass(Ctxt, WorkPool, CompilationIndex, InputPaths);
   if (!R) {
     llvm::errs() << "Error: " << R.getError().message() << '\n';
     std::exit(EXIT_FAILURE);
@@ -681,7 +677,8 @@ int main(int Argc, char *Argv[]) {
   std::unique_ptr<rld::LayoutOutput> LO;
   {
     llvm::NamedRegionTimer LayoutTimer("Layout", "Output file layout",
-                                       TimerGroupName, TimerGroupDescription);
+                                       rld::TimerGroupName,
+                                       rld::TimerGroupDescription);
 
     // The plus one here allows for the linker-generated /interp/ file.
     auto const NumCompilations = InputPaths.size() + std::size_t{1};
@@ -697,7 +694,8 @@ int main(int Argc, char *Argv[]) {
 
     {
       llvm::NamedRegionTimer ScanTimer("Scan", "Input file scanning",
-                                       TimerGroupName, TimerGroupDescription);
+                                       rld::TimerGroupName,
+                                       rld::TimerGroupDescription);
 
       rld::Scanner Scan{Ctxt, Layout, &Undefs};
       for (const auto &C : R->Compilations) {

@@ -82,6 +82,7 @@ class Context;
 // TODO: write a function which verifies that the loaded segments are together
 // and before the non-loaded segments
 
+//-MARK: SegmentKind
 enum class SegmentKind {
 #define X(a) a,
   RLD_SEGMENT_KIND
@@ -107,27 +108,31 @@ inline SegmentKind operator++(SegmentKind &SK, int) noexcept {
   return prev;
 }
 
-
+//-MARK: SectionInfo
 struct SectionInfo {
   SectionInfo(pstore::repo::section_base const *S, UintptrAddress SA,
-              std::uint64_t Offset_, std::uint64_t Size_, unsigned Align_)
-      : Section{S}, XfxShadow{SA}, Offset{Offset_}, Size{Size_}, Align{Align_} {
-  }
+              uint64_t Offset_, uint64_t Size_, unsigned Align_,
+              StringAddress Name_)
+      : Section{S}, XfxShadow{SA}, Offset{Offset_}, Size{Size_}, Align{Align_},
+        Name{Name_} {}
 
   pstore::repo::section_base const *Section;
   UintptrAddress XfxShadow;
 
-  std::uint64_t Offset;
-  std::uint64_t Size; // TODO: we really don't need 64-bits for the size of an
-                      // individual section.
+  uint64_t Offset;
+  uint64_t Size; // TODO: we really don't need 64-bits for the size of an
+                 // individual section.
   unsigned Align;
 
-  std::uint64_t OutputOffset;
+  StringAddress Name;
+  uint64_t VAddr = 0;
 };
 
 using SectionInfoVector =
     pstore::chunked_vector<SectionInfo,
                            (32 * 1024 * 1024) / sizeof(SectionInfo)>;
+
+//-MARK: Segment
 struct Segment {
   Segment() : MaxAlign{1} {}
   std::array<SectionInfoVector, NumSectionKinds> Sections;
@@ -141,6 +146,7 @@ struct Segment {
 
 using LayoutOutput = std::array<Segment, NumSegments>;
 
+//-MARK: LayoutBuilder
 class LayoutBuilder {
 public:
   LayoutBuilder(Context &Ctx, NotNull<GlobalsStorage *> const Globals,
@@ -194,10 +200,13 @@ private:
   /// The Segments_ container is built as layout runs.
   std::unique_ptr<LayoutOutput> Segments_;
 
-  static constexpr auto sectionNum(pstore::repo::section_kind SKind)
-      -> std::underlying_type<pstore::repo::section_kind>::type {
+  static constexpr decltype(auto) sectionNum(pstore::repo::section_kind SKind) {
     return static_cast<std::underlying_type<pstore::repo::section_kind>::type>(
         SKind);
+  }
+
+  static constexpr decltype(auto) sectionNum(SectionKind SKind) {
+    return static_cast<std::underlying_type<SectionKind>::type>(SKind);
   }
   static constexpr auto segmentNum(SegmentKind Kind)
       -> std::underlying_type<SegmentKind>::type {
@@ -205,9 +214,8 @@ private:
   }
 
   template <pstore::repo::section_kind SKind>
-  void addSectionToLayout(
-      FragmentPtr const &F,
-      pstore::typed_address<pstore::repo::fragment> FragmentAddress);
+  void addSectionToLayout(FragmentPtr const &F, FragmentAddress FAddr,
+                          StringAddress Name);
 
   LocalSymbolsContainer recoverDefinitionsFromCUMap(std::size_t Ordinal);
   void addBody(Symbol::Body const &Body, uint32_t Ordinal,
@@ -215,6 +223,8 @@ private:
 
   static std::uint64_t prevSectionEnd(SectionInfoVector const &SI);
   static void checkSectionToSegmentArray();
+
+  void debugDumpLayout() const;
 };
 
 } // namespace rld
