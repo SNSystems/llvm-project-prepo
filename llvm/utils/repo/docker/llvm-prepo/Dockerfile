@@ -62,13 +62,10 @@ ENTRYPOINT /bin/bash
 
 # Copy build results of stage 1 to /usr/local.
 #COPY --from=builder ${install_dir}/ ${user_dir}/
-# The COPY command does not support variables.
-COPY --from=builder /tmp/install/ /usr/
+# Unfortunately, the COPY command does not support variables.
 COPY --from=builder /tmp/install/bin /usr/bin/
 COPY --from=builder /tmp/install/lib /usr/lib/
-# COPY --from=builder /tmp/install/include /usr/include/
 COPY --from=builder /tmp/install/etc/init.d/pstore-brokerd /etc/init.d/
-
 
 # Add links from cc/c++ to clang/clang++
 RUN update-alternatives --install /usr/bin/cc cc /usr/bin/clang 30

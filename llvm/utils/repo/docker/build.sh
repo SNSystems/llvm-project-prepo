@@ -6,7 +6,7 @@
     --install-target install-pstore \
     --install-target install-repo2obj \
     --install-target install-repo-ticket-dump \
-    --install-target install-clang-headers \
+    --install-target install-clang-resource-headers \
     -- \
     -D CMAKE_BUILD_TYPE=Release \
     -D LLVM_PARALLEL_LINK_JOBS=1
