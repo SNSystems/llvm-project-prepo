@@ -521,6 +521,8 @@ static llvm::SmallString<128> quoteAndEscape (llvm::StringRef const & S) {
 }
 
 static std::error_code writeConfigFile(llvm::StringRef const & Dir) {
+  auto const AsBool = [](bool b) { return b ? "true" : "false"; };
+
   llvm::SmallString<128> ConfigFilePath = Dir;
   llvm::sys::path::append(ConfigFilePath, "rld-gen.json");
 
@@ -532,16 +534,17 @@ static std::error_code writeConfigFile(llvm::StringRef const & Dir) {
 
   constexpr auto Indent = "    ";
   OutFile << "{\n";
-  OutFile << Indent << "\"repo-path\": " << quoteAndEscape (DbPath) << ",\n";
-  OutFile << Indent << "\"external\": " << ExternalPerModule << ",\n";
-  OutFile << Indent << "\"append\": " << AppendPerModule << ",\n";
-  OutFile << Indent << "\"linkonce\": " << LinkOncePerModule << ",\n";
-  OutFile << Indent << "\"modules\": " << Modules << ",\n";
-  OutFile << Indent << "\"output-dir\": " << quoteAndEscape (OutputDirOpt) << ",\n";
-  OutFile << Indent << "\"section-size\": " << SectionSize << ",\n";
-  OutFile << Indent << "\"triple\": " << quoteAndEscape (Triple) << ",\n";
-  OutFile << Indent << "\"data-fibonacci\": " << DataFibonacci << "\n";
-  OutFile << "}\n";
+  OutFile << Indent << R"("append": )" << AppendPerModule << ",\n";
+  OutFile << Indent << R"("data-fibonacci": )" << AsBool(DataFibonacci)
+          << ",\n";
+  OutFile << Indent << R"("external": )" << ExternalPerModule << ",\n";
+  OutFile << Indent << R"("linkonce": )" << LinkOncePerModule << ",\n";
+  OutFile << Indent << R"("modules": )" << Modules << ",\n";
+  OutFile << Indent << R"("output-dir": )" << quoteAndEscape(OutputDirOpt)
+          << ",\n";
+  OutFile << Indent << R"("repo-path": )" << quoteAndEscape(DbPath) << ",\n";
+  OutFile << Indent << R"("section-size": )" << SectionSize << ",\n";
+  OutFile << Indent << R"("triple": )" << quoteAndEscape(Triple) << "\n}\n";
   return OutFile.error();
 }
 
