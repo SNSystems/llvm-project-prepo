@@ -44,6 +44,8 @@
 #ifndef RLD_GEN_HASH_H
 #define RLD_GEN_HASH_H
 
+#include "llvm/ADT/ArrayRef.h"
+
 #include "xxh3.h"
 
 class HashFunction {
