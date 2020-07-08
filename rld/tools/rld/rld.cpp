@@ -661,18 +661,17 @@ int main(int Argc, char *Argv[]) {
     return EXIT_FAILURE;
   }
 
-  const unsigned NumWorkerThreads = NumWorkers;
-
-  llvm::ThreadPool WorkPool{NumWorkerThreads};
-  llvm::ErrorOr<rld::IdentifyResult> R =
+  llvm::ThreadPool WorkPool{NumWorkers};
+  llvm::ErrorOr<rld::IdentifyResult> Identified =
       rld::identifyPass(Ctxt, WorkPool, CompilationIndex, InputPaths);
-  if (!R) {
-    llvm::errs() << "Error: " << R.getError().message() << '\n';
+  if (!Identified) {
+    llvm::errs() << "Error: " << Identified.getError().message() << '\n';
     std::exit(EXIT_FAILURE);
   }
 
   rld::UndefsContainer Undefs;
-  auto GlobalSymbs = std::make_unique<rld::GlobalsStorage>(NumWorkerThreads);
+  auto GlobalSymbs =
+      std::make_unique<rld::GlobalsStorage>(NumWorkers.getValue());
 
   std::unique_ptr<rld::LayoutOutput> LO;
   {
@@ -698,7 +697,7 @@ int main(int Argc, char *Argv[]) {
                                        rld::TimerGroupDescription);
 
       rld::Scanner Scan{Ctxt, Layout, &Undefs};
-      for (const auto &C : R->Compilations) {
+      for (const auto &C : Identified->Compilations) {
         WorkPool.async(
             [&Scan, &GlobalSymbs](
                 const rld::Identifier::CompilationVector::value_type &V) {
@@ -728,8 +727,8 @@ int main(int Argc, char *Argv[]) {
       }
       Scan.run("/ident/", // path
                GlobalSymbs->getThreadSymbols(),
-               *FixedCompilationExtent, // compilation extent
-               R->Compilations.size()   // input ordinal
+               *FixedCompilationExtent,        // compilation extent
+               Identified->Compilations.size() // input ordinal
       );
     }
     LayoutThread.join();
