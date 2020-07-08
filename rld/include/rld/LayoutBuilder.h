@@ -112,9 +112,9 @@ inline SegmentKind operator++(SegmentKind &SK, int) noexcept {
 struct SectionInfo {
   SectionInfo(pstore::repo::section_base const *S, UintptrAddress SA,
               uint64_t Offset_, uint64_t Size_, unsigned Align_,
-              StringAddress Name_)
+              StringAddress Name_, unsigned const InputOrdinal_)
       : Section{S}, XfxShadow{SA}, Offset{Offset_}, Size{Size_}, Align{Align_},
-        Name{Name_} {}
+        InputOrdinal{InputOrdinal_}, Name{Name_} {}
 
   pstore::repo::section_base const *Section;
   UintptrAddress XfxShadow;
@@ -123,6 +123,7 @@ struct SectionInfo {
   uint64_t Size; // TODO: we really don't need 64-bits for the size of an
                  // individual section.
   unsigned Align;
+  unsigned const InputOrdinal;
 
   StringAddress Name;
   uint64_t VAddr = 0;
@@ -215,7 +216,7 @@ private:
 
   template <pstore::repo::section_kind SKind>
   void addSectionToLayout(FragmentPtr const &F, FragmentAddress FAddr,
-                          StringAddress Name);
+                          StringAddress Name, unsigned InputOrdinal);
 
   LocalSymbolsContainer recoverDefinitionsFromCUMap(std::size_t Ordinal);
   void addBody(Symbol::Body const &Body, uint32_t Ordinal,

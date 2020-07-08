@@ -196,9 +196,10 @@ PSTORE_MCREPO_SECTION_KINDS
 // add section to layout
 // ~~~~~~~~~~~~~~~~~~~~~
 template <pstore::repo::section_kind SKind>
-void LayoutBuilder::addSectionToLayout(FragmentPtr const &F,
-                                       FragmentAddress FAddr,
-                                       StringAddress Name) {
+void LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
+                                       const FragmentAddress FAddr,
+                                       const StringAddress Name,
+                                       const unsigned InputOrdinal) {
   assert(F->has_section(SKind) &&
          "Layout can't contain a section that doesn't exist");
 
@@ -226,7 +227,8 @@ void LayoutBuilder::addSectionToLayout(FragmentPtr const &F,
   updateMaximum(Seg.MaxAlign, Alignment);
   SI.emplace_back(Section, SectionAddress,
                   alignTo(LayoutBuilder::prevSectionEnd(SI), Alignment),
-                  pstore::repo::section_size(*Section), Alignment, Name);
+                  pstore::repo::section_size(*Section), Alignment, Name,
+                  InputOrdinal);
 
   llvmDebug(DebugType, Ctx_.IOMut, [&] {
     auto const &Entry = SI.back();
@@ -265,7 +267,7 @@ void LayoutBuilder::addBody(Symbol::Body const &Body, uint32_t Ordinal,
 #define X(a)                                                                   \
   case pstore::repo::section_kind::a:                                          \
     this->addSectionToLayout<pstore::repo::section_kind::a>(                   \
-        Body.fragment(), Body.fragmentAddress(), Name);                        \
+        Body.fragment(), Body.fragmentAddress(), Name, Body.inputOrdinal());   \
     break;
 
     switch (Section) {
@@ -284,6 +286,8 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, AsHex const &H) {
   return OS.write_hex(H.N);
 }
 
+// debug dump layout
+// ~~~~~~~~~~~~~~~~~
 void LayoutBuilder::debugDumpLayout() const {
   auto EmitSegment = makeOnce([this](SegmentKind Seg) {
     auto &OS = llvm::dbgs();
@@ -306,7 +310,8 @@ void LayoutBuilder::debugDumpLayout() const {
         llvm::dbgs() << "\t\t" << AsHex{SI.VAddr} << '\t' << AsHex{SI.Size}
                      << '\t' << AsHex{SI.Align} << '\t'
                      << stringViewAsRef(loadString(Ctx_.Db, SI.Name, &Owner))
-                     << '\n';
+                     << '\t' << AsHex{SI.Align} << '\t'
+                     << AsHex{SI.InputOrdinal} << '\n';
       }
       EmitSection.reset();
     }
@@ -344,12 +349,14 @@ void LayoutBuilder::run() {
       assert(std::get<Symbol::DefinitionIndex>(SymDef).hasValue() &&
              "Symbols that reach layout must be defined");
 
-      auto &Bodies = *std::get<Symbol::DefinitionIndex>(SymDef);
+      auto const &Bodies = *std::get<Symbol::DefinitionIndex>(SymDef);
       assert(Bodies.size() >= 1U &&
              "A defined symbol must have a least 1 body");
       if (Bodies.size() == 1U) {
-        assert(Bodies.front().inputOrdinal() == Ordinal);
-        this->addBody(Bodies.front(), Ordinal, Name);
+        auto const &B = Bodies.front();
+        if (B.inputOrdinal() == Ordinal) {
+          this->addBody(B, Ordinal, Name);
+        }
       } else {
         auto First = std::begin(Bodies);
         auto Last = std::end(Bodies);
@@ -359,7 +366,7 @@ void LayoutBuilder::run() {
                              return B.linkage() ==
                                     pstore::repo::linkage::append;
                            }) &&
-               "Multiple bodies of a symbol must all have append linkage");
+               "Multi-body symbols must all have append linkage");
 
         auto const Pos = std::lower_bound(
             First, Last, Ordinal, [](Symbol::Body const &A, uint32_t B) {
