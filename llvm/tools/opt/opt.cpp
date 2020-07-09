@@ -886,6 +886,7 @@ int main(int argc, char **argv) {
       !OptLevelO2 && !OptLevelOs && !OptLevelOz && !OptLevelO3) {
     Passes.add(createRepoMetadataGenerationPass());
     Passes.add(createRepoPruningPass());
+    Passes.add(createGlobalDCEPass());
   }
 
   if (FPasses) {
