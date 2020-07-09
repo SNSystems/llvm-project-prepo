@@ -123,6 +123,48 @@ repodefinition::DigestType toDigestType(pstore::index::digest D) {
   return Digest;
 }
 
+// Reurn the GO's status as a tuple<InRepository, InModeuleFragments, Key>.
+// InRepository: return true if the GO is in the existing repository.
+// InModeuleFragments: reurn true if the GO is in the new module fragments.
+// Key: return GO's digest.
+static std::tuple<bool, bool, pstore::index::digest> hasExistingGO(
+    const pstore::database &Repository,
+    std::shared_ptr<const pstore::index::fragment_index> const &Fragments,
+    std::map<pstore::index::digest, const GlobalObject *> &ModuleFragments,
+    const GlobalObject &GO) {
+  auto const Result = repodefinition::get(&GO);
+  assert(!Result.second && "The repo_definitio metadata should be created by "
+                           "the RepoMetadataGeneration pass!");
+  auto const Digest =
+      pstore::index::digest{Result.first.high(), Result.first.low()};
+
+  // Reurn true if the GO is in the existing repository.
+  if (Fragments &&
+      Fragments->find(Repository, Digest) != Fragments->end(Repository)) {
+    LLVM_DEBUG(dbgs() << "Existing GO (in repository) name: " << GO.getName()
+                      << '\n');
+    return std::make_tuple(true, false, Digest);
+  }
+
+  // Reurn true if the GO is in the new module fragments.
+  auto It = ModuleFragments.find(Digest);
+  if (It != ModuleFragments.end() && !It->second->isDiscardableIfUnused()) {
+    // The definition of some global objects may be discarded if not used.
+    // If a global has been pruned and its digest matches a discardable GO,
+    // a missing fragment error might be met during the assembler. To avoid
+    // this issue, this global object is put into the ModuleFragments only if
+    // it is not a discardable GO.
+    LLVM_DEBUG(dbgs() << "Existing GO (in new fragments) name: " << GO.getName()
+                      << '\n');
+    return std::make_tuple(false, true, Digest);
+  }
+
+  LLVM_DEBUG(dbgs() << "Putting new GO (named: " << GO.getName()
+                    << ") into ModuleFragments.\n");
+  ModuleFragments.emplace(Digest, &GO);
+  return std::make_tuple(false, false, Digest);
+}
+
 static void addDependentFragments(
     Module &M, StringSet<> &DependentFragments,
     std::shared_ptr<const pstore::index::fragment_index> const &Fragments,
@@ -192,6 +234,20 @@ static void deleteGlobalObject(GlobalObject *GO) {
   }
 }
 
+static void pruning(GlobalObject &GO) {
+  GO.setComdat(nullptr);
+  GO.setDSOLocal(false);
+  RepoDefinition *MD =
+      dyn_cast<RepoDefinition>(GO.getMetadata(LLVMContext::MD_repo_definition));
+  MD->setPruned(true);
+
+  if (isSafeToPruneIntrinsicGV(GO) || GO.use_empty()) {
+    deleteGlobalObject(&GO);
+    return;
+  }
+  GO.setLinkage(GlobalValue::AvailableExternallyLinkage);
+}
+
 static bool doPruning(Module &M) {
   MDBuilder MDB(M.getContext());
   const pstore::database &Repository = getRepoDatabase();
@@ -213,56 +269,21 @@ static bool doPruning(Module &M) {
     if (GO.isDeclaration() || GO.hasAvailableExternallyLinkage() ||
         !isSafeToPrune(GO))
       return false;
-    auto const Result = repodefinition::get(&GO);
-    assert(!Result.second &&
-           "The repo_definition metadata should be created by "
-           "the RepoMetadataGeneration pass!");
 
-    auto const Key =
-        pstore::index::digest{Result.first.high(), Result.first.low()};
+    bool InRepository;
+    bool InNewFragments;
+    pstore::index::digest Key;
+    std::tie(InRepository, InNewFragments, Key) =
+        hasExistingGO(Repository, Fragments, ModuleFragments, GO);
 
-    bool InRepository = true;
-    if (!Fragments) {
-      InRepository = false;
-    } else {
-      auto It = Fragments->find(Repository, Key);
-      if (It == Fragments->end(Repository)) {
-        LLVM_DEBUG(dbgs() << "New GO name: " << GO.getName() << '\n');
-        InRepository = false;
-      } else {
-        LLVM_DEBUG(dbgs() << "Prunning GO name: " << GO.getName() << '\n');
-        addDependentFragments(M, DependentFragments, Fragments, Repository,
-                              Key);
-      }
+    if (!InRepository && !InNewFragments) {
+      return false;
+    }
+    if (InRepository) {
+      addDependentFragments(M, DependentFragments, Fragments, Repository, Key);
     }
 
-    if (!InRepository) {
-      auto It = ModuleFragments.find(Key);
-      // The definition of some global objects may be discarded if not used.
-      // If a global has been pruned and its digest matches a discardable GO,
-      // a missing fragment error might be met during the assembler. To avoid
-      // this issue, this global object can't be pruned if the referenced
-      // global object is discardable.
-      if (It == ModuleFragments.end() || It->second->isDiscardableIfUnused()) {
-        LLVM_DEBUG(dbgs() << "Putting GO name into ModuleFragments: "
-                          << GO.getName() << '\n');
-        ModuleFragments.emplace(Key, &GO);
-        return false;
-      }
-    }
-
-    GO.setComdat(nullptr);
-    GO.setDSOLocal(false);
-    RepoDefinition *MD = dyn_cast<RepoDefinition>(
-        GO.getMetadata(LLVMContext::MD_repo_definition));
-    MD->setPruned(true);
-
-    if (isSafeToPruneIntrinsicGV(GO) || GO.use_empty()) {
-      deleteGlobalObject(&GO);
-      return true;
-    }
-
-    GO.setLinkage(GlobalValue::AvailableExternallyLinkage);
+    pruning(GO);
     return true;
   };
 
