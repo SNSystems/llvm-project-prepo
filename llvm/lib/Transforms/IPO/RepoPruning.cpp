@@ -123,7 +123,65 @@ repodefinition::DigestType toDigestType(pstore::index::digest D) {
   return Digest;
 }
 
-// Reurn the GO's status as a tuple<InRepository, InModeuleFragments, Key>.
+static void
+collectSectionXFixupName(pstore::database const &Db,
+                         pstore::repo::generic_section const &Section,
+                         StringSet<> &XFixupNames) {
+  for (auto Xfx : Section.xfixups()) {
+    LLVM_DEBUG(dbgs() << "    Adding XFixup name: "
+                      << pstore::indirect_string::read(Db, Xfx.name).to_string()
+                      << '\n');
+    XFixupNames.insert(
+        std::move(pstore::indirect_string::read(Db, Xfx.name).to_string()));
+
+  }
+}
+
+#define PSTORE_GENERIC_SECTION_KINDS                                           \
+  X(text)                                                                      \
+  X(data)                                                                      \
+  X(rel_ro)                                                                    \
+  X(mergeable_1_byte_c_string)                                                 \
+  X(mergeable_2_byte_c_string)                                                 \
+  X(mergeable_4_byte_c_string)                                                 \
+  X(mergeable_const_4)                                                         \
+  X(mergeable_const_8)                                                         \
+  X(mergeable_const_16)                                                        \
+  X(mergeable_const_32)                                                        \
+  X(read_only)                                                                 \
+  X(thread_data)
+
+static void collectFragmentXFixupNames(
+    const pstore::database &Repository,
+    std::shared_ptr<const pstore::repo::fragment> const &Fragment,
+    StringSet<> &XFixupNames) {
+  for (const pstore::repo::section_kind Kind : *Fragment) {
+    assert(Fragment->has_section(Kind));
+
+#define X(k)                                                                   \
+  case pstore::repo::section_kind::k: {                                        \
+    auto Section = Fragment->atp<pstore::repo::section_kind::k>();             \
+    collectSectionXFixupName(Repository, *Section, XFixupNames);               \
+    break;                                                                     \
+  }
+
+    switch (Kind) {
+      PSTORE_GENERIC_SECTION_KINDS
+    case pstore::repo::section_kind::debug_line:
+    case pstore::repo::section_kind::dependent:
+    case pstore::repo::section_kind::bss:
+    case pstore::repo::section_kind::thread_bss:
+    case pstore::repo::section_kind::debug_string:
+    case pstore::repo::section_kind::debug_ranges:
+    case pstore::repo::section_kind::last:
+    case pstore::repo::section_kind::interp:
+      break;
+    }
+#undef X
+  }
+}
+
+// Reurn the GO's status as a tuple<InRepository, InModeuleFragments, Key>:
 // InRepository: return true if the GO is in the existing repository.
 // InModeuleFragments: reurn true if the GO is in the new module fragments.
 // Key: return GO's digest.
@@ -131,7 +189,8 @@ static std::tuple<bool, bool, pstore::index::digest> hasExistingGO(
     const pstore::database &Repository,
     std::shared_ptr<const pstore::index::fragment_index> const &Fragments,
     std::map<pstore::index::digest, const GlobalObject *> &ModuleFragments,
-    const GlobalObject &GO) {
+    GlobalObject &GO, StringSet<> &XFixupNames,
+    DenseSet<GlobalObject *> &PrunedDiscardableIfUnusedGos) {
   auto const Result = repodefinition::get(&GO);
   assert(!Result.second && "The repo_definitio metadata should be created by "
                            "the RepoMetadataGeneration pass!");
@@ -139,11 +198,20 @@ static std::tuple<bool, bool, pstore::index::digest> hasExistingGO(
       pstore::index::digest{Result.first.high(), Result.first.low()};
 
   // Reurn true if the GO is in the existing repository.
-  if (Fragments &&
-      Fragments->find(Repository, Digest) != Fragments->end(Repository)) {
-    LLVM_DEBUG(dbgs() << "Existing GO (in repository) name: " << GO.getName()
-                      << '\n');
-    return std::make_tuple(true, false, Digest);
+  if (Fragments) {
+    auto It = Fragments->find(Repository, Digest);
+    if (It != Fragments->end(Repository)) {
+      LLVM_DEBUG(dbgs() << "Existing GO (in repository) name: " << GO.getName()
+                        << '\n');
+      if (!GO.isDiscardableIfUnused()) {
+        // Collect GO's XFixups.
+        auto Fragment = pstore::repo::fragment::load(Repository, It->second);
+        collectFragmentXFixupNames(Repository, Fragment, XFixupNames);
+      } else {
+        PrunedDiscardableIfUnusedGos.insert(&GO);
+      }
+      return std::make_tuple(true, false, Digest);
+    }
   }
 
   // Reurn true if the GO is in the new module fragments.
@@ -168,11 +236,12 @@ static std::tuple<bool, bool, pstore::index::digest> hasExistingGO(
 static void addDependentFragments(
     Module &M, StringSet<> &DependentFragments,
     std::shared_ptr<const pstore::index::fragment_index> const &Fragments,
-    const pstore::database &Repository, pstore::index::digest const &Digest) {
+    const pstore::database &Repository, StringSet<> &XFixupNames,
+    pstore::index::digest const &Digest) {
 
   auto It = Fragments->find(Repository, Digest);
   assert(It != Fragments->end(Repository));
-  // Create  the dependent fragments if existing in the repository.
+  // Load  the dependent fragments if existing in the repository.
   auto Fragment = pstore::repo::fragment::load(Repository, It->second);
   if (auto Dependents =
           Fragment->atp<pstore::repo::section_kind::dependent>()) {
@@ -192,11 +261,18 @@ static void addDependentFragments(
         NamedMDNode *const NMD = M.getOrInsertNamedMetadata("repo.definitions");
         assert(NMD && "NamedMDNode cannot be NULL!");
         NMD->addOperand(DMD);
+        // Collect the Dependent's XFixups.
+        auto DependentIt = Fragments->find(Repository, CM->digest);
+        assert(DependentIt != Fragments->end(Repository));
+        // Load  the dependent fragments if existing in the repository.
+        auto DependentFragment =
+            pstore::repo::fragment::load(Repository, DependentIt->second);
+        collectFragmentXFixupNames(Repository, DependentFragment, XFixupNames);
         // If function 'A' is dependent on function 'B' and 'B' is dependent on
         // function 'C', both RepoDefinition of 'B' and 'C' need to be added
         // into in the 'repo.definitions' during the pruning.
         addDependentFragments(M, DependentFragments, Fragments, Repository,
-                              CM->digest);
+                              XFixupNames, CM->digest);
       }
     }
   }
@@ -261,11 +337,13 @@ static bool doPruning(Module &M) {
 
   std::map<pstore::index::digest, const GlobalObject *> ModuleFragments;
   StringSet<> DependentFragments; // Record all dependents.
+  StringSet<> XFixupNames;        // Record all xfixups' name for pruned GOs.
+  DenseSet<GlobalObject *> PrunedDiscardableIfUnusedGos;
 
-  // Erase the unchanged global objects.
+  // Erase the unchanged global objects which is not discardable if unused.
   auto EraseUnchangedGlobalObject =
-      [&ModuleFragments, &Fragments, &Repository, &M,
-       &DependentFragments](GlobalObject &GO) -> bool {
+      [&ModuleFragments, &Fragments, &Repository, &M, &DependentFragments,
+       &XFixupNames, &PrunedDiscardableIfUnusedGos](GlobalObject &GO) -> bool {
     if (GO.isDeclaration() || GO.hasAvailableExternallyLinkage() ||
         !isSafeToPrune(GO))
       return false;
@@ -274,13 +352,20 @@ static bool doPruning(Module &M) {
     bool InNewFragments;
     pstore::index::digest Key;
     std::tie(InRepository, InNewFragments, Key) =
-        hasExistingGO(Repository, Fragments, ModuleFragments, GO);
+        hasExistingGO(Repository, Fragments, ModuleFragments, GO, XFixupNames,
+                      PrunedDiscardableIfUnusedGos);
 
     if (!InRepository && !InNewFragments) {
       return false;
     }
+
+    if (InRepository && GO.isDiscardableIfUnused()) {
+      return false;
+    }
+
     if (InRepository) {
-      addDependentFragments(M, DependentFragments, Fragments, Repository, Key);
+      addDependentFragments(M, DependentFragments, Fragments, Repository,
+                            XFixupNames, Key);
     }
 
     pruning(GO);
@@ -293,6 +378,45 @@ static bool doPruning(Module &M) {
       Changed = true;
     }
   }
+
+  auto EraseUnchangedDiscardableGlobalObject =
+      [&XFixupNames, &Fragments, &Repository, &M,
+       &DependentFragments](GlobalObject *GO) -> bool {
+    if (XFixupNames.find(GO->getName()) != XFixupNames.end()) {
+      LLVM_DEBUG(dbgs() << "Pruning GO name (DiscardableIfUnused): "
+                        << GO->getName() << '\n');
+      auto const Result = repodefinition::get(GO);
+      auto const Digest =
+          pstore::index::digest{Result.first.high(), Result.first.low()};
+
+      addDependentFragments(M, DependentFragments, Fragments, Repository,
+                            XFixupNames, Digest);
+
+      auto It = Fragments->find(Repository, Digest);
+      auto Fragment = pstore::repo::fragment::load(Repository, It->second);
+      collectFragmentXFixupNames(Repository, Fragment, XFixupNames);
+
+      pruning(*GO);
+      return true;
+    }
+    return false;
+  };
+
+  bool IsPruned;
+  do {
+    IsPruned = false;
+    // Go through discardable and pruned GOs.
+    for (auto It = PrunedDiscardableIfUnusedGos.begin();
+         It != PrunedDiscardableIfUnusedGos.end();) {
+      auto CurIt = It;
+      ++It;
+      if (EraseUnchangedDiscardableGlobalObject(*CurIt)) {
+        IsPruned = true;
+        Changed = true;
+        PrunedDiscardableIfUnusedGos.erase(CurIt);
+      }
+    }
+  } while (IsPruned);
 
   return Changed;
 }
