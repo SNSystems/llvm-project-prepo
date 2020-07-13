@@ -515,20 +515,20 @@ int main(int argc, char *argv[]) {
         auto const Name = pstore::indirect_string::read(Db, CM.name);
         assert(Name.is_in_store());
 
-        if (!Fragment->has_section(pstore::repo::section_kind::bss)
-            || std::count_if (Fragment->begin (), Fragment->end (), pstore::repo::is_target_section) != 1) {
-
+        if (!Fragment->has_section(pstore::repo::section_kind::bss) ||
+            std::count_if(Fragment->begin(), Fragment->end(),
+                          pstore::repo::is_target_section) != 1) {
           pstore::shared_sstring_view Owner;
           error("Fragment for common symbol \"" +
                 Name.as_string_view(&Owner).to_string() +
                 "\" did not contain a sole BSS section");
         }
 
-        pstore::repo::bss_section const &S =
+        pstore::repo::bss_section const &BSS =
             Fragment->at<pstore::repo::section_kind::bss>();
         State->Symbols.insertSymbol(Name, nullptr /*no output section*/,
-                                    0 /*offset*/, S.size(), Linkage,
-                                    CM.visibility());
+                                    0 /*offset*/, BSS.size(), Linkage,
+                                    BSS.align(), CM.visibility());
         continue;
       }
       // Go through the sections that this fragment contains creating the

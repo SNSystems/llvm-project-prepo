@@ -33,11 +33,13 @@ public:
     /// of the object.
     /// \param Size_  The object's size (in bytes).
     /// \param Linkage_  The symbol's linkage.
+    /// \param Alignment_  The alignment of the symbol's target data.
+    /// \param Visibility_  The symbol's ELF visibility.
     SymbolTarget(OutputSection<ELFT> const *Section_, std::uint64_t Offset_,
                  std::uint64_t Size_, pstore::repo::linkage Linkage_,
-                 pstore::repo::visibility Visibility_)
+                 unsigned Alignment_, pstore::repo::visibility Visibility_)
         : Section{Section_}, Offset{Offset_}, Size{Size_}, Linkage{Linkage_},
-          Visibility{Visibility_} {
+          Alignment{Alignment_}, Visibility{Visibility_} {
       assert(Linkage_ == pstore::repo::linkage::common || Section != nullptr);
     }
 
@@ -45,6 +47,7 @@ public:
     std::uint64_t Offset;
     std::uint64_t Size;
     pstore::repo::linkage Linkage;
+    unsigned Alignment;
     pstore::repo::visibility Visibility;
   };
 
@@ -83,13 +86,14 @@ public:
   /// the object.
   /// \param Size  The object's size (in bytes).
   /// \param Linkage  The symbol's linkage.
-  /// \param Visibility  The symbol's visibility.
+  /// \param Alignment  The alignment of the symbol's target data.
+  /// \param Visibility  The symbol's ELF visibility.
   /// \returns A pointer to the newly created or pre-existing entry for this
   /// name in the symbol table.
   Value *insertSymbol(pstore::indirect_string const &Name,
                       OutputSection<ELFT> const *Section, std::uint64_t Offset,
                       std::uint64_t Size, pstore::repo::linkage Linkage,
-                      pstore::repo::visibility Visibility);
+                      unsigned Alignment, pstore::repo::visibility Visibility);
 
   /// If not already in the symbol table, an undef entry is created. This may be
   /// later turned into a proper definition by a subsequent call to insertSymbol
@@ -234,7 +238,7 @@ unsigned SymbolTable<ELFT>::valueToSymbolType(const Value &SV) {
     return llvm::ELF::STT_TLS;
   }
   if (SV.IsCommon) {
-    return llvm::ELF::STT_OBJECT;
+    return llvm::ELF::STT_COMMON;
   }
   return llvm::ELF::STT_NOTYPE;
 }
@@ -272,10 +276,12 @@ auto SymbolTable<ELFT>::insertSymbol(pstore::indirect_string const &Name,
                                      OutputSection<ELFT> const *Section,
                                      std::uint64_t Offset, std::uint64_t Size,
                                      pstore::repo::linkage Linkage,
+                                     unsigned Alignment,
                                      pstore::repo::visibility Visibility)
     -> Value * {
-  auto SV = this->insertSymbol(
-      Name, SymbolTarget(Section, Offset, Size, Linkage, Visibility));
+  auto SV =
+      this->insertSymbol(Name, SymbolTarget(Section, Offset, Size, Linkage,
+                                            Alignment, Visibility));
   if (Linkage == pstore::repo::linkage::common) {
     SV->IsCommon = true;
   } else {
@@ -356,7 +362,7 @@ SymbolTable<ELFT>::write(llvm::raw_ostream &OS,
 
     if (SV->Target) {
       SymbolTarget const &T = SV->Target.getValue();
-      Symbol.st_value = T.Offset;
+      Symbol.st_value = SV->IsCommon ? T.Alignment : T.Offset;
       Symbol.setBindingAndType(linkageToELFBinding(T.Linkage),
                                valueToSymbolType(*SV));
       Symbol.st_other = visibilityToELFOther(T.Visibility);
