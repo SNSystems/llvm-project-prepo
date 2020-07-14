@@ -239,9 +239,9 @@ OutputSection<ELFT>::SectionInfo::symbol(SymbolTable<ELFT> &Symbols,
     static auto PrivateSymbolCount = 0U;
 
     auto Name = Generated.add(".LR" + std::to_string(PrivateSymbolCount++));
-    Symbol_ = Symbols.insertSymbol(Name, Section_, Offset_, 0 /*size*/,
-                                   pstore::repo::linkage::internal,
-                                   pstore::repo::visibility::default_vis);
+    Symbol_ = Symbols.insertSymbol(
+        Name, Section_, Offset_, 0 /*size*/, pstore::repo::linkage::internal,
+        1U /*alignment*/, pstore::repo::visibility::default_vis);
 
     LLVM_DEBUG(dbgs() << "  created symbol:" << Name
                       << " for internal fixup (offset:" << Offset_
@@ -258,7 +258,6 @@ OutputSection<ELFT>::SectionInfo::symbol(SymbolTable<ELFT> &Symbols,
 // so that it's easier in the short term to replicate it here. Refactor.
 /// \brief Write a sequence of optimal nops to the output, covering \p Count
 /// bytes.
-/// \return - true on success, false on failure
 template <typename ELFT>
 void OutputSection<ELFT>::writeNopData(llvm::raw_ostream &OS,
                                        uint64_t Count) const {
@@ -365,7 +364,7 @@ void OutputSection<ELFT>::append(pstore::repo::compilation_member const &CM,
 
   if (CM.linkage() != pstore::repo::linkage::append) {
     Symbols.insertSymbol(pstore::indirect_string::read(Db_, CM.name), this,
-                         SectionSize_, ObjectSize, CM.linkage(),
+                         SectionSize_, ObjectSize, CM.linkage(), DataAlign,
                          CM.visibility());
   }
 
