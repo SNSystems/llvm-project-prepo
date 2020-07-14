@@ -100,9 +100,9 @@ llvm::cl::opt<unsigned> Modules("modules", llvm::cl::desc("Number of modules"),
 llvm::cl::opt<std::string> OutputDirOpt("output-directory",
                                         llvm::cl::desc("output directory"),
                                         llvm::cl::init("./"));
-llvm::cl::alias OutputDirOpt2("O",
-                              llvm::cl::desc("Alias for --output-directory"),
-                              llvm::cl::aliasopt(OutputDirOpt));
+llvm::cl::alias
+    OutputDirOptAlias("O", llvm::cl::desc("Alias for --output-directory"),
+                      llvm::cl::aliasopt(OutputDirOpt));
 
 llvm::cl::opt<unsigned> SectionSize(
     "section-size",
@@ -114,7 +114,18 @@ llvm::cl::opt<std::string>
            llvm::cl::desc("The target-triple associated with each compilation"),
            llvm::cl::init("x86_64-pc-linux-gnu-repo"));
 
-llvm::cl::opt<bool> DataFibonacci("data-fibonacci", llvm::cl::init(false));
+llvm::cl::opt<bool> DataFibonacci(
+    "data-fibonacci",
+    llvm::cl::desc(
+        "Fills the generated section data with a fibonacci sequence"),
+    llvm::cl::init(false));
+
+llvm::cl::opt<bool>
+    Progress("progress",
+             llvm::cl::desc("Enables progress monitoring on stdout"),
+             llvm::cl::init(false));
+llvm::cl::alias ProgressAlias("p", llvm::cl::desc("Alias for --output"),
+                              llvm::cl::aliasopt(Progress));
 
 using IStringAddress = pstore::typed_address<pstore::indirect_string>;
 
@@ -442,7 +453,9 @@ int main(int argc, char *argv[]) {
       writeTicketFile(getTicketFilePath(llvm::StringRef{OutputDir}, ModuleCtr),
                       ModuleDigest);
     }
-    std::cout << ModuleCtr << std::endl;
+    if (Progress) {
+      std::cout << ModuleCtr << std::endl;
+    }
   }
 
   // Write the bodies of the strings.
