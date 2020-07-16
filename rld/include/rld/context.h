@@ -51,6 +51,7 @@
 #include "llvm/ADT/Triple.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorOr.h"
+#include "llvm/Support/Format.h"
 
 #include "pstore/adt/chunked_vector.hpp"
 
@@ -93,8 +94,8 @@ inline void llvmDebug(char const *DebugFype, Function F) {
   }
 }
 template <typename Function>
-inline void llvmDebug(char const *DebugFype, std::mutex & IOMut, Function F) {
-  if (llvmDebugEnabled(DebugFype)) {
+inline void llvmDebug(char const *DebugType, std::mutex &IOMut, Function F) {
+  if (llvmDebugEnabled(DebugType)) {
     const std::lock_guard <std::mutex> Lock (IOMut);
     F();
   }
@@ -108,6 +109,10 @@ inline void llvmDebug(char const *, std::mutex &, Function) {}
 // Use this group name for NamedRegionTimer.
 extern const char *TimerGroupName;
 extern const char *TimerGroupDescription;
+
+template <typename T> inline llvm::FormattedNumber format_hex(T N) {
+  return llvm::format_hex_no_prefix(N, sizeof(N), true);
+}
 
 } // end namespace rld
 

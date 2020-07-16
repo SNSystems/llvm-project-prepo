@@ -62,23 +62,6 @@ constexpr auto DebugType = "rld-LayoutBuilder";
 
 namespace rld {
 
-template <typename OStream> OStream &operator<<(OStream &OS, SegmentKind S) {
-  char const *Str = "unknown";
-#define X(a)                                                                   \
-  case SegmentKind::a:                                                         \
-    Str = #a;                                                                  \
-    break;
-
-  switch (S) {
-    RLD_SEGMENT_KIND
-  case SegmentKind::last:
-    llvm_unreachable("SegmentKind must not be last");
-  }
-
-#undef X
-  return OS << Str;
-}
-
 LayoutBuilder::Visited::Visited(uint32_t NumCompilations) {
   this->resize(NumCompilations);
 }
@@ -147,6 +130,8 @@ void LayoutBuilder::checkSectionToSegmentArray() {
 #endif
 }
 
+constexpr auto PageSize = std::uint64_t{0x1000};
+
 // (ctor)
 // ~~~~~~
 LayoutBuilder::LayoutBuilder(Context &Ctx,
@@ -155,6 +140,11 @@ LayoutBuilder::LayoutBuilder(Context &Ctx,
     : Ctx_{Ctx}, Globals_{Globals}, NumCompilations_{NumCompilations},
       CompilationWaiter_{NumCompilations}, CUsMut_{}, CUs_{},
       Segments_{std::make_unique<LayoutOutput>()} {
+
+  for (auto SegmentK = SegmentKind::phdr; SegmentK < SegmentKind::last;
+       ++SegmentK) {
+    (*Segments_)[segmentNum(SegmentK)].MaxAlign = PageSize;
+  }
 
   checkSectionToSegmentArray();
 }
@@ -242,7 +232,7 @@ void LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // We were handed the compilation's definitions when its scan completed.
 // Recover it from where we stashed it in the CUs_ map.
-auto LayoutBuilder::recoverDefinitionsFromCUMap(std::size_t Ordinal)
+auto LayoutBuilder::recoverDefinitionsFromCUMap(const std::size_t Ordinal)
     -> LocalSymbolsContainer {
   std::lock_guard<std::mutex> const CUsLock{CUsMut_};
   assert(CUs_.find(Ordinal) != CUs_.end());
@@ -251,10 +241,10 @@ auto LayoutBuilder::recoverDefinitionsFromCUMap(std::size_t Ordinal)
   return D;
 }
 
-// add body
-// ~~~~~~~~
-void LayoutBuilder::addBody(Symbol::Body const &Body, uint32_t Ordinal,
-                            StringAddress const Name) {
+// add symbol body
+// ~~~~~~~~~~~~~~~
+void LayoutBuilder::addSymbolBody(Symbol::Body const &Body, uint32_t Ordinal,
+                                  StringAddress const Name) {
   // Record this symbol's fragment if it was defined by this compilation.
   if (Body.inputOrdinal() != Ordinal) {
     return;
@@ -279,24 +269,19 @@ void LayoutBuilder::addBody(Symbol::Body const &Body, uint32_t Ordinal,
   }
 }
 
-struct AsHex {
-  uint64_t N;
-};
-llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, AsHex const &H) {
-  return OS.write_hex(H.N);
-}
-
 // debug dump layout
 // ~~~~~~~~~~~~~~~~~
 void LayoutBuilder::debugDumpLayout() const {
-  auto EmitSegment = makeOnce([this](SegmentKind Seg) {
-    auto &OS = llvm::dbgs();
+  auto &OS = llvm::dbgs();
+
+  auto EmitSegment = makeOnce([this, &OS](SegmentKind Seg) {
     auto const &Segment = (*Segments_)[segmentNum(Seg)];
-    OS << Seg << '\t' << AsHex{Segment.VAddr} << '\t' << AsHex{Segment.VSize}
-       << '\t' << AsHex{Segment.MaxAlign} << '\n';
+    OS << Seg << '\t' << format_hex(Segment.VirtualAddr) << '\t'
+       << format_hex(Segment.VirtualSize) << '\t'
+       << format_hex(Segment.MaxAlign.load()) << '\n';
   });
   auto EmitSection =
-      makeOnce([](SectionKind Scn) { llvm::dbgs() << '\t' << Scn << '\n'; });
+      makeOnce([&OS](SectionKind Scn) { OS << '\t' << Scn << '\n'; });
 
   pstore::shared_sstring_view Owner;
   for (auto SegmentK = SegmentKind::phdr; SegmentK < SegmentKind::last;
@@ -307,11 +292,11 @@ void LayoutBuilder::debugDumpLayout() const {
            (*Segments_)[segmentNum(SegmentK)].Sections[sectionNum(SectionK)]) {
         EmitSegment(SegmentK);
         EmitSection(SectionK);
-        llvm::dbgs() << "\t\t" << AsHex{SI.VAddr} << '\t' << AsHex{SI.Size}
-                     << '\t' << AsHex{SI.Align} << '\t'
-                     << stringViewAsRef(loadString(Ctx_.Db, SI.Name, &Owner))
-                     << '\t' << AsHex{SI.Align} << '\t'
-                     << AsHex{SI.InputOrdinal} << '\n';
+        OS << "\t\t" << format_hex(SI.VAddr) << '\t' << format_hex(SI.Size)
+           << '\t' << format_hex(SI.Align) << '\t'
+           << stringViewAsRef(loadString(Ctx_.Db, SI.Name, &Owner)) << '\t'
+           << format_hex(SI.Align) << '\t' << format_hex(SI.InputOrdinal)
+           << '\n';
       }
       EmitSection.reset();
     }
@@ -355,7 +340,7 @@ void LayoutBuilder::run() {
       if (Bodies.size() == 1U) {
         auto const &B = Bodies.front();
         if (B.inputOrdinal() == Ordinal) {
-          this->addBody(B, Ordinal, Name);
+          this->addSymbolBody(B, Ordinal, Name);
         }
       } else {
         auto First = std::begin(Bodies);
@@ -373,7 +358,7 @@ void LayoutBuilder::run() {
               return A.inputOrdinal() < B;
             });
         assert(Pos != Last && Pos->inputOrdinal() == Ordinal);
-        this->addBody(*Pos, Ordinal, Name);
+        this->addSymbolBody(*Pos, Ordinal, Name);
       }
     }
   }
@@ -382,27 +367,47 @@ void LayoutBuilder::run() {
             [&] { debugDumpSymbols(Ctx_, Globals_->all()); });
 }
 
+inline bool hasFileData(rld::SegmentKind const Kind) {
+  switch (Kind) {
+  case rld::SegmentKind::phdr:
+  case rld::SegmentKind::data:
+  case rld::SegmentKind::interp:
+  case rld::SegmentKind::rodata:
+  case rld::SegmentKind::text:
+  case rld::SegmentKind::tls:
+    return true;
+
+  case rld::SegmentKind::gnu_stack:
+  case rld::SegmentKind::discard:
+  case rld::SegmentKind::last:
+    return false;
+  }
+  llvm_unreachable("Invalid rld SegmentKind");
+}
+
 // flatten segments
 // ~~~~~~~~~~~~~~~~
 std::unique_ptr<LayoutOutput> LayoutBuilder::flattenSegments() {
   auto Base = std::uint64_t{0x0000000000200000};
-  constexpr auto PageSize = std::uint64_t{0x1000};
   assert(Base % PageSize == 0U);
 
-  for (auto &Segment : *Segments_) {
-    Segment.VAddr = Base;
-    for (auto &OutputSection : Segment.Sections) {
+  for_each_segment(*Segments_, [&Base](SegmentKind SegmentK, Segment &Seg) {
+    Base = alignTo(Base, Seg.MaxAlign);
+    Seg.VirtualAddr = Base;
+    for (auto &OutputSection : Seg.Sections) {
       for (SectionInfo &SI : OutputSection) {
-        Base = alignTo(Base, Segment.MaxAlign);
+        Base = alignTo(Base, SI.Align);
         SI.VAddr = Base;
         Base += SI.Size;
       }
     }
-    Segment.VSize = alignTo(Base - Segment.VAddr, PageSize);
-    Base = alignTo(Base, PageSize);
-  }
+    Seg.VirtualSize = Base - Seg.VirtualAddr;
+    Seg.FileSize = hasFileData(SegmentK) ? Seg.VirtualSize : 0;
 
-  debugDumpLayout();
+    Base = alignTo(Base, PageSize);
+  });
+
+  llvmDebug("rld-Layout", Ctx_.IOMut, [this] { debugDumpLayout(); });
   return std::move(Segments_);
 }
 

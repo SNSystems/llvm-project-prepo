@@ -90,6 +90,31 @@ enum class SegmentKind {
       last // Never used. Always last.
 };
 
+constexpr auto firstSegmentKind() noexcept -> SegmentKind {
+  using utype = std::underlying_type<SegmentKind>::type;
+  constexpr auto result = SegmentKind::phdr;
+  static_assert(static_cast<utype>(result) == utype{0},
+                "expected result to have value 0");
+  return result;
+}
+
+template <typename OStream> OStream &operator<<(OStream &OS, SegmentKind S) {
+  char const *Str = "unknown";
+#define X(a)                                                                   \
+  case SegmentKind::a:                                                         \
+    Str = #a;                                                                  \
+    break;
+
+  switch (S) {
+    RLD_SEGMENT_KIND
+  case SegmentKind::last:
+    llvm_unreachable("SegmentKind must not be last");
+  }
+
+#undef X
+  return OS << Str;
+}
+
 constexpr std::size_t NumSegments =
     static_cast<std::underlying_type<SegmentKind>::type>(SegmentKind::last);
 
@@ -137,15 +162,40 @@ using SectionInfoVector =
 struct Segment {
   Segment() : MaxAlign{1} {}
   std::array<SectionInfoVector, NumSectionKinds> Sections;
-  std::uint64_t VAddr = 0;
-  std::uint64_t VSize = 0;
+  uint64_t VirtualAddr = 0;
+  uint64_t VirtualSize = 0;
+  uint64_t FileSize = 0;
   std::atomic<unsigned> MaxAlign;
   bool AlwaysEmit = false;
 
-  bool shouldEmit() const { return AlwaysEmit || VSize > 0; }
+  bool shouldEmit() const { return AlwaysEmit || VirtualSize > 0; }
 };
 
 using LayoutOutput = std::array<Segment, NumSegments>;
+
+namespace details {
+
+template <typename LayoutOutputType, typename Function>
+void for_each_segment_(LayoutOutputType &LO, Function F) {
+  for (auto Seg = std::size_t{0}, End = LO.size(); Seg < End; ++Seg) {
+    auto const Kind = static_cast<rld::SegmentKind>(Seg);
+    if (Kind != rld::SegmentKind::discard) {
+      F(Kind, LO[Seg]);
+    }
+  }
+}
+
+} // end namespace details
+
+template <typename Function>
+void for_each_segment(const LayoutOutput &LO, Function F) {
+  details::for_each_segment_(LO, F);
+}
+
+template <typename Function>
+void for_each_segment(LayoutOutput &LO, Function F) {
+  details::for_each_segment_(LO, F);
+}
 
 //-MARK: LayoutBuilder
 class LayoutBuilder {
@@ -209,8 +259,7 @@ private:
   static constexpr decltype(auto) sectionNum(SectionKind SKind) {
     return static_cast<std::underlying_type<SectionKind>::type>(SKind);
   }
-  static constexpr auto segmentNum(SegmentKind Kind)
-      -> std::underlying_type<SegmentKind>::type {
+  static constexpr decltype(auto) segmentNum(SegmentKind Kind) {
     return static_cast<std::underlying_type<SegmentKind>::type>(Kind);
   }
 
@@ -219,8 +268,8 @@ private:
                           StringAddress Name, unsigned InputOrdinal);
 
   LocalSymbolsContainer recoverDefinitionsFromCUMap(std::size_t Ordinal);
-  void addBody(Symbol::Body const &Body, uint32_t Ordinal,
-               StringAddress const Name);
+  void addSymbolBody(Symbol::Body const &Body, uint32_t Ordinal,
+                     StringAddress const Name);
 
   static std::uint64_t prevSectionEnd(SectionInfoVector const &SI);
   static void checkSectionToSegmentArray();

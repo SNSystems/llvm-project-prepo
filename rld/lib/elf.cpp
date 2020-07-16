@@ -132,6 +132,138 @@ std::size_t writeRaw(llvm::raw_ostream &OS, Ty const &T) {
   return sizeof(T);
 }
 
+namespace {
+
+template <typename ELFT> struct ElfSegmentType {
+  typename llvm::object::ELFFile<ELFT>::Elf_Word p_type;
+};
+template <typename OStream, typename ELFT>
+OStream &operator<<(OStream &OS, ElfSegmentType<ELFT> const &ST) {
+  switch (ST.p_type) {
+  case llvm::ELF::PT_NULL:
+    OS << "PT_NULL";
+    break;
+  case llvm::ELF::PT_LOAD:
+    OS << "PT_LOAD";
+    break;
+  case llvm::ELF::PT_DYNAMIC:
+    OS << "PT_DYNAMIC";
+    break;
+  case llvm::ELF::PT_INTERP:
+    OS << "PT_INTERP";
+    break;
+  case llvm::ELF::PT_NOTE:
+    OS << "PT_NOTE";
+    break;
+  case llvm::ELF::PT_SHLIB:
+    OS << "PT_SHLIB";
+    break;
+  case llvm::ELF::PT_PHDR:
+    OS << "PT_PHDR";
+    break;
+  case llvm::ELF::PT_TLS:
+    OS << "PT_TLS";
+    break;
+  case llvm::ELF::PT_GNU_STACK:
+    OS << "PT_GNU_STACK";
+    break;
+  default:
+    OS << ST.p_type;
+    break;
+  }
+  return OS;
+}
+
+template <typename ELFT> struct ElfSegmentFlags {
+  typename llvm::object::ELFFile<ELFT>::Elf_Word p_flags;
+};
+template <typename OStream, typename ELFT>
+OStream &operator<<(OStream &OS, ElfSegmentFlags<ELFT> const &Flags) {
+  auto WriteFlag = [&](unsigned F, char C) {
+    if ((Flags.p_flags & F) != 0U) {
+      OS << C;
+    }
+  };
+  WriteFlag(llvm::ELF::PF_R, 'R');
+  WriteFlag(llvm::ELF::PF_W, 'W');
+  WriteFlag(llvm::ELF::PF_X, 'E');
+  return OS;
+}
+
+} // end anonymous namespace
+
+template <typename ELFT>
+auto rld::elf::emitProgramHeaders(
+    typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr, uint64_t StartOffset,
+    const rld::LayoutOutput &Layout) ->
+    typename llvm::object::ELFFile<ELFT>::Elf_Phdr * {
+  auto &OS = llvm::dbgs();
+  OS << "ELF Program Headers\n";
+
+  for_each_segment(Layout, [&OS, &Phdr, &StartOffset](SegmentKind Kind,
+                                                      const Segment &Segment) {
+    if (Segment.shouldEmit()) {
+      Phdr->p_type = elfSegmentKind<ELFT>(Kind);
+      Phdr->p_flags = elfSegmentFlags<ELFT>(Kind);
+      Phdr->p_vaddr = hasPhysicalAddress(Kind) ? Segment.VirtualAddr : 0;
+      Phdr->p_paddr = Phdr->p_vaddr;
+      Phdr->p_offset = hasPhysicalAddress(Kind) ? StartOffset : 0;
+      Phdr->p_filesz = Segment.FileSize;
+      Phdr->p_memsz = hasPhysicalAddress(Kind) ? Segment.VirtualSize : 0;
+
+      // “Values 0 and 1 mean no alignment is required. Otherwise, p_align
+      // should be a positive, integral power of 2”
+      const size_t MaxAlign = Segment.MaxAlign.load();
+      assert(MaxAlign == 0 || llvm::countPopulation(MaxAlign) == 1);
+      Phdr->p_align = hasPhysicalAddress(Kind) ? MaxAlign : 0;
+
+      OS << "Segment: " << Kind << '\n';
+      OS << "  type=" << ElfSegmentType<ELFT>{Phdr->p_type} << '\n';
+      OS << "  vaddr=" << format_hex(Phdr->p_vaddr) << '\n';
+      OS << "  paddr=" << format_hex(Phdr->p_paddr) << '\n';
+      OS << "  offset=" << format_hex(Phdr->p_offset) << '\n';
+      OS << "  memsz=" << format_hex(Phdr->p_memsz) << '\n';
+      OS << "  filesz=" << format_hex(Phdr->p_filesz) << '\n';
+      OS << "  flags=" << ElfSegmentFlags<ELFT>{Phdr->p_flags} << '\n';
+      OS << "  align=" << format_hex(Phdr->p_align) << '\n';
+#if 0
+          // “The file size may not be larger than the memory size.”
+          assert(Phdr->p_filesz <= Phdr->p_memsz);
+
+          // “loadable process segments must have congruent values for p_vaddr
+          // and p_offset, modulo the page size”. That is, p_vaddr ≡
+          // p_offset(mod p_align).
+          assert(Phdr->p_type != llvm::ELF::PT_LOAD ||
+                 (Phdr->p_vaddr % Phdr->p_align) ==
+                     (Phdr->p_offset % Phdr->p_align));
+#endif
+      ++Phdr;
+      StartOffset += Segment.FileSize;
+    }
+  });
+  return Phdr;
+}
+
+template auto rld::elf::emitProgramHeaders<llvm::object::ELF64LE>(
+    typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Phdr *Phdr,
+    uint64_t StartOffset, rld::LayoutOutput const &Layout) ->
+    typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Phdr *;
+
+template auto rld::elf::emitProgramHeaders<llvm::object::ELF64BE>(
+    typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Phdr *Phdr,
+    uint64_t StartOffset, rld::LayoutOutput const &Layout) ->
+    typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Phdr *;
+
+template auto rld::elf::emitProgramHeaders<llvm::object::ELF32LE>(
+    typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Phdr *Phdr,
+    uint64_t StartOffset, rld::LayoutOutput const &Layout) ->
+    typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Phdr *;
+
+template auto rld::elf::emitProgramHeaders<llvm::object::ELF32BE>(
+    typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Phdr *Phdr,
+    uint64_t StartOffset, rld::LayoutOutput const &Layout) ->
+    typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Phdr *;
+
 template <typename ELFT>
 auto rld::elf::emitSectionHeaders(
     typename llvm::object::ELFFile<ELFT>::Elf_Shdr *Shdr,
@@ -151,9 +283,9 @@ auto rld::elf::emitSectionHeaders(
 
     std::memset(Shdr, 0, sizeof(*Shdr));
     Shdr->sh_name = Section.NameOffset;
-    Shdr->sh_type = elf_section_type<ELFT>(Kind);
-    Shdr->sh_flags = elf_section_flags<ELFT>(Kind);
-    Shdr->sh_addr = 0;                  // Sec->Address;
+    Shdr->sh_type = elfSectionType<ELFT>(Kind);
+    Shdr->sh_flags = elfSectionFlags<ELFT>(Kind);
+    Shdr->sh_addr = Section.Address;    // Sec->Address;
     Shdr->sh_offset = Section.Offset;   // File offset of section data, in bytes
     Shdr->sh_size = Section.Size;
     //  Elf_Word sh_link;      // Section type-specific header table index link

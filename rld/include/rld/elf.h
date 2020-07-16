@@ -44,7 +44,6 @@
 #ifndef RLD_ELF_H
 #define RLD_ELF_H
 
-#include "LayoutBuilder.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/Object/ELF.h"
@@ -52,6 +51,7 @@
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "rld/LayoutBuilder.h"
 #include "rld/SectionArray.h"
 
 #include <memory>
@@ -115,17 +115,6 @@ std::size_t writeRaw(llvm::raw_ostream &OS, Ty *T, std::size_t Size) {
   assert(OS.tell() % alignof(Ty) == 0);
   OS.write(reinterpret_cast<char const *>(&T), Size);
   return Size;
-}
-
-template <typename Function>
-void for_each_segment(LayoutOutput const &LO, Function f) {
-  auto const NumSegments = LO.size();
-  for (auto Seg = std::size_t{0}; Seg < NumSegments; ++Seg) {
-    auto const Kind = static_cast<rld::SegmentKind>(Seg);
-    if (Kind != rld::SegmentKind::discard) {
-      f(Kind, LO[Seg]);
-    }
-  }
 }
 
 } // end namespace details
@@ -215,52 +204,7 @@ inline bool hasPhysicalAddress(rld::SegmentKind const Kind) {
   llvm_unreachable("Invalid rld SegmentKind");
 }
 
-template <typename ELFT>
-auto emitProgramHeaders(typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr,
-                        std::uint64_t StartOffset,
-                        rld::LayoutOutput const &Layout) {
-  details::for_each_segment(
-      Layout, [&Phdr, &StartOffset](rld::SegmentKind Kind,
-                                    rld::Segment const &Segment) {
-        if (Segment.shouldEmit()) {
-          Phdr->p_type = elfSegmentKind<ELFT>(Kind);
-          Phdr->p_flags = elfSegmentFlags<ELFT>(Kind);
-          Phdr->p_vaddr = hasPhysicalAddress(Kind) ? Segment.VAddr : 0;
-          Phdr->p_paddr = Phdr->p_vaddr;
-          Phdr->p_offset = StartOffset;
-          Phdr->p_filesz = Segment.VSize;
-          Phdr->p_memsz = hasPhysicalAddress(Kind) ? Segment.VSize : 0;
-          // “Values 0 and 1 mean no alignment is required. Otherwise, p_align
-          // should be a positive, integral power of 2”
-          std::size_t MaxAlign = Segment.MaxAlign.load();
-          assert(MaxAlign == 0 || llvm::countPopulation(MaxAlign) == 1);
-          Phdr->p_align = MaxAlign;
-
-#if 0
-          // “The file size may not be larger than the memory size.”
-          assert(Phdr->p_filesz <= Phdr->p_memsz);
-
-          // “loadable process segments must have congruent values for p_vaddr and p_offset, modulo
-          // the page size”. That is, p_vaddr ≡ p_offset(mod p_align).
-std::cout << Phdr->p_vaddr << '\n';
-std::cout << Phdr->p_offset << '\n';
-std::cout << Phdr->p_filesz << '\n';
-std::cout << Phdr->p_vaddr % Phdr->p_align << '\n';
-std::cout << Phdr->p_offset % Phdr->p_align << '\n';
-
-          assert(Phdr->p_type != llvm::ELF::PT_LOAD ||
-                 (Phdr->p_vaddr % Phdr->p_align) ==
-                     (Phdr->p_offset % Phdr->p_align));
-#endif
-          ++Phdr;
-          StartOffset += Segment.VSize;
-        }
-      });
-  return Phdr;
-}
-
-template <typename ELFT>
-constexpr auto elf_section_type(rld::SectionKind Kind) {
+template <typename ELFT> constexpr auto elfSectionType(rld::SectionKind Kind) {
   using Elf_Word = typename llvm::object::ELFFile<ELFT>::Elf_Word;
   switch (Kind) {
   case SectionKind::data:
@@ -297,7 +241,7 @@ constexpr auto elf_section_type(rld::SectionKind Kind) {
   llvm_unreachable("Bad section kind");
 }
 
-template <typename ELFT> constexpr auto elf_section_flags(SectionKind Kind) {
+template <typename ELFT> constexpr auto elfSectionFlags(SectionKind Kind) {
   using Elf_Word = typename llvm::object::ELFFile<ELFT>::Elf_Word;
 
   switch (Kind) {
@@ -437,10 +381,21 @@ elfSectionNameAndLength(rld::SectionKind SKind) {
 
 #undef X
 
+template <typename ELFT>
+auto emitProgramHeaders(typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr,
+                        std::uint64_t StartOffset,
+                        rld::LayoutOutput const &Layout) ->
+    typename llvm::object::ELFFile<ELFT>::Elf_Phdr *;
+
 struct ElfSectionInfo {
-  std::uint64_t Offset = 0;
-  std::uint64_t Size = 0;
-  std::uint64_t NameOffset = 0;
+  /// If the section will appear in the memory image of a process, this member
+  /// gives the address at which the section's first byte should reside.
+  /// Otherwise, the member contains 0. Provides the sh_addr value for the
+  /// Elf_Shdr structure.
+  uint64_t Address = 0;
+  uint64_t Offset = 0;
+  uint64_t Size = 0;
+  uint64_t NameOffset = 0;
   bool Emit = false;
   unsigned Align = 1;
 };
