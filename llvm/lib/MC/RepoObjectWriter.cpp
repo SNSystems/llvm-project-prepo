@@ -123,7 +123,7 @@ private:
     return TargetObjectWriter->getRelocType(Ctx, Target, Fixup, IsPCRel);
   }
 
-  pstore::extent<std::uint8_t>
+  pstore::index::debug_line_header_index::value_type
   writeDebugLineHeader(TransactionType &Transaction, ContentsType &Fragments);
 
 public:
@@ -187,7 +187,8 @@ public:
   template <typename DispatcherCollectionType>
   static DispatcherCollectionType
   buildFragmentData(const FragmentContentsType &Contents,
-                    pstore::extent<std::uint8_t> const &DebugLineHeaderExtent);
+                    const pstore::index::debug_line_header_index::value_type
+                        &DebugLineHeader);
 
   static void
   updateDependents(pstore::repo::dependents &Dependent,
@@ -761,7 +762,7 @@ static bool isExistingTicket(const pstore::database &Db,
 template <typename DispatcherCollectionType>
 DispatcherCollectionType RepoObjectWriter::buildFragmentData(
     const FragmentContentsType &Contents,
-    pstore::extent<std::uint8_t> const &DebugLineHeaderExtent) {
+    const pstore::index::debug_line_header_index::value_type &DebugLineHeader) {
   DispatcherCollectionType Dispatchers;
   Dispatchers.reserve(Contents.Sections.size());
 
@@ -778,7 +779,7 @@ DispatcherCollectionType RepoObjectWriter::buildFragmentData(
       // to it.
       Dispatcher = std::make_unique<
           pstore::repo::debug_line_section_creation_dispatcher>(
-          DebugLineHeaderExtent, Content.get());
+          DebugLineHeader.first, DebugLineHeader.second, Content.get());
       break;
     case pstore::repo::section_kind::dependent:
       llvm_unreachable("Invalid section content!");
@@ -826,7 +827,7 @@ pstore::uint128 get_hash_key(ArrayRef<uint8_t> const &arr) {
 
 } // end anonymous namespace
 
-pstore::extent<std::uint8_t>
+pstore::index::debug_line_header_index::value_type
 RepoObjectWriter::writeDebugLineHeader(TransactionType &Transaction,
                                        ContentsType &Fragments) {
   auto NullFragmentPos = Fragments.find(repodefinition::NullDigest);
@@ -853,7 +854,7 @@ RepoObjectWriter::writeDebugLineHeader(TransactionType &Transaction,
               Db, true /*create*/);
       auto const Pos = Index->find(Db, Key);
       if (Pos != Index->end(Db)) {
-        return Pos->second;
+        return *Pos;
       }
 
       // This debug-header wasn't found in the index, so we need to record the
@@ -867,7 +868,7 @@ RepoObjectWriter::writeDebugLineHeader(TransactionType &Transaction,
           pstore::typed_address<std::uint8_t>(Dest.second), DataSize);
       Index->insert(Transaction, std::make_pair(Key, Extent));
       Fragments.erase(NullFragmentPos);
-      return Extent;
+      return {Key, Extent};
     }
   }
 
@@ -935,7 +936,7 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
       // Flush the name bodies.
       NameAdder.flush(Transaction);
 
-      pstore::extent<std::uint8_t> const DebugLineHeaderExtent =
+      const pstore::index::debug_line_header_index::value_type DebugLineHeader =
           this->writeDebugLineHeader(Transaction, Fragments);
 
       std::shared_ptr<pstore::index::fragment_index> const FragmentsIndex =
@@ -981,7 +982,7 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
         using DispatcherCollection = SmallVector<
             std::unique_ptr<pstore::repo::section_creation_dispatcher>, 4>;
         auto Dispatchers = buildFragmentData<DispatcherCollection>(
-            Fragment.second, DebugLineHeaderExtent);
+            Fragment.second, DebugLineHeader);
         auto Begin = pstore::make_pointee_adaptor(Dispatchers.begin());
         auto End = pstore::make_pointee_adaptor(Dispatchers.end());
 
