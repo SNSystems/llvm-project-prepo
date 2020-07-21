@@ -46,7 +46,10 @@ set (RLD_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 configure_file (config.h.in "${CMAKE_CURRENT_BINARY_DIR}/include/rld/config.h" ESCAPE_QUOTES)
 
 
-set (LLVM_LINK_COMPONENTS MC Object Support)
+set (LLVM_LINK_COMPONENTS
+  Object
+  Support
+)
 add_llvm_library (LLVMrld
     config.h.in
     "${CMAKE_CURRENT_BINARY_DIR}/include/rld/config.h"

@@ -49,6 +49,7 @@
 #include "pstore/adt/chunked_vector.hpp"
 
 #include "rld/AdvanceEnum.h"
+#include "rld/SectionArray.h"
 #include "rld/SectionKind.h"
 #include "rld/symbol.h"
 
@@ -70,12 +71,12 @@ class Context;
 #define RLD_SEGMENT_KIND                                                       \
   /* loaded segments */                                                        \
   X(phdr)                                                                      \
+  X(text)                                                                      \
   X(data)                                                                      \
   X(rodata)                                                                    \
-  X(text)                                                                      \
   X(tls)                                                                       \
-  X(interp)                                                                    \
   /* non-loaded segments */                                                    \
+  X(interp)                                                                    \
   X(gnu_stack)                                                                 \
   X(discard)
 
@@ -161,7 +162,8 @@ using SectionInfoVector =
 //-MARK: Segment
 struct Segment {
   Segment() : MaxAlign{1} {}
-  std::array<SectionInfoVector, NumSectionKinds> Sections;
+
+  EnumIndexedArray<SectionKind, SectionKind::last, SectionInfoVector> Sections;
   uint64_t VirtualAddr = 0;
   uint64_t VirtualSize = 0;
   uint64_t FileSize = 0;
@@ -171,30 +173,78 @@ struct Segment {
   bool shouldEmit() const { return AlwaysEmit || VirtualSize > 0; }
 };
 
-using LayoutOutput = std::array<Segment, NumSegments>;
+template <typename Value>
+using SegmentIndexedArray =
+    EnumIndexedArray<SegmentKind, SegmentKind::last, Value>;
+using SegmentArray = SegmentIndexedArray<Segment>;
+using LayoutOutput = SegmentArray;
 
 namespace details {
 
+// TODO: remove_cvref was introduced in C++20.
+template <typename T> struct remove_cvref {
+  typedef std::remove_cv_t<std::remove_reference_t<T>> type;
+};
+template <typename T> using remove_cvref_t = typename remove_cvref<T>::type;
+
 template <typename LayoutOutputType, typename Function>
-void for_each_segment_(LayoutOutputType &LO, Function F) {
-  for (auto Seg = std::size_t{0}, End = LO.size(); Seg < End; ++Seg) {
-    auto const Kind = static_cast<rld::SegmentKind>(Seg);
-    if (Kind != rld::SegmentKind::discard) {
-      F(Kind, LO[Seg]);
+void for_each_segment(LayoutOutputType &LO, Function F) {
+  for (auto Seg = firstSegmentKind(); Seg != SegmentKind::last; ++Seg) {
+    if (Seg != rld::SegmentKind::discard) {
+      F(Seg, LO[Seg]);
     }
   }
+}
+
+template <typename LayoutOutputType, typename Function>
+void for_each_section(LayoutOutputType &LO, Function F) {
+  for_each_segment(LO, [&F](SegmentKind SegmentK, auto &Seg) {
+    static_assert(std::is_same<Segment, remove_cvref_t<decltype(Seg)>>::value);
+    for (rld::SectionKind SKind = rld::firstSectionKind();
+         SKind != rld::SectionKind::last; ++SKind) {
+      F(SKind, Seg.Sections[SKind]);
+    }
+  });
+}
+
+template <typename LayoutOutputType, typename Function>
+void for_each_contribution(LayoutOutputType &LO, Function F) {
+  for_each_section(LO, [&F](SectionKind SKind, auto const &SI) {
+    static_assert(
+        std::is_same<SectionInfoVector, remove_cvref_t<decltype(SI)>>::value);
+    for (auto &Contribution : SI) {
+      F(SKind, Contribution);
+    }
+  });
 }
 
 } // end namespace details
 
 template <typename Function>
 void for_each_segment(const LayoutOutput &LO, Function F) {
-  details::for_each_segment_(LO, F);
+  details::for_each_segment(LO, F);
+}
+template <typename Function>
+void for_each_segment(LayoutOutput &LO, Function F) {
+  details::for_each_segment(LO, F);
 }
 
 template <typename Function>
-void for_each_segment(LayoutOutput &LO, Function F) {
-  details::for_each_segment_(LO, F);
+void for_each_section(const LayoutOutput &LO, Function F) {
+  details::for_each_section(LO, F);
+}
+template <typename Function>
+void for_each_section(LayoutOutput &LO, Function F) {
+  details::for_each_section(LO, F);
+}
+
+template <typename Function>
+void for_each_contribution(const LayoutOutput &LO, Function F) {
+  details::for_each_contribution(LO, F);
+}
+template <typename Function>
+void for_each_contribution(LayoutOutput &LO, Function F) {
+  details::for_each_contribution(LO, F);
 }
 
 //-MARK: LayoutBuilder
@@ -275,6 +325,21 @@ private:
   static void checkSectionToSegmentArray();
 
   void debugDumpLayout() const;
+};
+
+class FileRegion {
+public:
+  constexpr FileRegion() = default;
+  constexpr FileRegion(uint64_t Offset, uint64_t Size)
+      : Offset_{Offset}, Size_{Size} {}
+
+  constexpr uint64_t offset() const { return Offset_; }
+  constexpr uint64_t size() const { return Size_; }
+  constexpr uint64_t end() const { return offset() + size(); }
+
+private:
+  uint64_t Offset_ = 0U;
+  uint64_t Size_ = 0U;
 };
 
 } // namespace rld

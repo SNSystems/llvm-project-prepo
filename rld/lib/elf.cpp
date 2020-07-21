@@ -194,20 +194,50 @@ OStream &operator<<(OStream &OS, ElfSegmentFlags<ELFT> const &Flags) {
 
 template <typename ELFT>
 auto rld::elf::emitProgramHeaders(
-    typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr, uint64_t StartOffset,
-    const rld::LayoutOutput &Layout) ->
+    typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr,
+    const rld::FileRegion &TargetDataRegion, const rld::LayoutOutput &Layout,
+    const SectionArray<ElfSectionInfo> &ElfSections) ->
     typename llvm::object::ELFFile<ELFT>::Elf_Phdr * {
+
   auto &OS = llvm::dbgs();
   OS << "ELF Program Headers\n";
 
-  for_each_segment(Layout, [&OS, &Phdr, &StartOffset](SegmentKind Kind,
-                                                      const Segment &Segment) {
+  SegmentIndexedArray<uint64_t> SegmentDataOffsets;
+  std::fill(std::begin(SegmentDataOffsets), std::end(SegmentDataOffsets),
+            std::numeric_limits<uint64_t>::max());
+
+  for (auto SegmentK = firstSegmentKind(); SegmentK != SegmentKind::last;
+       ++SegmentK) {
+    if (SegmentK != rld::SegmentKind::discard) {
+      for (auto SectionK = firstSectionKind(); SectionK != SectionKind::last;
+           ++SectionK) {
+        if (!Layout[SegmentK].Sections[SectionK].empty()) {
+          SegmentDataOffsets[SegmentK] = std::min(SegmentDataOffsets[SegmentK],
+                                                  ElfSections[SectionK].Offset);
+        }
+      }
+    }
+  }
+
+  for_each_segment(Layout, [&OS, &Phdr, &SegmentDataOffsets, &TargetDataRegion](
+                               const SegmentKind Kind, const Segment &Segment) {
+    OS << "Segment: " << Kind << '\n';
+
     if (Segment.shouldEmit()) {
+      auto SegmentDataOffset = SegmentDataOffsets[Kind];
+      if (Segment.FileSize == 0) {
+        SegmentDataOffset = 0;
+      } else {
+        assert(SegmentDataOffset != std::numeric_limits<uint64_t>::max());
+        assert(SegmentDataOffset >= TargetDataRegion.offset() &&
+               SegmentDataOffset + Segment.FileSize < TargetDataRegion.end());
+      }
+
       Phdr->p_type = elfSegmentKind<ELFT>(Kind);
       Phdr->p_flags = elfSegmentFlags<ELFT>(Kind);
       Phdr->p_vaddr = hasPhysicalAddress(Kind) ? Segment.VirtualAddr : 0;
       Phdr->p_paddr = Phdr->p_vaddr;
-      Phdr->p_offset = hasPhysicalAddress(Kind) ? StartOffset : 0;
+      Phdr->p_offset = SegmentDataOffset;
       Phdr->p_filesz = Segment.FileSize;
       Phdr->p_memsz = hasPhysicalAddress(Kind) ? Segment.VirtualSize : 0;
 
@@ -217,7 +247,6 @@ auto rld::elf::emitProgramHeaders(
       assert(MaxAlign == 0 || llvm::countPopulation(MaxAlign) == 1);
       Phdr->p_align = hasPhysicalAddress(Kind) ? MaxAlign : 0;
 
-      OS << "Segment: " << Kind << '\n';
       OS << "  type=" << ElfSegmentType<ELFT>{Phdr->p_type} << '\n';
       OS << "  vaddr=" << format_hex(Phdr->p_vaddr) << '\n';
       OS << "  paddr=" << format_hex(Phdr->p_paddr) << '\n';
@@ -238,7 +267,7 @@ auto rld::elf::emitProgramHeaders(
                      (Phdr->p_offset % Phdr->p_align));
 #endif
       ++Phdr;
-      StartOffset += Segment.FileSize;
+      //      TargetDataOffset += Segment.FileSize;
     }
   });
   return Phdr;
@@ -246,22 +275,26 @@ auto rld::elf::emitProgramHeaders(
 
 template auto rld::elf::emitProgramHeaders<llvm::object::ELF64LE>(
     typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Phdr *Phdr,
-    uint64_t StartOffset, rld::LayoutOutput const &Layout) ->
+    const rld::FileRegion &TargetDataRegion, const rld::LayoutOutput &Layout,
+    const SectionArray<ElfSectionInfo> &ElfSections) ->
     typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Phdr *;
 
 template auto rld::elf::emitProgramHeaders<llvm::object::ELF64BE>(
     typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Phdr *Phdr,
-    uint64_t StartOffset, rld::LayoutOutput const &Layout) ->
+    const rld::FileRegion &TargetDataRegion, const rld::LayoutOutput &Layout,
+    const SectionArray<ElfSectionInfo> &ElfSections) ->
     typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Phdr *;
 
 template auto rld::elf::emitProgramHeaders<llvm::object::ELF32LE>(
     typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Phdr *Phdr,
-    uint64_t StartOffset, rld::LayoutOutput const &Layout) ->
+    const rld::FileRegion &TargetDataRegion, const rld::LayoutOutput &Layout,
+    const SectionArray<ElfSectionInfo> &ElfSections) ->
     typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Phdr *;
 
 template auto rld::elf::emitProgramHeaders<llvm::object::ELF32BE>(
     typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Phdr *Phdr,
-    uint64_t StartOffset, rld::LayoutOutput const &Layout) ->
+    const rld::FileRegion &TargetDataRegion, const rld::LayoutOutput &Layout,
+    const SectionArray<ElfSectionInfo> &ElfSections) ->
     typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Phdr *;
 
 template <typename ELFT>

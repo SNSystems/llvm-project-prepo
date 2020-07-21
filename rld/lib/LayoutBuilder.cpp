@@ -143,7 +143,7 @@ LayoutBuilder::LayoutBuilder(Context &Ctx,
 
   for (auto SegmentK = SegmentKind::phdr; SegmentK < SegmentKind::last;
        ++SegmentK) {
-    (*Segments_)[segmentNum(SegmentK)].MaxAlign = PageSize;
+    (*Segments_)[SegmentK].MaxAlign = PageSize;
   }
 
   checkSectionToSegmentArray();
@@ -202,8 +202,8 @@ void LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
     return;
   }
 
-  Segment &Seg = (*Segments_)[segmentNum(SegmentK)];
-  SectionInfoVector &SI = Seg.Sections[SectionIndex];
+  Segment &Seg = (*Segments_)[SegmentK];
+  SectionInfoVector &SI = Seg.Sections[ToRldSectionKind<SKind>::value];
 
   auto const *const Section = F->atp<SKind>();
   assert(Section != nullptr);
@@ -275,7 +275,7 @@ void LayoutBuilder::debugDumpLayout() const {
   auto &OS = llvm::dbgs();
 
   auto EmitSegment = makeOnce([this, &OS](SegmentKind Seg) {
-    auto const &Segment = (*Segments_)[segmentNum(Seg)];
+    auto const &Segment = (*Segments_)[Seg];
     OS << Seg << '\t' << format_hex(Segment.VirtualAddr) << '\t'
        << format_hex(Segment.VirtualSize) << '\t'
        << format_hex(Segment.MaxAlign.load()) << '\n';
@@ -288,8 +288,7 @@ void LayoutBuilder::debugDumpLayout() const {
        ++SegmentK) {
     for (auto SectionK = SectionKind::text; SectionK < SectionKind::last;
          ++SectionK) {
-      for (SectionInfo const &SI :
-           (*Segments_)[segmentNum(SegmentK)].Sections[sectionNum(SectionK)]) {
+      for (SectionInfo const &SI : (*Segments_)[SegmentK].Sections[SectionK]) {
         EmitSegment(SegmentK);
         EmitSection(SectionK);
         OS << "\t\t" << format_hex(SI.VAddr) << '\t' << format_hex(SI.Size)
@@ -310,7 +309,7 @@ void LayoutBuilder::run() {
   llvm::set_thread_name("LayoutBuilder");
 
   // Produce a GNU_STACK segment even though it will contain no data.
-  (*Segments_)[segmentNum(SegmentKind::gnu_stack)].AlwaysEmit = true;
+  (*Segments_)[SegmentKind::gnu_stack].AlwaysEmit = true;
 
   for (auto Ordinal = uint32_t{0}; Ordinal < NumCompilations_; ++Ordinal) {
     CompilationWaiter_.waitFor(Ordinal);
@@ -388,13 +387,13 @@ inline bool hasFileData(rld::SegmentKind const Kind) {
 // flatten segments
 // ~~~~~~~~~~~~~~~~
 std::unique_ptr<LayoutOutput> LayoutBuilder::flattenSegments() {
-  auto Base = std::uint64_t{0x0000000000200000};
+  auto Base = uint64_t{0x0000000000200000};
   assert(Base % PageSize == 0U);
 
   for_each_segment(*Segments_, [&Base](SegmentKind SegmentK, Segment &Seg) {
     Base = alignTo(Base, Seg.MaxAlign);
     Seg.VirtualAddr = Base;
-    for (auto &OutputSection : Seg.Sections) {
+    for (SectionInfoVector &OutputSection : Seg.Sections) {
       for (SectionInfo &SI : OutputSection) {
         Base = alignTo(Base, SI.Align);
         SI.VAddr = Base;

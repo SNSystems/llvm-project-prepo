@@ -227,29 +227,30 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os, rld::SectionKind SKind) {
 
 void copyToOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
                   rld::LayoutOutput const &LO,
-                  std::uint8_t *const Data /*output buffer*/,
-                  std::uint64_t const StartOffset) {
-  for (auto SegmentIndex = std::size_t{0}, NumSegments = LO.size();
-       SegmentIndex < NumSegments; ++SegmentIndex) {
-    rld::Segment const &Segment = LO[SegmentIndex];
+                  uint8_t *const Data /*output buffer*/,
+                  const uint64_t StartOffset) {
+  for (auto SegmentK = rld::firstSegmentKind();
+       SegmentK != rld::SegmentKind::last; ++SegmentK) {
+    rld::Segment const &Segment = LO[SegmentK];
 
     assert(Segment.Sections.size() ==
            static_cast<std::underlying_type<rld::SectionKind>::type>(
                rld::SectionKind::last));
-    for (auto SectionIndex = std::size_t{0},
-              NumSections = Segment.Sections.size();
-         SectionIndex < NumSections; ++SectionIndex) {
+    for (rld::SectionKind SectionK = rld::firstSectionKind();
+         SectionK != rld::SectionKind::last; ++SectionK) {
 
-      WorkPool.async([=, &Segment, &Ctxt]() {
-        for (rld::SectionInfo const &Section : Segment.Sections[SectionIndex]) {
-          rld::llvmDebug(DebugType, Ctxt.IOMut, [SectionIndex, SegmentIndex]() {
-            llvm::dbgs() << static_cast<rld::SegmentKind>(SegmentIndex) << '/'
-                         << static_cast<rld::SectionKind>(SectionIndex) << ": ";
+      WorkPool.async([SectionK, SegmentK, Data, StartOffset, &LO, &Ctxt]() {
+        for (rld::SectionInfo const &Section :
+             LO[SegmentK].Sections[SectionK]) {
+          rld::llvmDebug(DebugType, Ctxt.IOMut, [SectionK, SegmentK]() {
+            llvm::dbgs() << SegmentK << '/' << SectionK << ": ";
           });
 
-          auto Off = rld::alignTo(Section.Offset, Section.Align);
-          auto *const Dest = Data + Off + StartOffset;
-          switch (static_cast<pstore::repo::section_kind>(SectionIndex)) {
+          auto *const Dest =
+              Data + rld::alignTo(Section.Offset, Section.Align) + StartOffset;
+          // FIXME: not all values of rld::SectionKind can be cast to
+          // repo::section_kind!
+          switch (static_cast<pstore::repo::section_kind>(SectionK)) {
 #define X(a)                                                                   \
   case pstore::repo::section_kind::a:                                          \
     copy_section<pstore::repo::section_kind::a>(Ctxt, Section, Dest);          \
@@ -263,60 +264,6 @@ void copyToOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
           }
         }
       });
-    }
-  }
-}
-
-template <typename ELFT>
-void initELFHeader(
-    rld::NotNull<typename llvm::object::ELFFile<ELFT>::Elf_Ehdr *> Header,
-    unsigned Machine) {
-  using namespace llvm::ELF;
-  using ElfDetails = llvm::object::ELFFile<ELFT>;
-
-  std::memset(Header, 0, sizeof(*Header));
-  Header->e_ident[EI_MAG0] = 0x7f;
-  Header->e_ident[EI_MAG1] = 'E';
-  Header->e_ident[EI_MAG2] = 'L';
-  Header->e_ident[EI_MAG3] = 'F';
-  Header->e_ident[EI_CLASS] = ELFT::Is64Bits ? ELFCLASS64 : ELFCLASS32;
-  Header->e_ident[EI_DATA] = ELFT::TargetEndianness == llvm::support::little
-                                 ? ELFDATA2LSB
-                                 : ELFDATA2MSB;
-  Header->e_ident[EI_VERSION] = EV_CURRENT;
-  Header->e_ident[EI_OSABI] = 0;      // Doc.Header.OSABI;
-  Header->e_ident[EI_ABIVERSION] = 0; // Doc.Header.ABIVersion;
-  Header->e_type = 0;                 // Doc.Header.Type;
-  Header->e_machine = Machine;
-  Header->e_version = EV_CURRENT;
-  Header->e_entry = 0; // Doc.Header.Entry;
-  Header->e_phoff = sizeof(Header);
-  Header->e_flags = 0; // Doc.Header.Flags;
-  Header->e_ehsize = sizeof(typename ElfDetails::Elf_Ehdr);
-  Header->e_phentsize = sizeof(typename ElfDetails::Elf_Phdr);
-  Header->e_phnum = 0; // Doc.ProgramHeaders.size();
-  Header->e_shentsize = sizeof(typename ElfDetails::Elf_Shdr);
-  Header->e_shoff = 0; // sizeof(Header) + sizeof(typename ElfDetails::Elf_Phdr)
-                       // * 0;//Doc.ProgramHeaders.size();
-  Header->e_shnum = 0; // getSectionCount();
-  Header->e_shstrndx = 0; // getDotShStrTabSecNo();
-}
-
-template <typename Function>
-void for_each_section(rld::LayoutOutput const &LO, Function f) {
-  for (rld::Segment const &Segment : LO) {
-    assert(Segment.Sections.size() ==
-           static_cast<std::underlying_type<rld::SectionKind>::type>(
-               rld::SectionKind::last));
-
-    for (rld::SectionKind SKind = rld::firstSectionKind();
-         SKind != rld::SectionKind::last; ++SKind) {
-      for (rld::SectionInfo const &SI :
-           Segment.Sections[static_cast<size_t>(SKind)]) {
-        if (SI.Size > 0) {
-          f(SKind, SI);
-        }
-      }
     }
   }
 }
@@ -465,8 +412,8 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
   ElfSections[rld::SectionKind::shstrtab].Emit = true;
   ElfSections[rld::SectionKind::shstrtab].Align = 1;
 
-  for_each_section(Layout, [&ElfSections](rld::SectionKind Kind,
-                                          rld::SectionInfo const &SI) {
+  for_each_contribution(Layout, [&ElfSections](rld::SectionKind Kind,
+                                               rld::SectionInfo const &SI) {
     if (SI.Size > 0) {
       auto &ESI = ElfSections[Kind];
       ESI.Emit = true;
@@ -508,16 +455,11 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
     ++NumSegments;
 
     if (rld::elf::hasPhysicalAddress(SegmentK)) {
-      auto const SegmentIndex =
-          static_cast<std::underlying_type<decltype(SegmentK)>::type>(SegmentK);
       auto Offset = uint64_t{0};
 
       for (rld::SectionKind SectionK = rld::firstSectionKind();
            SectionK != rld::SectionKind::last; ++SectionK) {
-        const auto SectionIndex =
-            static_cast<std::underlying_type<decltype(SectionK)>::type>(
-                SectionK);
-        if (!Layout[SegmentIndex].Sections[SectionIndex].empty()) {
+        if (!Layout[SegmentK].Sections[SectionK].empty()) {
           auto &ESI = ElfSections[SectionK];
           const auto Start = rld::alignTo(Offset, ESI.Align);
           ESI.Address = Segment.VirtualAddr + Start;
@@ -541,7 +483,7 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
                                Segment.VirtualSize;
                       });
 
-  enum Region {
+  enum class Region {
     FileHeader,
     SegmentTable,
     TargetData,
@@ -549,38 +491,21 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
     SectionNames,
     Last // TODO: add symtab and strings to this collection.
   };
-  // Meaning of the two fields in RegionTuple.
-  enum LocationIndexes {
-    OffsetIndex,
-    SizeIndex
-  };
-  using RegionTuple = std::tuple<uint64_t, uint64_t>;
-  std::array<RegionTuple, Region::Last> FileRegions = {{
-      RegionTuple{0, sizeof(Elf_Ehdr)},
-  }};
-
-  auto RegionOffset = [&FileRegions](Region R) {
-    return std::get<OffsetIndex>(FileRegions[static_cast<size_t>(R)]);
-  };
-  auto RegionSize = [&FileRegions](Region R) {
-    return std::get<SizeIndex>(FileRegions[static_cast<size_t>(R)]);
-  };
-  auto RegionEnd = [&](Region R) { return RegionOffset(R) + RegionSize(R); };
-
-  FileRegions[Region::SegmentTable] = RegionTuple{
-      RegionEnd(Region::FileHeader), NumSegments * sizeof(Elf_Phdr)};
+  rld::EnumIndexedArray<Region, Region::Last, rld::FileRegion> FileRegions;
+  FileRegions[Region::FileHeader] = rld::FileRegion{0, sizeof(Elf_Ehdr)};
+  FileRegions[Region::SegmentTable] = rld::FileRegion{
+      FileRegions[Region::FileHeader].end(), NumSegments * sizeof(Elf_Phdr)};
   FileRegions[Region::TargetData] =
-      RegionTuple{RegionEnd(Region::SegmentTable), TargetDataSize};
-
-  FileRegions[Region::SectionTable] = RegionTuple{
-      RegionEnd(Region::TargetData), NumSections * sizeof(Elf_Shdr)};
+      rld::FileRegion{FileRegions[Region::SegmentTable].end(), TargetDataSize};
+  FileRegions[Region::SectionTable] = rld::FileRegion{
+      FileRegions[Region::TargetData].end(), NumSections * sizeof(Elf_Shdr)};
   FileRegions[Region::SectionNames] =
-      RegionTuple{RegionEnd(Region::SectionTable), SectionNameSize};
+      rld::FileRegion{FileRegions[Region::SectionTable].end(), SectionNameSize};
 
   ElfSections[rld::SectionKind::shstrtab].Offset =
-      RegionOffset(Region::SectionNames);
+      FileRegions[Region::SectionNames].offset();
   ElfSections[rld::SectionKind::shstrtab].Size =
-      RegionSize(Region::SectionNames);
+      FileRegions[Region::SectionNames].size();
 
   {
     constexpr auto Kind = rld::SectionKind::shstrtab;
@@ -596,7 +521,7 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
     // file. Now adjust each of the target data sections so that they don't
     // overlap one anther and all lie inside the target data's region
     // (Region::TargetData).
-    auto NextOffset = RegionOffset(Region::TargetData);
+    auto NextOffset = FileRegions[Region::TargetData].offset();
     for (rld::SectionKind Kind = rld::firstSectionKind();
          Kind != rld::SectionKind::last; ++Kind) {
       auto &ESI = ElfSections[Kind];
@@ -605,18 +530,18 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
 
         NextOffset = ESI.Offset + ESI.Size; // FIXME: alignment?
         llvm::dbgs() << "section:" << Kind
+                     << ", Address:" << rld::format_hex(ESI.Address)
                      << ", Offset:" << rld::format_hex(ESI.Offset)
                      << ", Size:" << rld::format_hex(ESI.Size)
                      << ", Align:" << rld::format_hex(ESI.Align) << '\n';
       }
     }
-    assert(NextOffset <= RegionEnd(Region::TargetData));
-    llvm::dbgs() << "target data end=" << NextOffset
-                 << ", allocated space end=" << RegionEnd(Region::TargetData)
-                 << '\n';
+    assert(NextOffset <= FileRegions[Region::TargetData].end());
+    llvm::dbgs() << "target data end=" << NextOffset << ", allocated space end="
+                 << FileRegions[Region::TargetData].end() << '\n';
   }
 
-  uint64_t const TotalSize = RegionEnd(Region::SectionNames);
+  uint64_t const TotalSize = FileRegions[Region::SectionNames].end();
 
   rld::llvmDebug(DebugType, Ctxt.IOMut, [TotalSize]() {
     llvm::dbgs() << "Output file size=" << TotalSize << '\n';
@@ -627,63 +552,62 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
       llvm::FileOutputBuffer::
           F_executable /*| llvm::FileOutputBuffer::F_modify*/));
 
-  std::uint8_t *const BufferStart = Out->getBufferStart();
+  uint8_t *const BufferStart = Out->getBufferStart();
 
-  WorkPool.async([BufferStart, RegionOffset, NumSegments, NumSections,
+  WorkPool.async([BufferStart, FileRegions, NumSegments, NumSections,
                   SectionHeaderNamesSectionIndex]() {
     auto *const Ehdr = reinterpret_cast<Elf_Ehdr *>(
-        BufferStart + RegionOffset(Region::FileHeader));
-    initELFHeader<ELFT>(Ehdr, llvm::ELF::EM_X86_64);
+        BufferStart + FileRegions[Region::FileHeader].offset());
+    *Ehdr = rld::elf::initELFHeader<ELFT>(llvm::ELF::EM_X86_64);
     Ehdr->e_type = llvm::ELF::ET_EXEC;
     Ehdr->e_phnum = NumSegments;
-    Ehdr->e_phoff = RegionOffset(Region::SegmentTable);
+    Ehdr->e_phoff = FileRegions[Region::SegmentTable].offset();
     Ehdr->e_shnum = NumSections;
-    Ehdr->e_shoff = RegionOffset(Region::SectionTable);
+    Ehdr->e_shoff = FileRegions[Region::SectionTable].offset();
     Ehdr->e_shstrndx = SectionHeaderNamesSectionIndex;
   });
 
   WorkPool.async(
-      [BufferStart, RegionOffset, RegionSize, NumSegments, &Layout]() {
-        auto *const PhdrStartPtr = reinterpret_cast<Elf_Phdr *>(
-            BufferStart + RegionOffset(Region::SegmentTable));
-        auto *const PhdrEndPtr = rld::elf::emitProgramHeaders<ELFT>(
-            PhdrStartPtr, RegionOffset(Region::TargetData), Layout);
-        (void)PhdrEndPtr;
-        assert(PhdrEndPtr - PhdrStartPtr == NumSegments);
-        assert(reinterpret_cast<std::uint8_t *>(PhdrStartPtr) +
-                   RegionSize(Region::SegmentTable) ==
-               reinterpret_cast<std::uint8_t *>(PhdrEndPtr));
+      [BufferStart, &ElfSections, NumSegments, &Layout, &FileRegions]() {
+        auto *const Start = reinterpret_cast<Elf_Phdr *>(
+            BufferStart + FileRegions[Region::SegmentTable].offset());
+        auto *const End = rld::elf::emitProgramHeaders<ELFT>(
+            Start, FileRegions[Region::TargetData], Layout, ElfSections);
+
+        (void)End;
+        assert(End - Start == NumSegments);
+        assert(reinterpret_cast<uint8_t *>(Start) +
+                   FileRegions[Region::SegmentTable].size() ==
+               reinterpret_cast<uint8_t *>(End));
       });
 
-  WorkPool.async(
-      [BufferStart, RegionOffset, &ElfSections, NumSections, RegionSize]() {
-        auto *const ShdrStartPtr = reinterpret_cast<Elf_Shdr *>(
-            BufferStart + RegionOffset(Region::SectionTable));
-        auto *const ShdrEndPtr =
-            rld::elf::emitSectionHeaders<ELFT>(ShdrStartPtr, ElfSections);
-        (void)ShdrEndPtr;
-        assert(ShdrEndPtr - ShdrStartPtr == NumSections);
-        assert(reinterpret_cast<std::uint8_t *>(ShdrStartPtr) +
-                   RegionSize(Region::SectionTable) ==
-               reinterpret_cast<std::uint8_t *>(ShdrEndPtr));
-      });
+  WorkPool.async([BufferStart, &ElfSections, NumSections, &FileRegions]() {
+    auto *const Start = reinterpret_cast<Elf_Shdr *>(
+        BufferStart + FileRegions[Region::SectionTable].offset());
+    auto *const End = rld::elf::emitSectionHeaders<ELFT>(Start, ElfSections);
 
-  WorkPool.async(
-      [BufferStart, RegionOffset, RegionSize, &ElfSections, SectionNameSize]() {
-        // Produce the section names string table.
-        auto *SectionNameStartPtr = reinterpret_cast<char *>(
-            BufferStart + RegionOffset(Region::SectionNames));
-        auto *SectionNameEndPtr =
-            emitSectionHeaderStringTable(SectionNameStartPtr, ElfSections);
-        (void)SectionNameEndPtr;
-        assert(SectionNameStartPtr + SectionNameSize == SectionNameEndPtr);
-        assert(reinterpret_cast<std::uint8_t *>(SectionNameStartPtr) +
-                   RegionSize(Region::SectionNames) ==
-               reinterpret_cast<std::uint8_t *>(SectionNameEndPtr));
-      });
+    (void)End;
+    assert(End - Start == NumSections);
+    assert(reinterpret_cast<uint8_t *>(Start) +
+               FileRegions[Region::SectionTable].size() ==
+           reinterpret_cast<uint8_t *>(End));
+  });
+
+  WorkPool.async([BufferStart, &ElfSections, SectionNameSize, &FileRegions]() {
+    // Produce the section names string table.
+    auto *const Start = reinterpret_cast<char *>(
+        BufferStart + FileRegions[Region::SectionNames].offset());
+    auto *const End = emitSectionHeaderStringTable(Start, ElfSections);
+
+    (void)End;
+    assert(Start + SectionNameSize == End);
+    assert(reinterpret_cast<uint8_t *>(Start) +
+               FileRegions[Region::SectionNames].size() ==
+           reinterpret_cast<uint8_t *>(End));
+  });
 
   copyToOutput(Ctxt, WorkPool, Layout, BufferStart,
-               RegionOffset(Region::TargetData));
+               FileRegions[Region::TargetData].offset());
   WorkPool.wait();
 
   ExitOnErr(Out->commit());

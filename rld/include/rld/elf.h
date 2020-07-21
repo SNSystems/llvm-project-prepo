@@ -70,7 +70,26 @@ namespace details {
 llvm::ErrorOr<unsigned>
 machineFromTriple(llvm::Optional<llvm::Triple> const &Triple);
 
-template <class ELFT> typename ELFT::Ehdr initELFHeader(unsigned Machine) {
+template <typename Ty, typename = typename std::enable_if<
+                           std::is_standard_layout<Ty>::value>::type>
+std::size_t writeRaw(llvm::raw_ostream &OS, Ty const &T) {
+  assert(OS.tell() % alignof(Ty) == 0);
+  OS.write(reinterpret_cast<char const *>(&T), sizeof(T));
+  return sizeof(T);
+}
+
+template <typename Ty, typename = typename std::enable_if<
+                           std::is_standard_layout<Ty>::value>::type>
+std::size_t writeRaw(llvm::raw_ostream &OS, Ty *T, std::size_t Size) {
+  assert(OS.tell() % alignof(Ty) == 0);
+  OS.write(reinterpret_cast<char const *>(&T), Size);
+  return Size;
+}
+
+} // end namespace details
+
+template <class ELFT>
+auto initELFHeader(const unsigned Machine) -> typename ELFT::Ehdr {
   typename ELFT::Ehdr Header;
   Header.e_ident[llvm::ELF::EI_MAG0] = 0x7f;
   Header.e_ident[llvm::ELF::EI_MAG1] = 'E';
@@ -94,31 +113,14 @@ template <class ELFT> typename ELFT::Ehdr initELFHeader(unsigned Machine) {
   Header.e_flags = 0;
   Header.e_ehsize = sizeof(typename ELFT::Ehdr);
   Header.e_phentsize = sizeof(typename ELFT::Phdr);
-  Header.e_phnum = 0;
+  Header.e_phnum = 0; // patched up later
   Header.e_shentsize = sizeof(typename ELFT::Shdr);
   Header.e_shnum = 0;    // patched up later.
-  Header.e_shstrndx = 0; // SectionIndices::StringTab;
+  Header.e_shstrndx = 0; // patched up later.
   return Header;
 }
 
-template <typename Ty, typename = typename std::enable_if<
-                           std::is_standard_layout<Ty>::value>::type>
-std::size_t writeRaw(llvm::raw_ostream &OS, Ty const &T) {
-  assert(OS.tell() % alignof(Ty) == 0);
-  OS.write(reinterpret_cast<char const *>(&T), sizeof(T));
-  return sizeof(T);
-}
-
-template <typename Ty, typename = typename std::enable_if<
-                           std::is_standard_layout<Ty>::value>::type>
-std::size_t writeRaw(llvm::raw_ostream &OS, Ty *T, std::size_t Size) {
-  assert(OS.tell() % alignof(Ty) == 0);
-  OS.write(reinterpret_cast<char const *>(&T), Size);
-  return Size;
-}
-
-} // end namespace details
-
+#if 0
 template <typename ELFT>
 std::error_code writeELF(llvm::raw_pwrite_stream &OS, Context const &Ctxt,
                          std::unique_ptr<rld::LayoutOutput> Layout) {
@@ -132,6 +134,7 @@ std::error_code writeELF(llvm::raw_pwrite_stream &OS, Context const &Ctxt,
   details::writeRaw(OS, Header);
   return std::error_code{};
 }
+#endif
 
 template <typename ELFT>
 constexpr auto elfSegmentKind(rld::SegmentKind Kind) ->
@@ -381,12 +384,6 @@ elfSectionNameAndLength(rld::SectionKind SKind) {
 
 #undef X
 
-template <typename ELFT>
-auto emitProgramHeaders(typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr,
-                        std::uint64_t StartOffset,
-                        rld::LayoutOutput const &Layout) ->
-    typename llvm::object::ELFFile<ELFT>::Elf_Phdr *;
-
 struct ElfSectionInfo {
   /// If the section will appear in the memory image of a process, this member
   /// gives the address at which the section's first byte should reside.
@@ -397,8 +394,16 @@ struct ElfSectionInfo {
   uint64_t Size = 0;
   uint64_t NameOffset = 0;
   bool Emit = false;
-  unsigned Align = 1;
+  /// The alignment of the section data. Always a power of 2.
+  unsigned Align = 1U;
 };
+
+template <typename ELFT>
+auto emitProgramHeaders(typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr,
+                        const rld::FileRegion &TargetDataRegion,
+                        const rld::LayoutOutput &Layout,
+                        const SectionArray<ElfSectionInfo> &ElfSections) ->
+    typename llvm::object::ELFFile<ELFT>::Elf_Phdr *;
 
 template <typename ELFT>
 auto emitSectionHeaders(typename llvm::object::ELFFile<ELFT>::Elf_Shdr *Shdr,
