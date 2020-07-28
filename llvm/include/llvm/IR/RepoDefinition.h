@@ -178,14 +178,15 @@ private:
   GODigestState accumulateGODigest(const GlobalObject *GO, MD5 &GOHash,
                                    bool UseRepoDefinitionMD);
 
-  /// Add the initial digest of each contribution global object to GOHash.
-  void updateDigestUseContributions(MD5 &GOHash, const GOVec &Contributions);
+  /// Add the final digest of each contribution global object to GOHash.
+  size_t updateDigestUseContributions(const GlobalObject *GO, MD5 &GOHash,
+                                      const GOVec &Contributions,
+                                      bool UseRepoDefinitionMD);
 
   /// Add the final digest of each dependencies global object to GOHash.
-  std::tuple<size_t, DigestType>
-  updateDigestUseDependencies(const GlobalObject *GO, MD5 &GOHash,
-                              unsigned GODepth, const GOVec &Dependencies,
-                              bool UseRepoDefinitionMD);
+  std::tuple<size_t, DigestType> updateDigestUseDependencies(
+      const GlobalObject *GO, MD5 &GOHash, size_t ContributionsLoopPoint,
+      unsigned GODepth, const GOVec &Dependencies, bool UseRepoDefinitionMD);
 
   /// Update the digest of an invidual GO incorporating the hashes of all its
   /// dependencies and contributions.

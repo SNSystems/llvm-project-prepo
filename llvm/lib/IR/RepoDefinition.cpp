@@ -169,22 +169,41 @@ void ModuleHashGenerator::calculateGONumAndGOIMap(const Module &M) {
 #endif
 }
 
-void ModuleHashGenerator::updateDigestUseContributions(
-    MD5 &GOHash, const GOVec &Contributions) {
-  for (const GlobalObject *const G : Contributions) {
-    GOHash.update(GOIMap[G].InitialDigest.Bytes);
-  }
+size_t ModuleHashGenerator::updateDigestUseContributions(
+    const GlobalObject *GO, MD5 &GOHash, const GOVec &Contributions,
+    bool UseRepoDefinitionMD) {
   // GOHash/Module is changed if Contributions is not empty.
   Changed = Changed || !Contributions.empty();
+
+  auto LoopPoint = std::numeric_limits<size_t>::max();
+  for (const GlobalObject *const G : Contributions) {
+    // Although 'contributions' and 'dependencies' respective arrows point are
+    // in different direction,  they can affect each other and form loops.
+    // Consider the following example:
+    // int var = 0;
+    // int Func() {
+    //    var = var + 5;
+    //    return var;
+    //  }
+    // 'Func' is a contribution of 'var' and 'var' is a dependency of 'Func`.
+    // Their hash values are dependent on each other. They can form loops.
+    size_t GDepth;
+    DigestType GDigest;
+    std::tie(GDepth, GDigest) =
+        updateDigestUseDependenciesAndContributions(G, UseRepoDefinitionMD);
+    // A GO which loops back to itself doesn't count as a loop.
+    if (G != GO)
+      LoopPoint = std::min(LoopPoint, GDepth);
+    GOHash.update(GDigest.Bytes);
+  }
+  return LoopPoint;
 }
 
-auto ModuleHashGenerator::updateDigestUseDependencies(const GlobalObject *GO,
-                                                      MD5 &GOHash,
-                                                      unsigned GODepth,
-                                                      const GOVec &Dependencies,
-                                                      bool UseRepoDefinitionMD)
+auto ModuleHashGenerator::updateDigestUseDependencies(
+    const GlobalObject *GO, MD5 &GOHash, size_t ContributionsLoopPoint,
+    unsigned GODepth, const GOVec &Dependencies, bool UseRepoDefinitionMD)
     -> std::tuple<size_t, DigestType> {
-  auto LoopPoint = std::numeric_limits<size_t>::max();
+  auto LoopPoint = ContributionsLoopPoint;
   for (const GlobalObject *const G : Dependencies) {
     const llvm::Function *const Fn = dyn_cast<const llvm::Function>(G);
     // if function will not be inlined and not be discarded if it is not used,
@@ -263,19 +282,14 @@ auto ModuleHashGenerator::updateDigestUseDependenciesAndContributions(
 
   GOHash.update(static_cast<char>(Tags::GO));
   auto State = accumulateGODigest(GO, GOHash, UseRepoDefinitionMD);
-  // The hashes of the GO's 'contributions' and 'dependencies' are separately
-  // added to the GO's hash since their respective arrows point are in different
-  // direction. In addition, 'contributions' cannot form loops since 1) only
-  // global variables have 'contributions' and 2) all 'contributions' are
-  // functions. Therefore, the 'contributions' can be simplified not to record
-  // 'visited' map, which avoids having two 'visited' maps. Firstly, add the
-  // GO's contributions to its hash.
-  updateDigestUseContributions(GOHash, State.Contributions);
+
+  // Add the GO's contributions to its hash.
+  auto ContributionLoopPoint = updateDigestUseContributions(
+      GO, GOHash, State.Contributions, UseRepoDefinitionMD);
 
   // Add the GO's dependencies to its hash.
-  return updateDigestUseDependencies(GO, GOHash, GODepth, State.Dependencies,
-                                     UseRepoDefinitionMD);
-  ;
+  return updateDigestUseDependencies(GO, GOHash, ContributionLoopPoint, GODepth,
+                                     State.Dependencies, UseRepoDefinitionMD);
 }
 
 DigestType ModuleHashGenerator::calculateDigest(const GlobalObject *GO,
