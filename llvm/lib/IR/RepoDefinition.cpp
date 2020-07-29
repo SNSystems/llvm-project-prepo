@@ -205,12 +205,6 @@ auto ModuleHashGenerator::updateDigestUseDependencies(
     -> std::tuple<size_t, DigestType> {
   auto LoopPoint = ContributionsLoopPoint;
   for (const GlobalObject *const G : Dependencies) {
-    const llvm::Function *const Fn = dyn_cast<const llvm::Function>(G);
-    // if function will not be inlined and not be discarded if it is not used,
-    // skip it.
-    if (Fn && Fn->hasFnAttribute(Attribute::NoInline) &&
-        !Fn->isDiscardableIfUnused())
-      continue;
     size_t GDepth;
     DigestType GDigest;
     std::tie(GDepth, GDigest) =
