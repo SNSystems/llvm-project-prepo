@@ -19,7 +19,7 @@ jobs:
     - name: Install Ninja
       uses: llvm/actions/install-ninja@master
     - name: Install dependencies
-      run: python -m pip install --upgrade pip yaml
+      run: python -m pip install --upgrade pip pyyaml
     - name: Checkout LLVM
       uses: actions/checkout@v2
       with:
