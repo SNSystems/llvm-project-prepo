@@ -314,6 +314,21 @@ void HashCalculator::hashValue(const Value *V) {
   hashNumber(SN.first->second);
 }
 
+static bool shouldAddGODependency(const GlobalObject &GO) {
+  // Don't push GO into the dependent list if it is a declaration.
+  if (GO.isDeclaration())
+    return false;
+
+  // Don't push GO into the dependent list if function will not be inlined
+  // and not be discarded if it is not used.
+  const llvm::Function *const Fn = dyn_cast<const llvm::Function>(&GO);
+  if (Fn && Fn->hasFnAttribute(Attribute::NoInline) &&
+      !Fn->isDiscardableIfUnused())
+    return false;
+
+  return true;
+}
+
 void HashCalculator::hashGlobalValue(const GlobalValue *V) {
   hashMem(V->getName());
   DenseMap<const GlobalValue *, unsigned>::iterator GVI = GlobalNumbers.find(V);
@@ -337,9 +352,9 @@ void HashCalculator::hashGlobalValue(const GlobalValue *V) {
   }
 
   if (auto *GO = dyn_cast<GlobalObject>(V)) {
-    // Push GO into the dependent list if it is not a declaration.
-    if (!GO->isDeclaration())
+    if (shouldAddGODependency(*GO)) {
       getDependencies().emplace_back(GO);
+    }
   }
 }
 
