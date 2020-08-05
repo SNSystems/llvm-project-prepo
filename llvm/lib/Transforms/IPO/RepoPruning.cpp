@@ -11,6 +11,7 @@
 #include "pstore/core/hamt_map.hpp"
 #include "pstore/core/index_types.hpp"
 #include "pstore/mcrepo/fragment.hpp"
+#include "pstore/mcrepo/section.hpp"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/Triple.h"
@@ -18,9 +19,9 @@
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/RepoDefinition.h"
 #include "llvm/IR/RepoGlobals.h"
 #include "llvm/IR/RepoHashCalculator.h"
-#include "llvm/IR/RepoDefinition.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Error.h"
@@ -123,33 +124,25 @@ repodefinition::DigestType toDigestType(pstore::index::digest D) {
   return Digest;
 }
 
-static void
-collectSectionXFixupName(pstore::database const &Db,
-                         pstore::repo::generic_section const &Section,
-                         StringSet<> &XFixupNames) {
-  for (auto Xfx : Section.xfixups()) {
+template <pstore::repo::section_kind Kind>
+void collect(pstore::database const &Db, const pstore::repo::fragment &Fragment,
+             StringSet<> &XFixupNames) {
+
+  const auto *const Section = Fragment.atp<Kind>();
+  for (pstore::repo::external_fixup const &Xfx : Section->xfixups()) {
     LLVM_DEBUG(dbgs() << "    Adding XFixup name: "
                       << pstore::indirect_string::read(Db, Xfx.name).to_string()
                       << '\n');
     XFixupNames.insert(
         std::move(pstore::indirect_string::read(Db, Xfx.name).to_string()));
-
   }
 }
 
-#define PSTORE_GENERIC_SECTION_KINDS                                           \
-  X(text)                                                                      \
-  X(data)                                                                      \
-  X(rel_ro)                                                                    \
-  X(mergeable_1_byte_c_string)                                                 \
-  X(mergeable_2_byte_c_string)                                                 \
-  X(mergeable_4_byte_c_string)                                                 \
-  X(mergeable_const_4)                                                         \
-  X(mergeable_const_8)                                                         \
-  X(mergeable_const_16)                                                        \
-  X(mergeable_const_32)                                                        \
-  X(read_only)                                                                 \
-  X(thread_data)
+template <>
+inline void collect<pstore::repo::section_kind::dependent>(
+    pstore::database const & /*Db*/,
+    const pstore::repo::fragment & /*Fragment*/,
+    StringSet<> & /*XFixupNames*/) {}
 
 static void collectFragmentXFixupNames(
     const pstore::database &Repository,
@@ -160,34 +153,45 @@ static void collectFragmentXFixupNames(
 
 #define X(k)                                                                   \
   case pstore::repo::section_kind::k: {                                        \
-    auto Section = Fragment->atp<pstore::repo::section_kind::k>();             \
-    collectSectionXFixupName(Repository, *Section, XFixupNames);               \
+    collect<pstore::repo::section_kind::k>(Repository, *Fragment,              \
+                                           XFixupNames);                       \
     break;                                                                     \
   }
 
     switch (Kind) {
-      PSTORE_GENERIC_SECTION_KINDS
-    case pstore::repo::section_kind::debug_line:
-    case pstore::repo::section_kind::dependent:
-    case pstore::repo::section_kind::bss:
-    case pstore::repo::section_kind::thread_bss:
-    case pstore::repo::section_kind::debug_string:
-    case pstore::repo::section_kind::debug_ranges:
+      PSTORE_MCREPO_SECTION_KINDS
     case pstore::repo::section_kind::last:
-    case pstore::repo::section_kind::interp:
+      llvm_unreachable("Bad section kind");
       break;
     }
 #undef X
   }
 }
 
-// Reurn the GO's status as a tuple<InRepository, InModeuleFragments, Key>:
-// InRepository: return true if the GO is in the existing repository.
-// InModeuleFragments: reurn true if the GO is in the new module fragments.
-// Key: return GO's digest.
+/// Two kinds of pruning exist in the repository level and the module level.
+/// The repository level pruning: if the global object is compiled before and
+/// exists in the repository, it will be pruned. The module level pruning: in
+/// the same compilation unit (module), some global objects have the same
+/// digests. The RepoPruning pass could prune them as well.
+///
+/// This function is used to collect the GO's pruning status which include three
+/// possible states: in the repository, in the ModuleFragments and not in both.
+/// If GO is in the repository, collect the GO's xfixup names. If it is not in
+/// repository and not in ModuleFragments, put it into the ModuleFragments.
+///
+/// \param Repository The database.
+/// \param FragmentIndex A database fragment index.
+/// \param ModuleFragments The collection of fragments that will appear in this
+///        compilation but not include the pruned entries.
+/// \param XFixupNames A set of xfixup's names.
+/// \param PrunedDiscardableIfUnusedGos A set of GOs if GOs exist in the
+///        repository and  may be discarded if it is not used.
+/// \returns a tuple containing 1) true if the GO is in the existing repository.
+///          2) true if the GO doesn't exist in the existing repository but is
+///          in the ModuleFragments, and 3) the GO's digest.
 static std::tuple<bool, bool, pstore::index::digest> hasExistingGO(
     const pstore::database &Repository,
-    std::shared_ptr<const pstore::index::fragment_index> const &Fragments,
+    std::shared_ptr<const pstore::index::fragment_index> const &FragmentIndex,
     std::map<pstore::index::digest, const GlobalObject *> &ModuleFragments,
     GlobalObject &GO, StringSet<> &XFixupNames,
     DenseSet<GlobalObject *> &PrunedDiscardableIfUnusedGos) {
@@ -197,14 +201,14 @@ static std::tuple<bool, bool, pstore::index::digest> hasExistingGO(
   auto const Digest =
       pstore::index::digest{Result.first.high(), Result.first.low()};
 
-  // Reurn true if the GO is in the existing repository.
-  if (Fragments) {
-    auto It = Fragments->find(Repository, Digest);
-    if (It != Fragments->end(Repository)) {
+  //Case 1: the GO is in the existing repository.
+  if (FragmentIndex) {
+    auto It = FragmentIndex->find(Repository, Digest);
+    if (It != FragmentIndex->end(Repository)) {
       LLVM_DEBUG(dbgs() << "Existing GO (in repository) name: " << GO.getName()
                         << '\n');
       if (!GO.isDiscardableIfUnused()) {
-        // Collect GO's XFixups.
+        // Collect xfixup's names.
         auto Fragment = pstore::repo::fragment::load(Repository, It->second);
         collectFragmentXFixupNames(Repository, Fragment, XFixupNames);
       } else {
@@ -214,7 +218,7 @@ static std::tuple<bool, bool, pstore::index::digest> hasExistingGO(
     }
   }
 
-  // Reurn true if the GO is in the new module fragments.
+  // Case 2: the GO is in the ModuleFragments.
   auto It = ModuleFragments.find(Digest);
   if (It != ModuleFragments.end() && !It->second->isDiscardableIfUnused()) {
     // The definition of some global objects may be discarded if not used.
