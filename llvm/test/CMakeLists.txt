@@ -157,6 +157,10 @@ if(LLVM_TOOL_REPO_TICKET_DUMP_BUILD)
   set(LLVM_TEST_DEPENDS ${LLVM_TEST_DEPENDS} repo-ticket-dump)
 endif()
 
+if(LLVM_TOOL_REPO_FRAGMENTS_BUILD)
+  set(LLVM_TEST_DEPENDS ${LLVM_TEST_DEPENDS} repo-fragments)
+endif()
+
 if(TARGET ocaml_llvm)
   # Clear all non-OCaml cross-target dependencies when building out-of-tree.
   if(LLVM_OCAML_OUT_OF_TREE)
