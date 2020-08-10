@@ -648,8 +648,13 @@ int main(int argc, char *argv[]) {
 
   State->setEShNum(Header);
   Header.e_shoff = State->writeSectionHeaders(OS);
-  static_assert(SectionIndices::StringTab < llvm::ELF::SHN_LORESERVE,
-                "String table index should be less than LORESERVE");
+  static_assert(
+      static_cast<std::underlying_type_t<SectionIndices>>(
+          SectionIndices::StringTab) <
+          static_cast<
+              std::underlying_type_t<decltype(llvm::ELF::SHN_LORESERVE)>>(
+              llvm::ELF::SHN_LORESERVE),
+      "String table index should be less than LORESERVE");
   Header.e_shstrndx = SectionIndices::StringTab;
 
   OS.seek(0);
