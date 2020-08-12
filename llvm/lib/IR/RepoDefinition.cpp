@@ -90,24 +90,30 @@ const Constant *getAliasee(const GlobalAlias *GA) {
 
 template <typename GlobalType>
 void ModuleHashGenerator::calculateGOInfo(const GlobalType *G) {
-  GOInfo Result = calculateDigestAndDependenciesAndContributedToGVs(G);
-  // ContributedToGVs of an object is used to update other objects'
-  // contributions. For example, if the ContributedToGVs of function `foo`  are
-  // global variables `g` and `q`, the function `foo` is in the contributions of
-  // `g` and `q`.
-  // ContributedToGVs[`foo`] = [`g`, `q`]
-  // ====> Contributions[`g`] = [`foo`],
-  //       Contributions[`q`] = [`foo`]
+  GODetailedInfo Result = calculateDigestAndDependenciesAndContributions(G);
+  // Contributions of an object is used to update other objects' Dependencies.
+  // For example, if the Contributions of function `foo`  are global variables
+  // `g` and `q`, the function `foo` is added into the Dependencies of `g` and
+  // `q`.
+  // For example, Contributions[`foo`] = [`g`, `q`]
+  // ====> Dependencies[`g`] = [`foo`],
+  //       Dependencies[`q`] = [`foo`]
+  //
+  // Contributions were initially known as "reverse dependencies". If the
+  // contribution/reverse-dependency is swapped for a normal (forward)
+  // dependency. The meaning is unchanged. The below loop converts the
+  // Contributions to Dependencies and then just record the resulting graph in
+  // the hash.
   for (auto &GO : Result.Contributions) {
     assert(isa<GlobalVariable>(GO) &&
            "Only global variables can have contributions!");
     assert(isa<llvm::Function>(G) && "All contributions are functions!");
-    GOIMap[GO].Contributions.emplace_back(G);
+    GOIMap[GO].Dependencies.emplace_back(G);
   }
   // Update G's dependencies.
   GOInfo &GInfo = GOIMap[G];
-  GInfo.InitialDigest = std::move(Result.InitialDigest);
-  GInfo.Dependencies = std::move(Result.Dependencies);
+  GInfo.InitialDigest = std::move(Result.HashInfo.InitialDigest);
+  GInfo.Dependencies = std::move(Result.HashInfo.Dependencies);
 }
 
 void ModuleHashGenerator::calculateGOInfo(const GlobalObject *GO) {
@@ -120,9 +126,9 @@ void ModuleHashGenerator::calculateGOInfo(const GlobalObject *GO) {
   }
 }
 
-GODigestState
-ModuleHashGenerator::accumulateGODigest(const GlobalObject *GO, MD5 &GOHash,
-                                        bool UseRepoDefinitionMD) {
+GOVec ModuleHashGenerator::accumulateGODigest(const GlobalObject *GO,
+                                              MD5 &GOHash,
+                                              bool UseRepoDefinitionMD) {
   if (UseRepoDefinitionMD) {
     if (const auto *const GOMD =
             GO->getMetadata(LLVMContext::MD_repo_definition)) {
@@ -130,11 +136,9 @@ ModuleHashGenerator::accumulateGODigest(const GlobalObject *GO, MD5 &GOHash,
         DigestType D = RD->getDigest();
         GOHash.update(D.Bytes);
         const GOInfo &GOInformation =
-            GOIMap.try_emplace(GO, std::move(D), GOVec(), GOVec())
-                .first->second;
+            GOIMap.try_emplace(GO, std::move(D), GOVec()).first->second;
         Changed = true;
-        return GODigestState(GOInformation.Contributions,
-                             GOInformation.Dependencies);
+        return GOInformation.Dependencies;
       }
       report_fatal_error("Failed to get RepoDefinition metadata!");
     }
@@ -143,7 +147,7 @@ ModuleHashGenerator::accumulateGODigest(const GlobalObject *GO, MD5 &GOHash,
   const GOInfo &GOInformation = GOIMap[GO];
   GOHash.update(GOInformation.InitialDigest.Bytes);
   Changed = true;
-  return GODigestState(GOInformation.Contributions, GOInformation.Dependencies);
+  return GOInformation.Dependencies;
 }
 
 // Calculate the GOs' initial digest, dependencies, contributions and the
@@ -169,27 +173,19 @@ void ModuleHashGenerator::calculateGONumAndGOIMap(const Module &M) {
 #endif
 }
 
-void ModuleHashGenerator::updateDigestUseContributions(
-    MD5 &GOHash, const GOVec &Contributions) {
-  for (const GlobalObject *const G : Contributions) {
-    GOHash.update(GOIMap[G].InitialDigest.Bytes);
-  }
-  // GOHash/Module is changed if Contributions is not empty.
-  Changed = Changed || !Contributions.empty();
-}
-
 auto ModuleHashGenerator::updateDigestUseDependencies(const GlobalObject *GO,
                                                       MD5 &GOHash,
                                                       unsigned GODepth,
                                                       const GOVec &Dependencies,
                                                       bool UseRepoDefinitionMD)
     -> std::tuple<size_t, DigestType> {
+  // GOHash/Module is changed if Dependencies is not empty.
+  Changed = Changed || !Dependencies.empty();
   auto LoopPoint = std::numeric_limits<size_t>::max();
   for (const GlobalObject *const G : Dependencies) {
     size_t GDepth;
     DigestType GDigest;
-    std::tie(GDepth, GDigest) =
-        updateDigestUseDependenciesAndContributions(G, UseRepoDefinitionMD);
+    std::tie(GDepth, GDigest) = updateDigest(G, UseRepoDefinitionMD);
     // A GO which loops back to itself doesn't count as a loop.
     if (G != GO)
       LoopPoint = std::min(LoopPoint, GDepth);
@@ -214,8 +210,8 @@ auto ModuleHashGenerator::updateDigestUseDependencies(const GlobalObject *GO,
   return std::make_tuple(LoopPoint, Digest);
 }
 
-auto ModuleHashGenerator::updateDigestUseDependenciesAndContributions(
-    const GlobalObject *GO, bool UseRepoDefinitionMD)
+auto ModuleHashGenerator::updateDigest(const GlobalObject *GO,
+                                       bool UseRepoDefinitionMD)
     -> std::tuple<size_t, DigestType> {
   assert(!GO->isDeclaration() && "Can only be used for global definitions");
 
@@ -256,27 +252,16 @@ auto ModuleHashGenerator::updateDigestUseDependenciesAndContributions(
   }
 
   GOHash.update(static_cast<char>(Tags::GO));
-  auto State = accumulateGODigest(GO, GOHash, UseRepoDefinitionMD);
-  // The hashes of the GO's 'contributions' and 'dependencies' are separately
-  // added to the GO's hash since their respective arrows point are in different
-  // direction. In addition, 'contributions' cannot form loops since 1) only
-  // global variables have 'contributions' and 2) all 'contributions' are
-  // functions. Therefore, the 'contributions' can be simplified not to record
-  // 'visited' map, which avoids having two 'visited' maps. Firstly, add the
-  // GO's contributions to its hash.
-  updateDigestUseContributions(GOHash, State.Contributions);
-
+  auto Dependencies = accumulateGODigest(GO, GOHash, UseRepoDefinitionMD);
   // Add the GO's dependencies to its hash.
-  return updateDigestUseDependencies(GO, GOHash, GODepth, State.Dependencies,
+  return updateDigestUseDependencies(GO, GOHash, GODepth, Dependencies,
                                      UseRepoDefinitionMD);
-  ;
 }
 
 DigestType ModuleHashGenerator::calculateDigest(const GlobalObject *GO,
                                                 bool UseRepoDefinitionMD) {
   Visited.clear();
-  return std::get<DigestType>(
-      updateDigestUseDependenciesAndContributions(GO, UseRepoDefinitionMD));
+  return std::get<DigestType>(updateDigest(GO, UseRepoDefinitionMD));
 }
 
 void ModuleHashGenerator::digestModule(Module &M) {

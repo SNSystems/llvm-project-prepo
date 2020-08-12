@@ -178,18 +178,21 @@ public:
 
   repodefinition::GOVec &getDependencies() { return Dependencies; }
 
-  repodefinition::GOVec &getContributedToGVs() { return ContributedToGVs; }
+  repodefinition::GOVec &getContributions() { return Contributions; }
 
 private:
-  // Accumulate the hash of basicblocks, instructions and variables etc in the
-  // function Fn.
+  /// Accumulate the hash of basicblocks, instructions and variables etc in the
+  /// function Fn.
   MD5 Hash;
 
-  // Vector of global objects which the function/variable references.
-  repodefinition::GOVec Dependencies;
+  /// The Contributions of an object (X) are those objects (Y) which
+  /// transitively reference X and where a potential optimisation to either X or
+  /// any of Y may invalidate both.
+  repodefinition::GOVec Contributions;
 
-  // Vector of global objects to which the function/variable has contributed.
-  repodefinition::GOVec ContributedToGVs;
+  /// The Dependencies of an object are those objects which it transitively
+  /// references but are not Contributions.
+  repodefinition::GOVec Dependencies;
 
   /// Assign serial numbers to values from the function.
   /// Explanation:
@@ -306,10 +309,10 @@ private:
   HashCalculator FnHash;
 
   template <typename T>
-  void addContributedToGVsFromCallInvoke(const T *Instruction) {
+  void addContributionsFromCallInvoke(const T *Instruction) {
     for (unsigned i = 0, ie = Instruction->getNumArgOperands(); i != ie; ++i) {
       if (auto *GV = getAddressFromValue(Instruction->getArgOperand(i))) {
-        FnHash.getContributedToGVs().emplace_back(GV);
+        FnHash.getContributions().emplace_back(GV);
       }
     }
   }
@@ -364,14 +367,14 @@ struct DigestCalculator<Function> {
 };
 
 template <typename T>
-repodefinition::GOInfo
-calculateDigestAndDependenciesAndContributedToGVs(const T *GO) {
+repodefinition::GODetailedInfo
+calculateDigestAndDependenciesAndContributions(const T *GO) {
   // Calculate the initial global object hash value, Dependencies and
-  // ContributedToGVs.
+  // Contributions.
   typename DigestCalculator<T>::Calculator GOHC{GO};
   GOHC.calculateHash();
   return {std::move(GOHC.getHashResult()),
-          std::move(GOHC.hasher().getContributedToGVs()),
+          std::move(GOHC.hasher().getContributions()),
           std::move(GOHC.hasher().getDependencies())};
 }
 

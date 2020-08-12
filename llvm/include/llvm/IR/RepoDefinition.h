@@ -48,40 +48,29 @@ void set(GlobalObject *GO, DigestType const &D);
 /// GO does not contain the RepoDefinition metadata.
 std::pair<DigestType, bool> get(const GlobalObject *GO);
 
-/// A structure of a global object (GO) information.
+/// A structure of a global object (GO) information, which is used to calculate
+/// the GO's digest.
 struct GOInfo {
   /// The InitialDigest is the hash of an object itself (a function or global
   /// variable) without consideration for any references to other objects.
   DigestType InitialDigest;
-  /// The Contributions of an object (X) are those objects (Y) which
-  /// transitively reference X and where a potential optimisation to either X or
-  /// any of Y may invalidate both.
-  GOVec Contributions;
+
   /// The Dependencies of an object are those objects which it transitively
-  /// references but are not Contributions.
+  /// references or the reverse-contributions, which is converted from the
+  /// Contributions.
   GOVec Dependencies;
 
   GOInfo() = default;
-  GOInfo(DigestType &&Digest, GOVec &&Contributions, GOVec &&Dependencies)
+  GOInfo(DigestType &&Digest, GOVec &&Dependencies)
       : InitialDigest(std::move(Digest)),
-        Contributions(std::move(Contributions)),
         Dependencies(std::move(Dependencies)) {}
 
 #ifndef NDEBUG
   void dump() const {
     dbgs() << "GOInfo:";
     dbgs() << "\n\tInitial Digest: " << InitialDigest.digest();
-    dbgs() << "\n\tContributions: [ ";
-    bool first = true;
-    for (const auto &Contribution : Contributions) {
-      if (!first)
-        dbgs() << ",";
-      dbgs() << Contribution->getName();
-      first = false;
-    }
-    dbgs() << "]";
     dbgs() << "\n\tDependencies: [ ";
-    first = true;
+    bool first = true;
     for (const auto &Dependent : Dependencies) {
       if (!first)
         dbgs() << ",";
@@ -92,21 +81,42 @@ struct GOInfo {
   }
 #endif
 };
+
+/// A structure of a global object (GO) detailed information, which includes the
+/// GO's necessary information (`GOInfo`) for the hash calculation and its
+/// additional `Contributions` information.
+struct GODetailedInfo {
+  /// The Contributions of an object (X) are those objects (Y) which
+  /// transitively reference X and where a potential optimisation to either X or
+  /// any of Y may invalidate both.
+  GOVec Contributions;
+  /// The necessary information for an object hash calculation.
+  GOInfo HashInfo;
+
+  GODetailedInfo() = default;
+  GODetailedInfo(DigestType &&Digest, GOVec &&Contributions,
+                 GOVec &&Dependencies)
+      : Contributions(std::move(Contributions)),
+        HashInfo(std::move(Digest), std::move(Dependencies)){};
+
+#ifndef NDEBUG
+  void dump() const {
+    HashInfo.dump();
+    dbgs() << "\n\tContributions: [ ";
+    bool first = true;
+    for (const auto &Contribution : Contributions) {
+      if (!first)
+        dbgs() << ",";
+      dbgs() << Contribution->getName();
+      first = false;
+    }
+    dbgs() << "]\n";
+  }
+#endif
+};
+
 using GOInfoMap = DenseMap<const GlobalObject *, GOInfo>;
 using MemoizedHashes = llvm::DenseMap<const GlobalObject *, DigestType>;
-
-/// A structure of a global object (GO) state.
-struct GODigestState {
-  /// A reference to an object's contributions. The GOInfo struct takes
-  /// ownership of it.
-  const GOVec &Contributions;
-  /// A reference to an object's dependencies. The GOInfo struct takes ownership
-  /// of it.
-  const GOVec &Dependencies;
-  GODigestState() = delete;
-  GODigestState(const GOVec &Contributions, const GOVec &Dependencies)
-      : Contributions(Contributions), Dependencies(Dependencies) {}
-};
 
 /// Helper Class for generating the hash for each global objects on the Module.
 /// Also caches hashes for previously generated global objects (GOs).
@@ -169,17 +179,14 @@ private:
   template <typename GlobalType> void calculateGOInfo(const GlobalType *G);
   void calculateGOInfo(const GlobalObject *GO);
 
-  /// Accumulate the GO's digest and get its GODigestState.
+  /// Accumulate the GO's digest and get its Dependencies.
   /// \param GO Calculated global object.
   /// \param GOHash A object that is used to calculate the GO's hash value.
   /// \param UseRepoDefinitionMD true if using the digest of GO's dependencies
   ///        stored in the RepoDefinition metadata.
   /// \returns a structure containing the GO's state.
-  GODigestState accumulateGODigest(const GlobalObject *GO, MD5 &GOHash,
-                                   bool UseRepoDefinitionMD);
-
-  /// Add the initial digest of each contribution global object to GOHash.
-  void updateDigestUseContributions(MD5 &GOHash, const GOVec &Contributions);
+  GOVec accumulateGODigest(const GlobalObject *GO, MD5 &GOHash,
+                           bool UseRepoDefinitionMD);
 
   /// Add the final digest of each dependencies global object to GOHash.
   std::tuple<size_t, DigestType>
@@ -188,15 +195,14 @@ private:
                               bool UseRepoDefinitionMD);
 
   /// Update the digest of an invidual GO incorporating the hashes of all its
-  /// dependencies and contributions.
+  /// dependencies.
   /// \param GO The global object whose digest is to be computed.
   /// \param UseRepoDefinitionMD true if using the digest of GO's dependencies
   ///        stored in the RepoDefinition metadata.
   /// \returns a tuple containing 1) the depth of the path that we've traversed
   ///          (or max if it reaches the end of the path). and 2) the GO's
   ///         digest.
-  std::tuple<size_t, DigestType>
-  updateDigestUseDependenciesAndContributions(const GlobalObject *GO,
+  std::tuple<size_t, DigestType> updateDigest(const GlobalObject *GO,
                                               bool UseRepoDefinitionMD);
 };
 
