@@ -19,4 +19,4 @@ define void @g(i32* %P, i32 %V) noinline {
 }
 
 ;CHECK: GO Name:f
-;CHECK:    Dependencies: [ Z]
+;CHECK:  Contributions: [ Z]

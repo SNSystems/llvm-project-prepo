@@ -257,14 +257,14 @@ protected:
 
   ~VariableHash() {}
 
-  bool isEqualHash(GlobalVariable *G0, GlobalVariable *G1) {
+  bool isEqualInitialHash(GlobalVariable *G0, GlobalVariable *G1) {
     VariableHashCalculator GVH0{G0}, GVH1{G1};
     GVH0.calculateHash();
     GVH1.calculateHash();
     return GVH0.getHashResult() == GVH1.getHashResult();
   }
 
-  bool isEqualHash() { return isEqualHash(GV0, GV1); }
+  bool isEqualInitialHash() { return isEqualInitialHash(GV0, GV1); }
 
   LLVMContext Ctx;
   std::unique_ptr<Module> M0;
@@ -281,7 +281,7 @@ TEST_F(VariableHash, SameModuleHash) {
   Hash.final(Result);
   M0->setModuleHash(Result);
   M1->setModuleHash(Result);
-  EXPECT_TRUE(isEqualHash());
+  EXPECT_TRUE(isEqualInitialHash());
 }
 
 TEST_F(VariableHash, DiffModuleHash) {
@@ -293,35 +293,35 @@ TEST_F(VariableHash, DiffModuleHash) {
   Hash.update("bar");
   Hash.final(Result);
   M1->setModuleHash(Result);
-  EXPECT_FALSE(isEqualHash());
+  EXPECT_FALSE(isEqualInitialHash());
 }
 
 // The source filename will not affect the hash value.
 TEST_F(VariableHash, CheckSourceFile) {
   M0->setSourceFileName("file.cpp");
   M1->setSourceFileName("file1.cpp");
-  EXPECT_TRUE(isEqualHash());
+  EXPECT_TRUE(isEqualInitialHash());
 }
 
 // The name and linkage type will affect the hash value.
 TEST_F(VariableHash, CheckLinkage) {
   GV0->setLinkage(GlobalValue::ExternalLinkage);
   GV1->setLinkage(GlobalValue::InternalLinkage);
-  EXPECT_TRUE(isEqualHash());
+  EXPECT_TRUE(isEqualInitialHash());
 }
 
 // The alignment will affect the hash value.
 TEST_F(VariableHash, CheckAlignment) {
   GV0->setAlignment(MaybeAlign(1));
   GV1->setAlignment(MaybeAlign(4));
-  EXPECT_FALSE(isEqualHash());
+  EXPECT_FALSE(isEqualInitialHash());
 }
 
 // The constant type will affect the hash value.
 TEST_F(VariableHash, CheckConstant) {
   GV0->setConstant(false);
   GV1->setConstant(true);
-  EXPECT_FALSE(isEqualHash());
+  EXPECT_FALSE(isEqualInitialHash());
 }
 
 // The initializr will affect the hash value.
@@ -330,21 +330,21 @@ TEST_F(VariableHash, CheckInitializer) {
 
   Constant *Zero = ConstantInt::get(Int8, 0);
   GV0->setInitializer(Zero);
-  EXPECT_TRUE(isEqualHash());
+  EXPECT_TRUE(isEqualInitialHash());
 
   GV1->setInitializer(Zero);
-  EXPECT_TRUE(isEqualHash());
+  EXPECT_TRUE(isEqualInitialHash());
 
   Constant *One = ConstantInt::get(Int8, 1);
   GV1->setInitializer(One);
-  EXPECT_FALSE(isEqualHash());
+  EXPECT_FALSE(isEqualInitialHash());
 }
 
 // The value type will affect the hash value.
 TEST_F(VariableHash, CheckType) {
   GV1 = new GlobalVariable(*M1, Type::getInt32Ty(Ctx), true,
                            GlobalValue::ExternalLinkage, nullptr);
-  EXPECT_FALSE(isEqualHash());
+  EXPECT_FALSE(isEqualInitialHash());
 }
 
 // int a = 1;
@@ -362,9 +362,9 @@ TEST_F(VariableHash, ReferenceToGlobalVariable) {
   Constant *PtrGV1 = ConstantExpr::getPtrToInt(GV1, Int8Ty);
   GlobalVariable *Ref_GV1 = new GlobalVariable(
       *M1, Int8Ty, false, GlobalValue::ExternalLinkage, PtrGV1);
-  EXPECT_TRUE(isEqualHash(GV0, GV1))
+  EXPECT_TRUE(isEqualInitialHash(GV0, GV1))
       << "GV0 and GV1 should have the same hash value.";
-  EXPECT_FALSE(isEqualHash(Ref_GV0, Ref_GV1))
+  EXPECT_FALSE(isEqualInitialHash(Ref_GV0, Ref_GV1))
       << " Ref_GV0 and Ref_GV1 should have the different hash value since GV0 "
          "and GV1 have different name";
 
@@ -374,20 +374,20 @@ TEST_F(VariableHash, ReferenceToGlobalVariable) {
       new GlobalVariable(*M1, Type::getInt8Ty(Ctx), true,
                          GlobalValue::ExternalLinkage, nullptr, "GV0");
   GV0_M1->setInitializer(Zero);
-  EXPECT_TRUE(isEqualHash(GV0, GV0_M1))
+  EXPECT_TRUE(isEqualInitialHash(GV0, GV0_M1))
       << "GV0 and GV0_M1 should have the same hash value.";
   Constant *PtrGV0_M1 = ConstantExpr::getPtrToInt(GV0_M1, Int8Ty);
   GlobalVariable *Ref_GV0_M1 = new GlobalVariable(
       *M1, Int8Ty, false, GlobalValue::ExternalLinkage, PtrGV0_M1);
-  EXPECT_TRUE(isEqualHash(Ref_GV0, Ref_GV0_M1))
+  EXPECT_TRUE(isEqualInitialHash(Ref_GV0, Ref_GV0_M1))
       << " Ref_GV0 and Ref_GV0_M1 should have same hashes since GV0 "
          "and GV0_M1 have same name and same hash value";
 
   Constant *One = ConstantInt::get(Int8Ty, 1);
   GV0_M1->setInitializer(One);
-  EXPECT_FALSE(isEqualHash(GV0, GV0_M1))
+  EXPECT_FALSE(isEqualInitialHash(GV0, GV0_M1))
       << "GV0 and GV0_M1 should have the different hash value.";
-  EXPECT_FALSE(isEqualHash(Ref_GV0, Ref_GV0_M1))
+  EXPECT_TRUE(isEqualInitialHash(Ref_GV0, Ref_GV0_M1))
       << " Ref_GV0 and Ref_GV0_M1 should have different hashes since GV0 "
          "and GV0_M1 have different hash value";
 }

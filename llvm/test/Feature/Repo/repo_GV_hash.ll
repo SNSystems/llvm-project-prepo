@@ -11,7 +11,7 @@ target triple = "x86_64-pc-linux-gnu-repo"
 @fp_baz = global [1 x i32 (...)*] [i32 (...)* bitcast (i32 ()* @baz to i32 (...)*)], align 8
 
 ; CHECK: !3 = !RepoDefinition(name: "a", digest: [16 x i8] c"[[A:.+]]", linkage: internal, visibility: default, pruned: false)
-; CHECK: !4 = !RepoDefinition(name: "b", digest: [16 x i8] c"[[A]]", linkage: internal, visibility: default, pruned: false)
+; CHECK-NOT: !4 = !RepoDefinition(name: "b", digest: [16 x i8] c"[[A]]", linkage: internal, visibility: default, pruned: false)
 ; CHECK-NOT: !5 = !RepoDefinition(name: "c", digest: [16 x i8] c"[[A]]", linkage: internal, visibility: default, pruned: false)
 @a = internal global i32 1, align 4
 @b = internal global i32 1, align 4

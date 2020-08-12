@@ -347,21 +347,22 @@ void HashCalculator::hashGlobalValue(const GlobalValue *V) {
 
   GlobalNumbers.insert(std::make_pair(V, GlobalNumbers.size()));
 
-  if (auto *GV = dyn_cast<GlobalVariable>(V)) {
-    // Accumulate the initial value of global variable .
-    Hash.update(HashKind::TAG_GlobalVariable);
-    if (GV->hasDefinitiveInitializer())
-      hashConstant(GV->getInitializer());
-  }
-
   if (auto *GA = dyn_cast<GlobalAlias>(V)) {
     if (auto GAV = dyn_cast<GlobalValue>(GA->getAliasee()->stripPointerCasts()))
       V = GAV;
   }
 
-  if (auto *GO = dyn_cast<GlobalObject>(V)) {
-    if (shouldAddGODependency(*GO)) {
-      getDependencies().emplace_back(GO);
+  if (V->isDeclaration())
+    return;
+
+  if (auto *GA = dyn_cast<GlobalVariable>(V)) {
+    getContributions().emplace_back(GA);
+    return;
+  }
+
+  if (auto *Func = dyn_cast<Function>(V)) {
+    if (shouldAddGODependency(*Func)) {
+      getDependencies().emplace_back(Func);
     }
   }
 }
@@ -474,54 +475,6 @@ void FunctionHashCalculator::hashDILocation(const DILocation *DL,
   }
 }
 
-const GlobalVariable *
-FunctionHashCalculator::getAddressFromConstant(const Constant *C) {
-  if (auto *GV = dyn_cast<GlobalVariable>(C)) {
-    // e.g. store i32 1, i32 * @GV
-    if (GV->hasDefinitiveInitializer()) {
-      if (auto *MemoryGV = dyn_cast<GlobalVariable>(GV->getInitializer()))
-        return getAddressFromConstant(MemoryGV);
-    }
-    return GV;
-  }
-
-  if (auto *GA = dyn_cast<GlobalAlias>(C))
-    if (GA->getAliasee() && !GA->isInterposable())
-      return getAddressFromConstant(GA->getAliasee());
-
-  // If the loaded value isn't a constant expr, we can't handle it.
-  auto *CE = dyn_cast<ConstantExpr>(C);
-  if (!CE)
-    return nullptr;
-
-  if (CE->getOpcode() == Instruction::GetElementPtr ||
-      CE->getOpcode() == Instruction::BitCast) {
-    return getAddressFromConstant(CE->getOperand(0));
-  }
-  return nullptr;
-}
-
-const GlobalVariable *
-FunctionHashCalculator::getAddressFromValue(const Value *V) {
-  if (auto *C = dyn_cast<Constant>(V)) {
-    return getAddressFromConstant(C);
-  } else if (auto *LI = dyn_cast<LoadInst>(V)) {
-    // e.g.
-    // @a = dso_local global i32 0, align 4
-    // @b = dso_local global i32 * @a, align 8
-    // %0 = load i32*, i32** @b, align 8
-    // store i32 5, i32* %0, align 4
-    auto LoadAddress = LI->getPointerOperand();
-    return getAddressFromValue(LoadAddress);
-  }
-  return nullptr;
-}
-
-const GlobalVariable *
-FunctionHashCalculator::getStoreAddress(const StoreInst *SI) {
-  return getAddressFromValue(SI->getPointerOperand());
-}
-
 /// Accumulate the instruction hash. The opcodes, type, operand types, operands
 /// value and any other factors affecting the operation must be considered.
 void FunctionHashCalculator::hashInstruction(const Instruction *V,
@@ -548,13 +501,11 @@ void FunctionHashCalculator::hashInstruction(const Instruction *V,
     update(HashKind::TAG_CallInst);
     update(CI->isTailCall());
     hashCallInvoke(CI);
-    addContributedToGVsFromCallInvoke(CI);
     return;
   }
   if (const InvokeInst *II = dyn_cast<InvokeInst>(V)) {
     update(HashKind::TAG_InvokeInst);
     hashCallInvoke(II);
-    addContributedToGVsFromCallInvoke(II);
     return;
   }
 
@@ -587,9 +538,6 @@ void FunctionHashCalculator::hashInstruction(const Instruction *V,
     FnHash.hashNumber(SI->getAlignment());
     FnHash.hashOrdering(SI->getOrdering());
     update(SI->getSyncScopeID());
-    if (auto *GV = getStoreAddress(SI)) {
-      FnHash.getContributedToGVs().emplace_back(GV);
-    }
     return;
   }
   if (const CmpInst *CI = dyn_cast<CmpInst>(V)) {
@@ -693,8 +641,8 @@ void FunctionHashCalculator::calculateHash() {
   for (auto D : FnHash.getDependencies()) {
     LLVM_DEBUG(dbgs() << D->getName() << ", ");
   }
-  LLVM_DEBUG(dbgs() << ". Its ContributedToGVs are: ");
-  for (auto C : FnHash.getContributedToGVs()) {
+  LLVM_DEBUG(dbgs() << ". Its Contributions are: ");
+  for (auto C : FnHash.getContributions()) {
     LLVM_DEBUG(dbgs() << C->getName() << ", ");
   }
   LLVM_DEBUG(dbgs() << "\n");

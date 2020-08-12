@@ -100,12 +100,8 @@ TEST_F(SingleModule, NoCalleeSame) {
   EXPECT_EQ(FooInfo.InitialDigest, BarInfo.InitialDigest)
       << "Expected that functions of foo and bar have the same initial hash "
          "value";
-  EXPECT_TRUE(FooInfo.Contributions.empty())
-      << "Expected that the foo's contribution list is empty.";
   EXPECT_TRUE(FooInfo.Dependencies.empty())
       << "Expected that the foo's dependencies list is empty.";
-  EXPECT_TRUE(BarInfo.Contributions.empty())
-      << "Expected that the bar's contributions list is empty.";
   EXPECT_TRUE(BarInfo.Dependencies.empty())
       << "Expected that the bar's dependencies list is empty.";
   // Check the GOs' final digest.
@@ -171,12 +167,8 @@ TEST_F(SingleModule, OneCalleeSameNameSameBody) {
   EXPECT_EQ(FooInfo.InitialDigest, BarInfo.InitialDigest)
       << "Expected that functions of foo and bar have the same initial hash "
          "value";
-  EXPECT_TRUE(FooInfo.Contributions.empty())
-      << "Expected that the foo's contributions list is empty.";
   EXPECT_THAT(FooInfo.Dependencies, ::testing::UnorderedElementsAre(G))
       << "Expected foo's Dependencies list is { G }";
-  EXPECT_TRUE(BarInfo.Contributions.empty())
-      << "Expected that the bar's contributions list is empty.";
   EXPECT_THAT(BarInfo.Dependencies, ::testing::UnorderedElementsAre(G))
       << "Expected bar's Dependencies list is { G }";
   // Check the GOs' final digest.
@@ -225,12 +217,8 @@ TEST_F(SingleModule, OneCalleeDiffNameSameBody) {
   EXPECT_NE(FooInfo.InitialDigest, BarInfo.InitialDigest)
       << "Expected that functions of foo and bar have the different initial "
          "hash value";
-  EXPECT_TRUE(FooInfo.Contributions.empty())
-      << "Expected that the foo's contributions list is empty.";
   EXPECT_THAT(FooInfo.Dependencies, ::testing::UnorderedElementsAre(G))
       << "Expected foo's Dependencies list is { G }";
-  EXPECT_TRUE(BarInfo.Contributions.empty())
-      << "Expected that the bar's contributions list is empty.";
   EXPECT_THAT(BarInfo.Dependencies, ::testing::UnorderedElementsAre(P))
       << "Expected bar's Dependencies list is { P }";
   // Check the GOs' final digest.
@@ -373,12 +361,8 @@ TEST_F(SingleModule, CallEachOther) {
   EXPECT_NE(FooInfo.InitialDigest, BarInfo.InitialDigest)
       << "Expected that functions of foo and bar have the different initial "
          "hash value";
-  EXPECT_TRUE(FooInfo.Contributions.empty())
-      << "Expected that the foo's contributions list is empty.";
   EXPECT_THAT(FooInfo.Dependencies, ::testing::ElementsAre(Bar))
       << "Expected foo's Dependencies list is {bar}";
-  EXPECT_TRUE(BarInfo.Contributions.empty())
-      << "Expected that the bar's contributions list is empty.";
   EXPECT_THAT(BarInfo.Dependencies, ::testing::ElementsAre(Foo))
       << "Expected bar's Dependencies list is {foo}";
   // Check the GOs' final digest.
@@ -430,16 +414,10 @@ TEST_F(SingleModule, OneCalleeLoop) {
   EXPECT_EQ(FooInfo.InitialDigest, BarInfo.InitialDigest)
       << "Expected that functions of foo and bar have the same initial hash "
          "value";
-  EXPECT_TRUE(FooInfo.Contributions.empty())
-      << "Expected that the foo's contributions list is empty.";
   EXPECT_THAT(FooInfo.Dependencies, ::testing::ElementsAre(P))
       << "Expected foo's Dependencies list is {P}";
-  EXPECT_TRUE(BarInfo.Contributions.empty())
-      << "Expected that the bar's contributions list is empty.";
   EXPECT_THAT(BarInfo.Dependencies, ::testing::ElementsAre(P))
       << "Expected bar's Dependencies list is {P}";
-  EXPECT_TRUE(PInfo.Contributions.empty())
-      << "Expected that the p's contributions list is empty.";
   EXPECT_THAT(PInfo.Dependencies, ::testing::ElementsAre(Bar))
       << "Expected p's Dependencies list is {bar}";
   // Check the GOs' final digest.
@@ -519,24 +497,14 @@ TEST_F(SingleModule, TwolevelsCall) {
       << "Expected that functions of foo and bar have the same initial "
          "hash value";
 
-  EXPECT_TRUE(ZInfo.Contributions.empty())
-      << "Expected that the z's Contributions list is empty.";
   EXPECT_TRUE(ZInfo.Dependencies.empty())
       << "Expected that the z's Dependencies list is empty.";
-  EXPECT_TRUE(QInfo.Contributions.empty())
-      << "Expected that the q's Contributions list is empty.";
   EXPECT_TRUE(QInfo.Dependencies.empty())
       << "Expected that the q's Dependencies list is empty.";
-  EXPECT_TRUE(PInfo.Contributions.empty())
-      << "Expected that the p's Contributions list is empty.";
   EXPECT_THAT(PInfo.Dependencies, ::testing::ElementsAre(Z))
       << "Expected that the p's Dependencies list is {Z}";
-  EXPECT_TRUE(FooInfo.Contributions.empty())
-      << "Expected that the foo's Contributions list is empty.";
   EXPECT_THAT(FooInfo.Dependencies, ::testing::UnorderedElementsAre(P, Q))
       << "Expected that the foo's Dependencies list is {P, Q}";
-  EXPECT_TRUE(BarInfo.Contributions.empty())
-      << "Expected that the bar's Contributions list is empty.";
   EXPECT_THAT(BarInfo.Dependencies, ::testing::UnorderedElementsAre(P, Q))
       << "Expected that the bar's Dependencies list is {P, Q}";
   EXPECT_TRUE(repodefinition::generateRepoDefinitions(*M))
@@ -583,16 +551,10 @@ TEST_F(SingleModule, SingleContribution) {
   const Function *Setto = M->getFunction("setto");
   const repodefinition::GOInfo &SettoInfo = InfoMap[Setto];
 
-  EXPECT_THAT(ZInfo.Contributions, ::testing::UnorderedElementsAre(Test))
-      << "Expected that the Z's Contributions list is {Test}";
-  EXPECT_TRUE(ZInfo.Dependencies.empty())
-      << "Expected that Z's Dependencies list is empty";
-  EXPECT_TRUE(TestInfo.Contributions.empty())
-      << "Expected that the test's Contributions list is empty.";
+  EXPECT_THAT(ZInfo.Dependencies, ::testing::UnorderedElementsAre(Test))
+      << "Expected that the Z's Dependencies list is {Test}";
   EXPECT_THAT(TestInfo.Dependencies, ::testing::UnorderedElementsAre(Z, Setto))
       << "Expected that the test's Dependencies list is {Z, setto}";
-  EXPECT_TRUE(SettoInfo.Contributions.empty())
-      << "Expected that the setto's Contributions list is empty.";
   EXPECT_TRUE(SettoInfo.Dependencies.empty())
       << "Expected that the setto's Dependencies list is empty.";
 }
@@ -644,11 +606,9 @@ TEST_F(SingleModule, MultipleContribution) {
   const Function *Test1 = M->getFunction("test1");
   const Function *Test2 = M->getFunction("test2");
 
-  EXPECT_THAT(ZInfo.Contributions,
+  EXPECT_THAT(ZInfo.Dependencies,
               ::testing::UnorderedElementsAre(Test, Test1, Test2))
-      << "Expected that the Z's Contributions list is {Test, Test1, Test2}";
-  EXPECT_TRUE(ZInfo.Dependencies.empty())
-      << "Expected that Z's Dependencies list is empty";
+      << "Expected that the Z's Dependencies list is {Test, Test1, Test2}";
 }
 
 // The definition metadate fixture for double modules.

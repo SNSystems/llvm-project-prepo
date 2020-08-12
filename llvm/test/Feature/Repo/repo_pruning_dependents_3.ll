@@ -41,7 +41,6 @@
 target triple = "x86_64-pc-linux-gnu-elf"
 
 @str = private constant [6 x i8] c"Ipsum\00", align 1
-@src = global i8* getelementptr inbounds ([6 x i8], [6 x i8]* @str, i32 0, i32 0), align 4
 
 define void @a() {
 entry:
