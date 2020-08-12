@@ -81,13 +81,13 @@ int main(int argc, char *argv[]) {
 
   auto *Sep = "";
   for (auto const &CM : *Compilation) {
-    outs() << Sep;
-    Sep = (UseComma ? "," : "\n");
     assert(CM.name != pstore::typed_address<pstore::indirect_string>::null());
     const auto MemberName =
         pstore::indirect_string::read(Db, CM.name).to_string();
     if (Names.empty() ||
         (std::find(Names.begin(), Names.end(), MemberName) != Names.end())) {
+      outs() << Sep;
+      Sep = (UseComma ? "," : "\n");
       if (!DigestOnly)
         outs() << MemberName << ": ";
       outs() << CM.digest;
