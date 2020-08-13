@@ -90,7 +90,7 @@ void LayoutBuilder::Visited::resize(uint32_t NumCompilations) {
 }
 
 LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
-    {SectionKind::text, SegmentKind::text},
+    SectionToSegmentArray::value_type{SectionKind::text, SegmentKind::text},
     {SectionKind::data, SegmentKind::data},
     {SectionKind::bss, SegmentKind::data},
     {SectionKind::rel_ro, SegmentKind::data},
@@ -130,7 +130,7 @@ void LayoutBuilder::checkSectionToSegmentArray() {
 #endif
 }
 
-constexpr auto PageSize = std::uint64_t{0x1000};
+constexpr auto PageSize = 0x1000U;
 
 // (ctor)
 // ~~~~~~
@@ -183,6 +183,36 @@ template <SectionKind SK> struct ToPstoreSectionKind {};
 PSTORE_MCREPO_SECTION_KINDS
 #undef X
 
+// has file data
+// ~~~~~~~~~~~~~
+inline bool hasFileData(pstore::repo::section_kind Kind) {
+    switch (Kind) {
+    case pstore::repo::section_kind::text:
+    case pstore::repo::section_kind::data:
+    case pstore::repo::section_kind::rel_ro:
+    case pstore::repo::section_kind::mergeable_1_byte_c_string:
+    case pstore::repo::section_kind::mergeable_2_byte_c_string:
+    case pstore::repo::section_kind::mergeable_4_byte_c_string:
+    case pstore::repo::section_kind::mergeable_const_4:
+    case pstore::repo::section_kind::mergeable_const_8:
+    case pstore::repo::section_kind::mergeable_const_16:
+    case pstore::repo::section_kind::mergeable_const_32:
+    case pstore::repo::section_kind::read_only:
+    case pstore::repo::section_kind::thread_data:
+    case pstore::repo::section_kind::debug_line:
+    case pstore::repo::section_kind::debug_string:
+    case pstore::repo::section_kind::debug_ranges:
+    case pstore::repo::section_kind::interp:
+        return true;
+    case pstore::repo::section_kind::bss:
+    case pstore::repo::section_kind::thread_bss:
+    case pstore::repo::section_kind::dependent:
+    case pstore::repo::section_kind::last:
+        return false;
+    }
+    llvm_unreachable("Unknown rld section_kind");
+}
+
 // add section to layout
 // ~~~~~~~~~~~~~~~~~~~~~
 template <pstore::repo::section_kind SKind>
@@ -193,9 +223,7 @@ void LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
   assert(F->has_section(SKind) &&
          "Layout can't contain a section that doesn't exist");
 
-  auto const SectionIndex =
-      sectionNum(SKind); // Convert SectionKind to an array index.
-  SegmentKind const SegmentK = SectionToSegment_[SectionIndex].second;
+  SegmentKind const SegmentK = SectionToSegment_[ToRldSectionKind<SKind>::value].second;
   if (SegmentK == SegmentKind::discard) {
     llvmDebug(DebugType, Ctx_.IOMut,
               [&] { llvm::dbgs() << "    Discarding " << SKind << '\n'; });
@@ -203,27 +231,35 @@ void LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
   }
 
   Segment &Seg = (*Segments_)[SegmentK];
-  SectionInfoVector &SI = Seg.Sections[ToRldSectionKind<SKind>::value];
 
-  auto const *const Section = F->atp<SKind>();
-  assert(Section != nullptr);
-  assert(reinterpret_cast<std::uint8_t const *>(Section) >
+  auto const & Section = F->at<SKind>();
+  assert(reinterpret_cast<std::uint8_t const *>(&Section) >
          reinterpret_cast<std::uint8_t const *>(F.get()));
-  auto const SectionAddress = UintptrAddress{
-      FAddr.to_address() + (reinterpret_cast<std::uint8_t const *>(Section) -
-                            reinterpret_cast<std::uint8_t const *>(F.get()))};
 
-  auto const Alignment = pstore::repo::section_alignment(*Section);
-  updateMaximum(Seg.MaxAlign, Alignment);
-  SI.emplace_back(Section, SectionAddress,
+  auto const Alignment = pstore::repo::section_alignment(Section);
+  auto const Size = pstore::repo::section_size(Section);
+
+  Seg.MaxAlign = std::max (Seg.MaxAlign, Alignment);
+  Seg.VirtualSize = alignTo (Seg.VirtualSize, Alignment);
+  Seg.VirtualSize += Size;
+  if (hasFileData (SKind)) {
+    Seg.FileSize = alignTo (Seg.FileSize, Alignment);
+    Seg.FileSize += Size;
+  }
+
+  SectionInfoVector &SI = Seg.Sections[ToRldSectionKind<SKind>::value];
+  auto const SectionAddress = UintptrAddress{
+      FAddr.to_address() + (reinterpret_cast<std::uint8_t const *>(&Section) -
+                            reinterpret_cast<std::uint8_t const *>(F.get()))};
+  SI.emplace_back(&Section, SectionAddress,
                   alignTo(LayoutBuilder::prevSectionEnd(SI), Alignment),
-                  pstore::repo::section_size(*Section), Alignment, Name,
+                  Size, Alignment, Name,
                   InputOrdinal);
 
   llvmDebug(DebugType, Ctx_.IOMut, [&] {
     auto const &Entry = SI.back();
-    llvm::dbgs() << "    Adding " << SKind << " to segment " << SegmentK
-                 << " (offset=" << Entry.Offset << ", size=" << Entry.Size
+    llvm::dbgs() << "    Adding " << SKind << " section to " << SegmentK
+                 << " segment (offset=" << Entry.Offset << ", size=" << Entry.Size
                  << ", align=" << Entry.Align << ")\n";
   });
 }
@@ -278,23 +314,22 @@ void LayoutBuilder::debugDumpLayout() const {
     auto const &Segment = (*Segments_)[Seg];
     OS << Seg << '\t' << format_hex(Segment.VirtualAddr) << '\t'
        << format_hex(Segment.VirtualSize) << '\t'
-       << format_hex(Segment.MaxAlign.load()) << '\n';
+       << format_hex(Segment.MaxAlign) << '\n';
   });
   auto EmitSection =
       makeOnce([&OS](SectionKind Scn) { OS << '\t' << Scn << '\n'; });
 
   pstore::shared_sstring_view Owner;
-  for (auto SegmentK = SegmentKind::phdr; SegmentK < SegmentKind::last;
-       ++SegmentK) {
-    for (auto SectionK = SectionKind::text; SectionK < SectionKind::last;
-         ++SectionK) {
+  for (auto SegmentK = SegmentKind::phdr; SegmentK < SegmentKind::last; ++SegmentK) {
+    for (auto SectionK = SectionKind::text; SectionK < SectionKind::last; ++SectionK) {
       for (SectionInfo const &SI : (*Segments_)[SegmentK].Sections[SectionK]) {
         EmitSegment(SegmentK);
         EmitSection(SectionK);
-        OS << "\t\t" << format_hex(SI.VAddr) << '\t' << format_hex(SI.Size)
-           << '\t' << format_hex(SI.Align) << '\t'
-           << stringViewAsRef(loadString(Ctx_.Db, SI.Name, &Owner)) << '\t'
-           << format_hex(SI.Align) << '\t' << format_hex(SI.InputOrdinal)
+        OS << "\t\t" << format_hex(SI.Size)
+           << '\t' << format_hex(SI.Align)
+           << '\t' << stringViewAsRef(loadString(Ctx_.Db, SI.Name, &Owner))
+           << '\t' << format_hex(SI.Align)
+           << '\t' << format_hex(SI.InputOrdinal)
            << '\n';
       }
       EmitSection.reset();
@@ -366,24 +401,6 @@ void LayoutBuilder::run() {
             [&] { debugDumpSymbols(Ctx_, Globals_->all()); });
 }
 
-inline bool hasFileData(rld::SegmentKind const Kind) {
-  switch (Kind) {
-  case rld::SegmentKind::phdr:
-  case rld::SegmentKind::data:
-  case rld::SegmentKind::interp:
-  case rld::SegmentKind::rodata:
-  case rld::SegmentKind::text:
-  case rld::SegmentKind::tls:
-    return true;
-
-  case rld::SegmentKind::gnu_stack:
-  case rld::SegmentKind::discard:
-  case rld::SegmentKind::last:
-    return false;
-  }
-  llvm_unreachable("Invalid rld SegmentKind");
-}
-
 // flatten segments
 // ~~~~~~~~~~~~~~~~
 std::unique_ptr<LayoutOutput> LayoutBuilder::flattenSegments() {
@@ -391,19 +408,11 @@ std::unique_ptr<LayoutOutput> LayoutBuilder::flattenSegments() {
   assert(Base % PageSize == 0U);
 
   for_each_segment(*Segments_, [&Base](SegmentKind SegmentK, Segment &Seg) {
+    assert (Seg.MaxAlign >= PageSize);
     Base = alignTo(Base, Seg.MaxAlign);
+    assert (Seg.VirtualAddr == 0);
     Seg.VirtualAddr = Base;
-    for (SectionInfoVector &OutputSection : Seg.Sections) {
-      for (SectionInfo &SI : OutputSection) {
-        Base = alignTo(Base, SI.Align);
-        SI.VAddr = Base;
-        Base += SI.Size;
-      }
-    }
-    Seg.VirtualSize = Base - Seg.VirtualAddr;
-    Seg.FileSize = hasFileData(SegmentK) ? Seg.VirtualSize : 0;
-
-    Base = alignTo(Base, PageSize);
+    Base += Seg.VirtualSize;
   });
 
   llvmDebug("rld-Layout", Ctx_.IOMut, [this] { debugDumpLayout(); });

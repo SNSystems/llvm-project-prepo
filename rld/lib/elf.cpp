@@ -196,28 +196,11 @@ template <typename ELFT>
 auto rld::elf::emitProgramHeaders(
     typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr,
     const rld::FileRegion &TargetDataRegion, const rld::LayoutOutput &Layout,
-    const SectionArray<ElfSectionInfo> &ElfSections) ->
+    const rld::SegmentIndexedArray<uint64_t> &SegmentDataOffsets) ->
     typename llvm::object::ELFFile<ELFT>::Elf_Phdr * {
 
   auto &OS = llvm::dbgs();
   OS << "ELF Program Headers\n";
-
-  SegmentIndexedArray<uint64_t> SegmentDataOffsets;
-  std::fill(std::begin(SegmentDataOffsets), std::end(SegmentDataOffsets),
-            std::numeric_limits<uint64_t>::max());
-
-  for (auto SegmentK = firstSegmentKind(); SegmentK != SegmentKind::last;
-       ++SegmentK) {
-    if (SegmentK != rld::SegmentKind::discard) {
-      for (auto SectionK = firstSectionKind(); SectionK != SectionKind::last;
-           ++SectionK) {
-        if (!Layout[SegmentK].Sections[SectionK].empty()) {
-          SegmentDataOffsets[SegmentK] = std::min(SegmentDataOffsets[SegmentK],
-                                                  ElfSections[SectionK].Offset);
-        }
-      }
-    }
-  }
 
   for_each_segment(Layout, [&OS, &Phdr, &SegmentDataOffsets, &TargetDataRegion](
                                const SegmentKind Kind, const Segment &Segment) {
@@ -226,7 +209,7 @@ auto rld::elf::emitProgramHeaders(
     if (Segment.shouldEmit()) {
       auto SegmentDataOffset = SegmentDataOffsets[Kind];
       if (Segment.FileSize == 0) {
-        SegmentDataOffset = 0;
+        assert(SegmentDataOffset == 0);
       } else {
         assert(SegmentDataOffset != std::numeric_limits<uint64_t>::max());
         assert(SegmentDataOffset >= TargetDataRegion.offset() &&
@@ -243,8 +226,8 @@ auto rld::elf::emitProgramHeaders(
 
       // “Values 0 and 1 mean no alignment is required. Otherwise, p_align
       // should be a positive, integral power of 2”
-      const size_t MaxAlign = Segment.MaxAlign.load();
-      assert(MaxAlign == 0 || llvm::countPopulation(MaxAlign) == 1);
+      const unsigned MaxAlign = Segment.MaxAlign;
+      assert(MaxAlign == 0U || llvm::countPopulation(MaxAlign) == 1U);
       Phdr->p_align = hasPhysicalAddress(Kind) ? MaxAlign : 0;
 
       OS << "  type=" << ElfSegmentType<ELFT>{Phdr->p_type} << '\n';
@@ -255,17 +238,26 @@ auto rld::elf::emitProgramHeaders(
       OS << "  filesz=" << format_hex(Phdr->p_filesz) << '\n';
       OS << "  flags=" << ElfSegmentFlags<ELFT>{Phdr->p_flags} << '\n';
       OS << "  align=" << format_hex(Phdr->p_align) << '\n';
-#if 0
+
           // “The file size may not be larger than the memory size.”
-          assert(Phdr->p_filesz <= Phdr->p_memsz);
+      // TODO: restore this assertion when we're generating legal output.
+      //          assert(Phdr->p_filesz <= Phdr->p_memsz);
+      if (!(Phdr->p_filesz <= Phdr->p_memsz)) {
+        OS << "ERROR: check Phdr->p_filesz <= Phdr->p_memsz failed\n";
+      }
 
           // “loadable process segments must have congruent values for p_vaddr
           // and p_offset, modulo the page size”. That is, p_vaddr ≡
           // p_offset(mod p_align).
-          assert(Phdr->p_type != llvm::ELF::PT_LOAD ||
-                 (Phdr->p_vaddr % Phdr->p_align) ==
-                     (Phdr->p_offset % Phdr->p_align));
-#endif
+      // TODO: restore this assertion when we're generating legal output.
+      // assert(Phdr->p_type != llvm::ELF::PT_LOAD || (Phdr->p_vaddr %
+      // Phdr->p_align) == (Phdr->p_offset % Phdr->p_align));
+      if (!(Phdr->p_type != llvm::ELF::PT_LOAD ||
+            (Phdr->p_vaddr % Phdr->p_align) ==
+                (Phdr->p_offset % Phdr->p_align))) {
+        OS << "ERROR: check p_vaddr ≡ p_offset(mod p_align) failed\n";
+      }
+
       ++Phdr;
       //      TargetDataOffset += Segment.FileSize;
     }
@@ -276,25 +268,25 @@ auto rld::elf::emitProgramHeaders(
 template auto rld::elf::emitProgramHeaders<llvm::object::ELF64LE>(
     typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Phdr *Phdr,
     const rld::FileRegion &TargetDataRegion, const rld::LayoutOutput &Layout,
-    const SectionArray<ElfSectionInfo> &ElfSections) ->
+    const rld::SegmentIndexedArray<uint64_t> &SegmentDataOffsets) ->
     typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Phdr *;
 
 template auto rld::elf::emitProgramHeaders<llvm::object::ELF64BE>(
     typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Phdr *Phdr,
     const rld::FileRegion &TargetDataRegion, const rld::LayoutOutput &Layout,
-    const SectionArray<ElfSectionInfo> &ElfSections) ->
+    const rld::SegmentIndexedArray<uint64_t> &SegmentDataOffsets) ->
     typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Phdr *;
 
 template auto rld::elf::emitProgramHeaders<llvm::object::ELF32LE>(
     typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Phdr *Phdr,
     const rld::FileRegion &TargetDataRegion, const rld::LayoutOutput &Layout,
-    const SectionArray<ElfSectionInfo> &ElfSections) ->
+    const rld::SegmentIndexedArray<uint64_t> &SegmentDataOffsets) ->
     typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Phdr *;
 
 template auto rld::elf::emitProgramHeaders<llvm::object::ELF32BE>(
     typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Phdr *Phdr,
     const rld::FileRegion &TargetDataRegion, const rld::LayoutOutput &Layout,
-    const SectionArray<ElfSectionInfo> &ElfSections) ->
+    const rld::SegmentIndexedArray<uint64_t> &SegmentDataOffsets) ->
     typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Phdr *;
 
 template <typename ELFT>
@@ -318,13 +310,13 @@ auto rld::elf::emitSectionHeaders(
     Shdr->sh_name = Section.NameOffset;
     Shdr->sh_type = elfSectionType<ELFT>(Kind);
     Shdr->sh_flags = elfSectionFlags<ELFT>(Kind);
-    Shdr->sh_addr = Section.Address;    // Sec->Address;
+    Shdr->sh_addr = Section.Address;
     Shdr->sh_offset = Section.Offset;   // File offset of section data, in bytes
     Shdr->sh_size = Section.Size;
     //  Elf_Word sh_link;      // Section type-specific header table index link
     //  Elf_Word sh_info;      // Section type-specific extra information
-    Shdr->sh_addralign = Section.Align; // Sec->AddressAlign;
-    Shdr->sh_entsize = elf_section_entsize<ELFT>(Kind);
+    Shdr->sh_addralign = Section.Align;
+    Shdr->sh_entsize = elfSectionEntSize<ELFT>(Kind);
 
     ++Shdr;
   }

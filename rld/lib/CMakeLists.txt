@@ -56,6 +56,7 @@ add_llvm_library (LLVMrld
 
     elf.cpp
     context.cpp
+    copy.cpp
     ErrorCode.cpp
     Identify.cpp
     IdentifyPass.cpp

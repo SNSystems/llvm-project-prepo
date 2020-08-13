@@ -69,6 +69,7 @@
 #include "rld/LayoutBuilder.h"
 #include "rld/MathExtras.h"
 #include "rld/SectionArray.h"
+#include "rld/copy.h"
 #include "rld/elf.h"
 #include "rld/scanner.h"
 #include "rld/types.h"
@@ -132,59 +133,6 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os, AsHex<T> const &v) {
   return os.write_hex(v.value());
 }
 
-template <pstore::repo::section_kind SKind,
-          typename SType = typename pstore::repo::enum_to_section<SKind>::type>
-void copy_section(rld::Context &Ctxt, rld::SectionInfo const &S,
-                  std::uint8_t *Dest) {
-  auto *const Section = reinterpret_cast<SType const *>(S.Section);
-
-  rld::llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
-    llvm::dbgs() << "copy to " << toHex(reinterpret_cast<std::uintptr_t>(Dest))
-                 << '\n';
-  });
-
-  auto const d = Section->payload();
-  std::memcpy(Dest, d.begin(), d.size());
-
-  // auto * const shadow = Ctxt.shadow();
-
-#if 0
-  for (auto const &XFixup : Section->xfixups()) {
-
-      switch (XFixup.type) {
-      // target-dependent relocations here...
-            typed_address<indirect_string> name;
-            relocation_type type;
-            std::uint8_t padding1 = 0;
-            std::uint16_t padding2 = 0;
-            std::uint32_t padding3 = 0;
-            std::uint64_t offset;
-            std::uint64_t addend;
-    }
-  }
-#endif
-}
-
-template <>
-void copy_section<pstore::repo::section_kind::bss>(rld::Context &Ctxt,
-                                                   rld::SectionInfo const &S,
-                                                   std::uint8_t *Dest) {
-  rld::llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
-    llvm::dbgs() << "bss fill " << reinterpret_cast<std::uintptr_t>(Dest)
-                 << '\n';
-  });
-  static_assert(
-      std::is_same<
-          pstore::repo::enum_to_section<pstore::repo::section_kind::bss>::type,
-          pstore::repo::bss_section>::value,
-      "BSS section kind must map to BSS section type");
-}
-
-template <>
-void copy_section<pstore::repo::section_kind::dependent>(
-    rld::Context &Ctxt, rld::SectionInfo const &S, std::uint8_t *Dest) {
-  // discard
-}
 
 static llvm::ExitOnError ExitOnErr;
 
@@ -225,49 +173,9 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os, rld::SectionKind SKind) {
   return os;
 }
 
-void copyToOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
-                  rld::LayoutOutput const &LO,
-                  uint8_t *const Data /*output buffer*/,
-                  const uint64_t StartOffset) {
-  for (auto SegmentK = rld::firstSegmentKind();
-       SegmentK != rld::SegmentKind::last; ++SegmentK) {
-    rld::Segment const &Segment = LO[SegmentK];
 
-    assert(Segment.Sections.size() ==
-           static_cast<std::underlying_type<rld::SectionKind>::type>(
-               rld::SectionKind::last));
-    for (rld::SectionKind SectionK = rld::firstSectionKind();
-         SectionK != rld::SectionKind::last; ++SectionK) {
 
-      WorkPool.async([SectionK, SegmentK, Data, StartOffset, &LO, &Ctxt]() {
-        for (rld::SectionInfo const &Section :
-             LO[SegmentK].Sections[SectionK]) {
-          rld::llvmDebug(DebugType, Ctxt.IOMut, [SectionK, SegmentK]() {
-            llvm::dbgs() << SegmentK << '/' << SectionK << ": ";
-          });
-
-          auto *const Dest =
-              Data + rld::alignTo(Section.Offset, Section.Align) + StartOffset;
-          // FIXME: not all values of rld::SectionKind can be cast to
-          // repo::section_kind!
-          switch (static_cast<pstore::repo::section_kind>(SectionK)) {
-#define X(a)                                                                   \
-  case pstore::repo::section_kind::a:                                          \
-    copy_section<pstore::repo::section_kind::a>(Ctxt, Section, Dest);          \
-    break;
-
-            PSTORE_MCREPO_SECTION_KINDS
-#undef X
-          case pstore::repo::section_kind::last:
-            llvm_unreachable("Bad section kind");
-            break;
-          }
-        }
-      });
-    }
-  }
-}
-
+#if ADD_IDENT_SEGMENT
 constexpr pstore::index::digest interp_fragment_digest{
     0x31415926,
     0x53589793,
@@ -277,9 +185,9 @@ constexpr pstore::index::digest interp_compilation{
     0x53589793,
 };
 
-auto makeInterpFragment(
-    pstore::transaction<pstore::transaction_lock> &Transaction,
-    std::shared_ptr<pstore::index::fragment_index> const &Index)
+static auto
+makeInterpFragment(pstore::transaction<pstore::transaction_lock> &Transaction,
+                   std::shared_ptr<pstore::index::fragment_index> const &Index)
     -> pstore::extent<pstore::repo::fragment> {
 
   using pstore::repo::fragment;
@@ -302,7 +210,7 @@ auto makeInterpFragment(
   return FragmentExtent;
 }
 
-auto makeInterpCompilation(
+static auto makeInterpCompilation(
     pstore::transaction<pstore::transaction_lock> &Transaction,
     llvm::Triple const &Triple,
     std::shared_ptr<pstore::index::compilation_index> const &Compilations,
@@ -345,7 +253,8 @@ auto makeInterpCompilation(
   return CompilationExtent;
 }
 
-auto generateFixedContent(pstore::database &Db, llvm::Triple const &Triple)
+static auto generateFixedContent(pstore::database &Db,
+                                 llvm::Triple const &Triple)
     -> llvm::ErrorOr<pstore::extent<pstore::repo::compilation>> {
   auto Compilations =
       pstore::index::get_index<pstore::trailer::indices::compilation>(Db);
@@ -386,6 +295,7 @@ auto generateFixedContent(pstore::database &Db, llvm::Triple const &Triple)
 
   return CompilationExtent;
 }
+#endif
 
 static llvm::ErrorOr<std::unique_ptr<pstore::database>> openRepository() {
   std::string const FilePath = getRepoPath();
@@ -394,6 +304,53 @@ static llvm::ErrorOr<std::unique_ptr<pstore::database>> openRepository() {
   }
   return std::make_unique<pstore::database>(
       FilePath, pstore::database::access_mode::writable);
+}
+
+template <typename Function> void forEachSegmentKind(Function F) {
+  for (auto SegmentK = rld::firstSegmentKind();
+       SegmentK != rld::SegmentKind::last; ++SegmentK) {
+    F(SegmentK);
+  }
+}
+template <typename Function> void forEachSectionKind(Function F) {
+  for (auto SectionK = rld::firstSectionKind();
+       SectionK != rld::SectionKind::last; ++SectionK) {
+    F(SectionK);
+  }
+}
+
+rld::SegmentIndexedArray<uint64_t> computeSegmentDataOffsets(
+    rld::Context &Ctxt,
+    const rld::LayoutOutput &Layout,
+    const rld::SectionArray<rld::elf::ElfSectionInfo> &ElfSections) {
+  using namespace rld;
+
+  SegmentIndexedArray<uint64_t> Offsets;
+  std::fill(std::begin(Offsets), std::end(Offsets),
+            std::numeric_limits<decltype(Offsets)::value_type>::max());
+
+  forEachSegmentKind([&](SegmentKind SegmentK) {
+    const Segment &S = Layout[SegmentK];
+    if (SegmentK == rld::SegmentKind::discard) {
+      assert(S.FileSize == 0);
+      return;
+    }
+    if (S.FileSize == 0) {
+      Offsets[SegmentK] = 0;
+    } else {
+        forEachSectionKind([&](SectionKind SectionK) {
+          if (!S.Sections[SectionK].empty()) {
+            Offsets[SegmentK] =
+                std::min(Offsets[SegmentK], ElfSections[SectionK].Offset);
+          }
+        });
+    }
+
+    llvmDebug(DebugType, Ctxt.IOMut, [&] () {
+        llvm::dbgs() << "Offset of segment " << SegmentK << " is " << Offsets[SegmentK] << '\n';
+    });
+  });
+  return Offsets;
 }
 
 void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
@@ -426,8 +383,7 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
   auto NumSections = NumImplicitSections;
   auto SectionNameSize = std::uint64_t{1};
   auto SectionHeaderNamesSectionIndex = 0;
-  for (rld::SectionKind SectionK = rld::firstSectionKind();
-       SectionK != rld::SectionKind::last; ++SectionK) {
+  forEachSectionKind([&](rld::SectionKind SectionK) {
     auto &ESI = ElfSections[SectionK];
     if (ESI.Emit) {
       if (SectionK == rld::SectionKind::shstrtab) {
@@ -440,7 +396,7 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
       SectionNameSize +=
           rld::elf::elfSectionNameAndLength(SectionK).second + 1U;
     }
-  }
+  });
 
   // Count the number of segments to be emitted and assign the address of each
   // output section.
@@ -454,18 +410,19 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
 
     ++NumSegments;
 
-    if (rld::elf::hasPhysicalAddress(SegmentK)) {
-      auto Offset = uint64_t{0};
+    if (!rld::elf::hasPhysicalAddress(SegmentK)) {
+        return;
+    }
 
-      for (rld::SectionKind SectionK = rld::firstSectionKind();
-           SectionK != rld::SectionKind::last; ++SectionK) {
+    auto Offset = uint64_t{0};
+
+    for (rld::SectionKind SectionK = rld::firstSectionKind(); SectionK != rld::SectionKind::last; ++SectionK) {
         if (!Layout[SegmentK].Sections[SectionK].empty()) {
-          auto &ESI = ElfSections[SectionK];
-          const auto Start = rld::alignTo(Offset, ESI.Align);
-          ESI.Address = Segment.VirtualAddr + Start;
-          Offset = Start + ESI.Size;
+            auto &ESI = ElfSections[SectionK];
+            const auto Start = rld::alignTo(Offset, ESI.Align);
+            ESI.Address = Segment.VirtualAddr + Start;
+            Offset = Start + ESI.Size;
         }
-      }
     }
   });
 
@@ -560,6 +517,8 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
         BufferStart + FileRegions[Region::FileHeader].offset());
     *Ehdr = rld::elf::initELFHeader<ELFT>(llvm::ELF::EM_X86_64);
     Ehdr->e_type = llvm::ELF::ET_EXEC;
+    Ehdr->e_entry =
+        0x0000000000200000; // Address to jump to in order to start program
     Ehdr->e_phnum = NumSegments;
     Ehdr->e_phoff = FileRegions[Region::SegmentTable].offset();
     Ehdr->e_shnum = NumSections;
@@ -567,12 +526,16 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
     Ehdr->e_shstrndx = SectionHeaderNamesSectionIndex;
   });
 
+  const rld::SegmentIndexedArray<uint64_t> SegmentDataOffsets =
+      computeSegmentDataOffsets(Ctxt, Layout, ElfSections);
+
   WorkPool.async(
-      [BufferStart, &ElfSections, NumSegments, &Layout, &FileRegions]() {
+      [BufferStart, NumSegments, &Layout, &FileRegions, &SegmentDataOffsets]() {
+        // Produce the program header table.
         auto *const Start = reinterpret_cast<Elf_Phdr *>(
             BufferStart + FileRegions[Region::SegmentTable].offset());
         auto *const End = rld::elf::emitProgramHeaders<ELFT>(
-            Start, FileRegions[Region::TargetData], Layout, ElfSections);
+            Start, FileRegions[Region::TargetData], Layout, SegmentDataOffsets);
 
         (void)End;
         assert(End - Start == NumSegments);
@@ -582,6 +545,7 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
       });
 
   WorkPool.async([BufferStart, &ElfSections, NumSections, &FileRegions]() {
+    // Produce the section header table.
     auto *const Start = reinterpret_cast<Elf_Shdr *>(
         BufferStart + FileRegions[Region::SectionTable].offset());
     auto *const End = rld::elf::emitSectionHeaders<ELFT>(Start, ElfSections);
@@ -606,8 +570,7 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
            reinterpret_cast<uint8_t *>(End));
   });
 
-  copyToOutput(Ctxt, WorkPool, Layout, BufferStart,
-               FileRegions[Region::TargetData].offset());
+  copyToOutput(Ctxt, WorkPool, BufferStart, Layout, SegmentDataOffsets);
   WorkPool.wait();
 
   ExitOnErr(Out->commit());
@@ -655,7 +618,11 @@ int main(int Argc, char *Argv[]) {
                                        rld::TimerGroupDescription);
 
     // The plus one here allows for the linker-generated /interp/ file.
+#if ADD_IDENT_SEGMENT
     auto const NumCompilations = InputPaths.size() + std::size_t{1};
+#else
+    auto const NumCompilations = InputPaths.size();
+#endif
     if (NumCompilations > std::numeric_limits<uint32_t>::max()) {
       llvm::errs() << "Error: Too many input files\n";
       std::exit(EXIT_FAILURE);
@@ -693,6 +660,7 @@ int main(int Argc, char *Argv[]) {
         llvm::errs() << "Error: The output triple could not be determined.\n";
         return EXIT_FAILURE;
       }
+#if ADD_IDENT_SEGMENT
       auto const FixedCompilationExtent =
           generateFixedContent(Ctxt.Db, *Triple);
       if (!FixedCompilationExtent) {
@@ -705,6 +673,7 @@ int main(int Argc, char *Argv[]) {
                *FixedCompilationExtent,        // compilation extent
                Identified->Compilations.size() // input ordinal
       );
+#endif
     }
     LayoutThread.join();
     LO = Layout.flattenSegments();

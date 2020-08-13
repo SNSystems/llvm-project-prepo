@@ -56,6 +56,7 @@ template <typename Key, Key Max, typename Value> class EnumIndexedArray {
   using Array = std::array<Value, static_cast<UnderlyingType>(Max)>;
 
 public:
+  using value_type = typename Array::value_type;
   using reference = typename Array::reference;
   using const_reference = typename Array::const_reference;
   using iterator = typename Array::iterator;
@@ -93,7 +94,7 @@ public:
   Value *data() { return Array_.data(); }
   const Value *data() const { return Array_.data(); }
 
-private:
+//private:
   Array Array_;
 };
 

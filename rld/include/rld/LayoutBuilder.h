@@ -71,9 +71,9 @@ class Context;
 #define RLD_SEGMENT_KIND                                                       \
   /* loaded segments */                                                        \
   X(phdr)                                                                      \
+  X(rodata)                                                                    \
   X(text)                                                                      \
   X(data)                                                                      \
-  X(rodata)                                                                    \
   X(tls)                                                                       \
   /* non-loaded segments */                                                    \
   X(interp)                                                                    \
@@ -143,16 +143,16 @@ struct SectionInfo {
         InputOrdinal{InputOrdinal_}, Name{Name_} {}
 
   pstore::repo::section_base const *Section;
-  UintptrAddress XfxShadow;
+  UintptrAddress const XfxShadow;
 
-  uint64_t Offset;
-  uint64_t Size; // TODO: we really don't need 64-bits for the size of an
+  uint64_t const Offset;
+  uint64_t const Size; // TODO: we really don't need 64-bits for the size of an
                  // individual section.
-  unsigned Align;
+  unsigned const Align;
   unsigned const InputOrdinal;
 
-  StringAddress Name;
-  uint64_t VAddr = 0;
+  StringAddress const Name;
+//  uint64_t VAddr = 0;
 };
 
 using SectionInfoVector =
@@ -161,13 +161,11 @@ using SectionInfoVector =
 
 //-MARK: Segment
 struct Segment {
-  Segment() : MaxAlign{1} {}
-
   EnumIndexedArray<SectionKind, SectionKind::last, SectionInfoVector> Sections;
   uint64_t VirtualAddr = 0;
   uint64_t VirtualSize = 0;
   uint64_t FileSize = 0;
-  std::atomic<unsigned> MaxAlign;
+  unsigned MaxAlign = 1U;
   bool AlwaysEmit = false;
 
   bool shouldEmit() const { return AlwaysEmit || VirtualSize > 0; }
@@ -199,7 +197,8 @@ void for_each_segment(LayoutOutputType &LO, Function F) {
 template <typename LayoutOutputType, typename Function>
 void for_each_section(LayoutOutputType &LO, Function F) {
   for_each_segment(LO, [&F](SegmentKind SegmentK, auto &Seg) {
-    static_assert(std::is_same<Segment, remove_cvref_t<decltype(Seg)>>::value);
+    static_assert(std::is_same<Segment, remove_cvref_t<decltype(Seg)>>::value,
+                  "Expected Seg to be of type Segment");
     for (rld::SectionKind SKind = rld::firstSectionKind();
          SKind != rld::SectionKind::last; ++SKind) {
       F(SKind, Seg.Sections[SKind]);
@@ -211,7 +210,8 @@ template <typename LayoutOutputType, typename Function>
 void for_each_contribution(LayoutOutputType &LO, Function F) {
   for_each_section(LO, [&F](SectionKind SKind, auto const &SI) {
     static_assert(
-        std::is_same<SectionInfoVector, remove_cvref_t<decltype(SI)>>::value);
+        std::is_same<SectionInfoVector, remove_cvref_t<decltype(SI)>>::value,
+        "Expected SI to be of type SectionInfoVector");
     for (auto &Contribution : SI) {
       F(SKind, Contribution);
     }
@@ -295,7 +295,8 @@ private:
   llvm::DenseMap<std::size_t, LocalSymbolsContainer> CUs_;
 
   using SectionToSegmentArray =
-      std::array<std::pair<SectionKind, SegmentKind>, NumSectionKinds>;
+    EnumIndexedArray<SectionKind, SectionKind::last, std::pair<SectionKind, SegmentKind>>;
+
   static SectionToSegmentArray const SectionToSegment_;
 
   /// The Segments_ container is built as layout runs.

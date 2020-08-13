@@ -292,7 +292,7 @@ template <typename ELFT> constexpr auto elfSectionFlags(SectionKind Kind) {
   llvm_unreachable("Bad section kind");
 }
 
-template <typename ELFT> constexpr auto elf_section_entsize(SectionKind Kind) {
+template <typename ELFT> constexpr auto elfSectionEntSize(SectionKind Kind) {
   using Elf_Word = typename llvm::object::ELFFile<ELFT>::Elf_Word;
   switch (Kind) {
   case SectionKind::mergeable_1_byte_c_string:
@@ -399,10 +399,10 @@ struct ElfSectionInfo {
 };
 
 template <typename ELFT>
-auto emitProgramHeaders(typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr,
-                        const rld::FileRegion &TargetDataRegion,
-                        const rld::LayoutOutput &Layout,
-                        const SectionArray<ElfSectionInfo> &ElfSections) ->
+auto emitProgramHeaders(
+    typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr,
+    const rld::FileRegion &TargetDataRegion, const rld::LayoutOutput &Layout,
+    const rld::SegmentIndexedArray<uint64_t> &SegmentDataOffsets) ->
     typename llvm::object::ELFFile<ELFT>::Elf_Phdr *;
 
 template <typename ELFT>
