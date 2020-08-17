@@ -114,7 +114,7 @@ protected:
 auto XfxScannerTest::compileOneDefinitionWithReferenceTo(
     llvm::StringRef const &Name, linkage Linkage, llvm::StringRef const &RefTo)
     -> CompilationPtr {
-  std::array<CompilationBuilder::NameAndLinkagePair, 1> NL{{{Name, Linkage}}};
+  std::array<CompilationBuilder::NameAndLinkagePair, 1> NL{{{std::string(Name), Linkage}}};
   return CompilationBuilder_.compile(
       std::begin(NL), std::end(NL),
       [&RefTo](CompilationBuilder::Transaction &T, StringAdder &Strings) {

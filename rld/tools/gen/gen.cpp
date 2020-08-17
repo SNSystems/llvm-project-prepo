@@ -291,7 +291,7 @@ static std::string getRepositoryPath() {
   llvm::SmallString<128> Result;
   Result = OutputDirOpt;
   llvm::sys::path::append(Result, "repo.db");
-  return Result.str();
+  return std::string(Result);
 }
 
 static llvm::SmallString<128> quoteAndEscape (llvm::StringRef const & S) {

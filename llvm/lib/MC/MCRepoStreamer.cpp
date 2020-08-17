@@ -28,28 +28,28 @@ MCRepoStreamer::MCRepoStreamer(MCContext &Context,
 
 MCRepoStreamer::~MCRepoStreamer() {}
 
-void MCRepoStreamer::ChangeSection(MCSection *Section,
+void MCRepoStreamer::changeSection(MCSection *Section,
                                    const MCExpr *Subsection) {
-  this->MCObjectStreamer::ChangeSection(Section, Subsection);
+  this->MCObjectStreamer::changeSection(Section, Subsection);
 }
 
-bool MCRepoStreamer::EmitSymbolAttribute(MCSymbol *Symbol,
+bool MCRepoStreamer::emitSymbolAttribute(MCSymbol *Symbol,
                                          MCSymbolAttr Attribute) {
   return true; // success
 }
 
-void MCRepoStreamer::EmitCommonSymbol(MCSymbol *Symbol, uint64_t Size,
+void MCRepoStreamer::emitCommonSymbol(MCSymbol *Symbol, uint64_t Size,
                                       unsigned ByteAlignment) {
   report_fatal_error("Emit Common Symbol not yet implemented");
 }
 
-void MCRepoStreamer::EmitZerofill(MCSection *Section, MCSymbol *Symbol,
+void MCRepoStreamer::emitZerofill(MCSection *Section, MCSymbol *Symbol,
                                   uint64_t Size, unsigned ByteAlignment,
                                   SMLoc Loc) {
   report_fatal_error("Emit Zero File not yet implemented");
 }
 
-void MCRepoStreamer::EmitInstToData(const MCInst &Inst,
+void MCRepoStreamer::emitInstToData(const MCInst &Inst,
                                     const MCSubtargetInfo &STI) {
   MCDataFragment *const DF = this->getOrCreateDataFragment();
 

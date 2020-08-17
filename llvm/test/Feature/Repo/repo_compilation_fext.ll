@@ -14,7 +14,7 @@
 ; The test case2: check error pof the missing fragment for the pruned GO.
 ;
 ; RUN: rm -rf %t.db
-; RUN: env REPOFILE=%t.db not llc -filetype=obj %t1 -o /dev/null 2>&1 | FileCheck %s
+; RUN: env REPOFILE=%t.db not --crash llc -filetype=obj %t1 -o /dev/null 2>&1 | FileCheck %s
 ;
 target triple = "x86_64-pc-linux-gnu-repo"
 

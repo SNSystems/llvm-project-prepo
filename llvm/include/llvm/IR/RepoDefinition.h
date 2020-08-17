@@ -10,6 +10,7 @@
 #ifndef LLVM_IR_REPODEFINITION_H
 #define LLVM_IR_REPODEFINITION_H
 
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/GlobalObject.h"
 #include "llvm/IR/Metadata.h"

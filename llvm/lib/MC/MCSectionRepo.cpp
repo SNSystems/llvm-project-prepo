@@ -24,7 +24,7 @@ unsigned idx = 0;
 MCSectionRepo::MCSectionRepo(SectionKind K, DebugSectionKind DK,
                              MCSymbol *Begin, StringRef N,
                              repodefinition::DigestType Digest)
-    : MCSection(SV_Repo, K, Begin), DebugKind{DK}, Name{N},
+    : MCSection(SV_Repo, N, K, Begin), DebugKind{DK},
       Digest{std::move(Digest)}, Index{++idx} {
 
   assert((K.isMetadata() && DK != DebugSectionKind::None) ||

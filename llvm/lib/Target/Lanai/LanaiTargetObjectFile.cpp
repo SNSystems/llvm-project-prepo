@@ -28,7 +28,6 @@ static cl::opt<unsigned> SSThreshold(
 void LanaiTargetObjectFile::Initialize(MCContext &Ctx,
                                        const TargetMachine &TM) {
   TargetLoweringObjectFileELF::Initialize(Ctx, TM);
-  InitializeELF(TM.Options.UseInitArray);
 
   SmallDataSection = getContext().getELFSection(
       ".sdata", ELF::SHT_PROGBITS, ELF::SHF_WRITE | ELF::SHF_ALLOC);
@@ -118,12 +117,12 @@ bool LanaiTargetObjectFile::isConstantInSmallSection(const DataLayout &DL,
 }
 
 MCSection *LanaiTargetObjectFile::getSectionForConstant(
-    const DataLayout &DL, SectionKind Kind, const Constant *C, unsigned &Align,
-    const GlobalObject *GO) const {
+    const DataLayout &DL, SectionKind Kind, const Constant *C,
+    const GlobalObject *GO, Align &Alignment) const {
   if (isConstantInSmallSection(DL, C))
     return SmallDataSection;
 
   // Otherwise, we work the same as ELF.
-  return TargetLoweringObjectFileELF::getSectionForConstant(DL, Kind, C, Align,
-                                                            GO);
+  return TargetLoweringObjectFileELF::getSectionForConstant(DL, Kind, C,
+                                                            Alignment, GO);
 }

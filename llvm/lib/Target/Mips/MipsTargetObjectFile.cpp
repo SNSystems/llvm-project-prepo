@@ -44,7 +44,6 @@ EmbeddedData("membedded-data", cl::Hidden,
 
 void MipsTargetObjectFile::Initialize(MCContext &Ctx, const TargetMachine &TM){
   TargetLoweringObjectFileELF::Initialize(Ctx, TM);
-  InitializeELF(TM.Options.UseInitArray);
 
   SmallDataSection = getContext().getELFSection(
       ".sdata", ELF::SHT_PROGBITS,
@@ -174,15 +173,17 @@ bool MipsTargetObjectFile::IsConstantInSmallSection(
 }
 
 /// Return true if this constant should be placed into small data section.
-MCSection *MipsTargetObjectFile::getSectionForConstant(
-    const DataLayout &DL, SectionKind Kind, const Constant *C, unsigned &Align,
-    const GlobalObject *GO) const {
+MCSection *MipsTargetObjectFile::getSectionForConstant(const DataLayout &DL,
+                                                       SectionKind Kind,
+                                                       const Constant *C,
+                                                       Align &Alignment,
+                                                       const GlobalObject *GO) const {
   if (IsConstantInSmallSection(DL, C, *TM))
     return SmallDataSection;
 
   // Otherwise, we work the same as ELF.
-  return TargetLoweringObjectFileELF::getSectionForConstant(DL, Kind, C, Align,
-                                                            GO);
+  return TargetLoweringObjectFileELF::getSectionForConstant(DL, Kind, C,
+                                                            Alignment, GO);
 }
 
 const MCExpr *

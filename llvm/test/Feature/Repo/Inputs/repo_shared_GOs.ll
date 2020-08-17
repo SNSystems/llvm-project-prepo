@@ -65,8 +65,6 @@ define void @test3() {
 }
 
 ; use by repo_call_GV.ll.
-target triple = "x86_64-pc-linux-gnu-repo"
-
 @Z = global i32 1
 define void @test4() {
 	call void @setto( i32* @Z, i32 2 )

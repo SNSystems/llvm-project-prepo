@@ -46,6 +46,7 @@ entry:
 ; CHECK:      .debug_line contents:
 ; CHECK:      Line table prologue:
 ; CHECK-NEXT:     total_length: 0x00000052
+; CHECK-NEXT:           format: DWARF32
 ; CHECK-NEXT:          version: 4
 ; CHECK-NEXT:  prologue_length: 0x0000001e
 ; CHECK-NEXT:  min_inst_length: 1

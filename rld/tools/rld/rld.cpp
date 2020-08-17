@@ -101,7 +101,7 @@ llvm::cl::opt<std::string> OutputFileName("o",
                                           llvm::cl::init("./a.out"));
 llvm::cl::opt<unsigned> NumWorkers(
     "workers", llvm::cl::desc("Number of worker threads"),
-    llvm::cl::init(std::max(llvm::heavyweight_hardware_concurrency(), 1U)));
+    llvm::cl::init(llvm::heavyweight_hardware_concurrency().compute_thread_count()));
 
 } // end anonymous namespace
 
@@ -599,7 +599,7 @@ int main(int Argc, char *Argv[]) {
     return EXIT_FAILURE;
   }
 
-  llvm::ThreadPool WorkPool{NumWorkers};
+  llvm::ThreadPool WorkPool(llvm::heavyweight_hardware_concurrency(NumWorkers));
   llvm::ErrorOr<rld::IdentifyResult> Identified =
       rld::identifyPass(Ctxt, WorkPool, CompilationIndex, InputPaths);
   if (!Identified) {

@@ -26,7 +26,8 @@ public:
   }
 
   MCSection *getSectionForConstant(const DataLayout &DL, SectionKind Kind,
-                                   const Constant *C, unsigned &Align,
+                                   const Constant *C,
+                                   Align &Alignment,
                                    const GlobalObject *GO) const override {
     return ReadOnlySection;
   }

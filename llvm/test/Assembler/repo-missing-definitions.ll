@@ -1,4 +1,4 @@
-; RUN: not llc -filetype=obj < %s 2>&1 | FileCheck %s
+; RUN: not --crash llc -filetype=obj < %s 2>&1 | FileCheck %s
 
 target triple = "x86_64-pc-linux-gnu-repo"
 

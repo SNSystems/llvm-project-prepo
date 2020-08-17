@@ -17,7 +17,6 @@ using namespace llvm;
 void RISCVELFTargetObjectFile::Initialize(MCContext &Ctx,
                                           const TargetMachine &TM) {
   TargetLoweringObjectFileELF::Initialize(Ctx, TM);
-  InitializeELF(TM.Options.UseInitArray);
 
   SmallDataSection = getContext().getELFSection(
       ".sdata", ELF::SHT_PROGBITS, ELF::SHF_WRITE | ELF::SHF_ALLOC);
@@ -104,12 +103,12 @@ bool RISCVELFTargetObjectFile::isConstantInSmallSection(
 }
 
 MCSection *RISCVELFTargetObjectFile::getSectionForConstant(
-    const DataLayout &DL, SectionKind Kind, const Constant *C, unsigned &Align,
-    const GlobalObject *GO) const {
+    const DataLayout &DL, SectionKind Kind, const Constant *C,
+    Align &Alignment, const GlobalObject *GO) const {
   if (isConstantInSmallSection(DL, C))
     return SmallDataSection;
 
   // Otherwise, we work the same as ELF.
-  return TargetLoweringObjectFileELF::getSectionForConstant(DL, Kind, C, Align,
-                                                            GO);
+  return TargetLoweringObjectFileELF::getSectionForConstant(DL, Kind, C,
+                                                            Alignment, GO);
 }

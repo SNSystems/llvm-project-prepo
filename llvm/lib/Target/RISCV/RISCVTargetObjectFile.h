@@ -12,7 +12,6 @@
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 
 namespace llvm {
-class RISCVTargetMachine;
 
 /// This implementation is used for RISCV ELF targets.
 class RISCVELFTargetObjectFile : public TargetLoweringObjectFileELF {
@@ -35,7 +34,8 @@ public:
   bool isConstantInSmallSection(const DataLayout &DL, const Constant *CN) const;
 
   MCSection *getSectionForConstant(const DataLayout &DL, SectionKind Kind,
-                                   const Constant *C, unsigned &Align,
+                                   const Constant *C,
+                                   Align &Alignment,
                                    const GlobalObject *GO) const override;
 
   void getModuleMetadata(Module &M) override;

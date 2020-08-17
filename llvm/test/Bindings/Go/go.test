@@ -1,5 +1,5 @@
 ; RUN: llvm-go test llvm.org/llvm/bindings/go/llvm
 ; XFAIL: *
 
-; REQUIRES: shell
+; REQUIRES: shell, default_triple
 ; UNSUPPORTED: asan, ubsan, msan

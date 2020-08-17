@@ -95,16 +95,13 @@ int target_teams_fun(int *g){
   // CK1-64: [[TH_VAL:%.+]] = load i32, i32* [[TH_CONV]],
   // CK1-32: [[TE_VAL:%.+]] = load i32, i32* [[TE_ADDR]],
   // CK1-32: [[TH_VAL:%.+]] = load i32, i32* [[TH_ADDR]],
-  // CK1: {{%.+}} = call i32 @__kmpc_push_num_teams({{.+}}, {{.+}}, i32 [[TE_VAL]], i32 [[TH_VAL]])
+  // CK1: call void @__kmpc_push_num_teams({{.+}}, {{.+}}, i32 [[TE_VAL]], i32 [[TH_VAL]])
   // CK1: call void {{.+}} @__kmpc_fork_teams({{.+}}, i32 3, {{.+}} @[[OUTL1:.+]] to {{.+}}, {{.+}}, {{.+}})
   // CK1: ret void
 
   // CK1: define internal void @[[OUTL1]]({{.+}})
   // CK1: [[ARRDECAY:%.+]] = getelementptr inbounds [1000 x i32], [1000 x i32]* %{{.+}}, i{{32|64}} 0, i{{32|64}} 0
-  // CK1: [[ARR_CAST:%.+]] = ptrtoint i32* [[ARRDECAY]] to i{{32|64}}
-  // CK1: [[MASKED_PTR:%.+]] = and i{{32|64}} [[ARR_CAST]], 7
-  // CK1: [[COND:%.+]] = icmp eq i{{32|64}} [[MASKED_PTR]], 0
-  // CK1: call void @llvm.assume(i1 [[COND]])
+  // CK1: call void @llvm.assume(i1 true) [ "align"(i32* [[ARRDECAY]], {{i64|i32}} 8) ]
   // CK1: call void @__kmpc_for_static_init_4(
   // CK1: call void {{.+}} @__kmpc_fork_call(
   // CK1: call void @__kmpc_for_static_fini(

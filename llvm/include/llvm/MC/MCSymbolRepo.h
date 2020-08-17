@@ -32,11 +32,11 @@ public:
     StringRef PrivateGlobalPrefix = Ctx.getAsmInfo()->getPrivateGlobalPrefix();
     FullName.reserve(PrivateGlobalPrefix.size() + InitialName.size() +
                      repodefinition::DigestSize + 1);
-    FullName.append(PrivateGlobalPrefix);
-    FullName.append(InitialName);
+    FullName = PrivateGlobalPrefix.str();
+    FullName += InitialName;
     if (Digest != repodefinition::NullDigest) {
-      FullName.append(".");
-      FullName.append(Digest.digest().str());
+      FullName += ".";
+      FullName += Digest.digest().str();
     }
     return FullName;
   }

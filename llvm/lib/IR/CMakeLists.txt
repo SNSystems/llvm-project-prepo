@@ -1,7 +1,3 @@
-set(LLVM_TARGET_DEFINITIONS AttributesCompatFunc.td)
-tablegen(LLVM AttributesCompatFunc.inc -gen-attrs)
-add_public_tablegen_target(AttributeCompatFuncTableGen)
-
 add_llvm_component_library(LLVMCore
   AbstractCallSite.cpp
   AsmWriter.cpp
@@ -35,6 +31,7 @@ add_llvm_component_library(LLVMCore
   LegacyPassManager.cpp
   LLVMContext.cpp
   LLVMContextImpl.cpp
+  LLVMRemarkStreamer.cpp
   Mangler.cpp
   MDBuilder.cpp
   Metadata.cpp
@@ -47,7 +44,6 @@ add_llvm_component_library(LLVMCore
   PassManager.cpp
   PassRegistry.cpp
   PassTimingInfo.cpp
-  RemarkStreamer.cpp
   SafepointIRVerifier.cpp
   ProfileSummary.cpp
   RepoGlobals.cpp

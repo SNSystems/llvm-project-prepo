@@ -31,7 +31,6 @@ public:
 
 private:
   DebugSectionKind DebugKind;
-  StringRef Name;
   repodefinition::DigestType Digest;
   /// Monotonically increases for each section.
   unsigned const Index;

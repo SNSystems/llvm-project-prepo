@@ -1,3 +1,9 @@
+foreach(t ${LLVM_TARGETS_TO_BUILD})
+  if(IS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${t})
+    add_subdirectory(${t})
+  endif()
+endforeach()
+
 set(LLVM_LINK_COMPONENTS
   ${LLVM_TARGETS_TO_BUILD}
   MC
@@ -11,6 +17,7 @@ add_llvm_unittest(MCTests
   MCInstPrinter.cpp
   StringTableBuilderTest.cpp
   TargetRegistry.cpp
+  MCDisassemblerTest.cpp
   )
 
 target_link_libraries (MCTests PRIVATE pstore-core)

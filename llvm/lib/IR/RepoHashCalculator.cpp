@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/ADT/SmallString.h"
 #include "llvm/IR/RepoHashCalculator.h"
-#include "llvm/IR/CallSite.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/IR/InlineAsm.h"
@@ -148,6 +148,7 @@ void HashCalculator::hashType(Type *Ty) {
   // PrimitiveTypes
   case Type::VoidTyID:
   case Type::HalfTyID:
+  case Type::BFloatTyID:
   case Type::FloatTyID:
   case Type::DoubleTyID:
   case Type::X86_FP80TyID:
@@ -191,11 +192,18 @@ void HashCalculator::hashType(Type *Ty) {
       Hash.update(STy->isPacked());
     break;
   }
-  case Type::ArrayTyID:
-  case Type::VectorTyID: {
-    auto *STy = cast<SequentialType>(Ty);
-    hashNumber(STy->getNumElements());
-    hashType(STy->getElementType());
+  case Type::ArrayTyID: {
+    auto *ATy = cast<ArrayType>(Ty);
+    hashNumber(ATy->getNumElements());
+    hashType(ATy->getElementType());
+    break;
+  }
+  case Type::FixedVectorTyID:
+  case Type::ScalableVectorTyID: {
+    auto *VTy = cast<VectorType>(Ty);
+    hashNumber(VTy->getElementCount().Scalable);
+    hashNumber(VTy->getElementCount().Min);
+    hashType(VTy->getElementType());
     break;
   }
   }
@@ -361,7 +369,7 @@ void HashCalculator::hashGlobalValue(const GlobalValue *V) {
 std::string &HashCalculator::get(MD5::MD5Result &HashRes) {
   SmallString<32> Result;
   MD5::stringifyResult(HashRes, Result);
-  TheHash = Result.str();
+  TheHash = std::string(Result);
   return TheHash;
 }
 
@@ -408,12 +416,11 @@ void FunctionHashCalculator::hashSignature(const Function *F) {
 // Calculate either CallInst or InvokeInst instruction hash.
 void FunctionHashCalculator::hashOperandBundles(const Instruction *V) {
   update(HashKind::TAG_OperandBundles);
-  ImmutableCallSite VCS(V);
-  assert(VCS && "Must not be empty!");
-  assert((VCS.isCall() || VCS.isInvoke()) && "Must be calls or invokes!");
+  const auto &CB = cast<CallBase>(*V);
+  assert((isa<CallInst>(CB) || isa<InvokeInst>(CB)) && "Must be calls or invokes!");
 
-  for (unsigned i = 0, e = VCS.getNumOperandBundles(); i != e; ++i) {
-    auto VOB = VCS.getOperandBundleAt(i);
+  for (unsigned i = 0, e = CB.getNumOperandBundles(); i != e; ++i) {
+    auto VOB = CB.getOperandBundleAt(i);
     FnHash.hashMem(VOB.getTagName());
     // Since input values have been used to calculate the instruction hash for
     // all instructions, we only consider the input sizes here.
