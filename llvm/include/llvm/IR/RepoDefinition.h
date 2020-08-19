@@ -55,9 +55,43 @@ struct GOInfo {
   /// variable) without consideration for any references to other objects.
   DigestType InitialDigest;
 
-  /// The Dependencies of an object are those objects which it transitively
-  /// references or the reverse-contributions, which is converted from the
-  /// Contributions.
+  /// When we calculate the initial digest for each global object (GO), we also
+  /// collect the GO's 'Contributions' and 'Dependencies'. The GO's
+  /// 'Contributions' and 'Dependencies' represent the different directions
+  /// during the hash calculation. If GO's digest contributes to other GOs, we
+  /// will put all the other GOs into the GO's 'Contributions'. However, the
+  /// 'Dependencies' of the GO are those objects whose digest value changes
+  /// might affect the GO's digest value.
+  ///
+  /// Consider the following example:
+  /// int V1 = 5;
+  /// int V2 = V1;
+  /// int func() {
+  ///   V2 = V2 + 5;
+  ///   return V2;
+  /// }
+  ///
+  /// After the initial hash calculation, the following information is
+  /// collected.
+  /// 'V1': Contributions: [ ], Dependencies: [ ].
+  /// 'V2': Contributions: [ ], Dependencies: ['V1' ].
+  /// 'func': Contributions: [ 'V2'], Dependencies: ['V2'].
+  ///
+  /// The 'V2' digest value is not only dependent on 'V1' but also on the
+  /// 'func'. 'Contributions' were initially known as 'reverse dependencies',
+  /// and they are dependencies in the graph which have the direction of the
+  /// edge reversed because the code that scans the definition of 'V2' is unable
+  /// to see or record the relationship with 'func'. If we simply swapped the
+  /// contribution/reverse-dependency for a normal (forward) dependency, the
+  /// meaning is unchanged.
+  ///
+  /// Convert the 'Contributions' to 'Dependencies':
+  /// 'V1': Dependencies: [ ].
+  /// 'V2': Dependencies: ['V1', 'func'].
+  /// 'func': Dependencies: ['V2'].
+  ///
+  /// The Dependencies of an object (X) which include the X's 'Dependencies' and
+  /// Y if X is in the Y's 'Contributions'.
   GOVec Dependencies;
 
   GOInfo() = default;
@@ -184,7 +218,7 @@ private:
   /// \param GOHash A object that is used to calculate the GO's hash value.
   /// \param UseRepoDefinitionMD true if using the digest of GO's dependencies
   ///        stored in the RepoDefinition metadata.
-  /// \returns a structure containing the GO's state.
+  /// \returns The GO's Dependencies in the GOInfo map.
   GOVec accumulateGODigest(const GlobalObject *GO, MD5 &GOHash,
                            bool UseRepoDefinitionMD);
 
