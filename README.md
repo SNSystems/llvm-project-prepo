@@ -163,7 +163,7 @@ This is an example work-flow and configuration to get and build the LLVM source:
         * CMake will generate targets for each tool and library, and most
           LLVM sub-projects generate their own ``check-<project>`` target.
 
-        * Running a serial build will be **slow**.  To improve speed, try running a
+        * Running a serial build will be **slow**. To improve speed, try running a
           parallel build.  That's done by default in Ninja; for ``make``, use the option
           ``-j NNN``, where ``NNN`` is the number of parallel jobs, e.g. the number of
           CPUs you have.
