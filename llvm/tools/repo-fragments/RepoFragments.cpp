@@ -74,20 +74,22 @@ static constexpr unsigned clamp_to_unsigned(size_t S) {
 
 namespace {
 
-cl::opt<std::string> RepoPath("repo", cl::Optional,
-                              cl::desc("Path of the program repository"),
-                              cl::init("./clang.db"));
 cl::opt<std::string> TicketPath(cl::Positional,
                                 cl::desc("<Path of the ticket file>"),
                                 cl::Required);
 cl::list<std::string>
-    Names("names", cl::ZeroOrMore, cl::CommaSeparated,
+    Names(cl::Positional, cl::ZeroOrMore,
           cl::desc("<Compilation member(s) to be displayed>"));
+cl::opt<std::string> RepoPath("repo", cl::Optional,
+                              cl::desc("Path of the program repository"),
+                              cl::init("./clang.db"));
 cl::opt<bool> DigestOnly("digest-only", cl::init(false),
                          cl::desc("Display the digest only"));
+cl::alias DigestOnly2("d", cl::aliasopt(DigestOnly));
 cl::opt<bool>
     UseComma("comma", cl::init(false),
              cl::desc("Output fields are comma (rather than CR) separated"));
+cl::alias UseComma2("c", cl::aliasopt(UseComma));
 
 } // end anonymous namespace
 
