@@ -16,15 +16,14 @@ namespace rld {
     /// \param Ctxt The rld context.
     /// \param Workers  A pool of worker threads ready to accept jobs.
     /// \param Data The output buffer.
-    /// \param LO The data layout.
-    /// \param SegmentDataOffsets  The absolute offset within the output buffer of each segment's data.
+    /// \param Lout The data layout.
+    /// \param SegmentDataOffsets  The absolute offset within the output buffer
+    /// of each segment's data.
     void copyToOutput(
-        Context &Ctxt,
-        llvm::ThreadPool &Workers,
-        uint8_t *Data,
-        const LayoutOutput &LO,
-        const SegmentIndexedArray<uint64_t> &SegmentDataOffsets
-    );
+        Context &Ctxt, llvm::ThreadPool &Workers, uint8_t *const Data,
+        const Layout &Lout,
+        rld::SectionArray<llvm::Optional<uint64_t>> &SectionFileOffsets,
+        uint64_t TargetDataOffset);
 
 } // end namespace rld
 

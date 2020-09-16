@@ -94,7 +94,11 @@ public:
   Value *data() { return Array_.data(); }
   const Value *data() const { return Array_.data(); }
 
-//private:
+  Value &front() { return Array_.front(); }
+  const Value &front() const { return Array_.front(); }
+  Value &back() { return Array_.back(); }
+  const Value &back() const { return Array_.back(); }
+
   Array Array_;
 };
 

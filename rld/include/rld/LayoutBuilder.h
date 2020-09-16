@@ -134,34 +134,79 @@ inline SegmentKind operator++(SegmentKind &SK, int) noexcept {
   return prev;
 }
 
-//-MARK: SectionInfo
-struct SectionInfo {
-  SectionInfo(pstore::repo::section_base const *S, UintptrAddress SA,
-              uint64_t Offset_, uint64_t Size_, unsigned Align_,
-              StringAddress Name_, unsigned const InputOrdinal_)
+template <typename Function> inline void forEachSegmentKind(Function F) {
+  for (auto SegmentK = rld::firstSegmentKind();
+       SegmentK != rld::SegmentKind::last; ++SegmentK) {
+    F(SegmentK);
+  }
+}
+template <typename Function> inline void forEachSectionKind(Function F) {
+  for (auto SectionK = rld::firstSectionKind();
+       SectionK != rld::SectionKind::last; ++SectionK) {
+    F(SectionK);
+  }
+}
+
+//-MARK: Contribution
+struct Contribution {
+  Contribution(pstore::repo::section_base const *S, UintptrAddress SA,
+               uint64_t Offset_, uint64_t Size_, unsigned Align_,
+               StringAddress Name_, unsigned const InputOrdinal_)
       : Section{S}, XfxShadow{SA}, Offset{Offset_}, Size{Size_}, Align{Align_},
         InputOrdinal{InputOrdinal_}, Name{Name_} {}
 
-  pstore::repo::section_base const *Section;
+  pstore::repo::section_base const *const Section;
   UintptrAddress const XfxShadow;
 
+  /// The output offset from the first section of this type.
   uint64_t const Offset;
+  /// The number of bytes occupied by this section.
   uint64_t const Size; // TODO: we really don't need 64-bits for the size of an
-                 // individual section.
+                       // individual section.
+  /// The required alignment for this section's data.
   unsigned const Align;
+  /// The input-ordinal of the ticket file from which this section originates.
   unsigned const InputOrdinal;
 
   StringAddress const Name;
-//  uint64_t VAddr = 0;
 };
 
-using SectionInfoVector =
-    pstore::chunked_vector<SectionInfo,
-                           (32 * 1024 * 1024) / sizeof(SectionInfo)>;
+llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, Contribution const &SI);
+
+class Layout;
+
+//-MARK: OutputSection
+struct OutputSection {
+  using ContributionVector =
+      pstore::chunked_vector<Contribution,
+                             (32 * 1024 * 1024) / sizeof(Contribution)>;
+  ContributionVector Contributions;
+  /// For an output section containing data that is loaded on the target, the
+  /// virtual address assigned to this section data. 0 otherwise.
+  uint64_t VirtualAddr = 0;
+  /// The total virtual memory size of the output section contents (which may
+  /// either come from contributions or metadata stored elsewhere).
+  uint64_t VirtualSize = 0;
+  /// The total file size of the output section contents (which may either come
+  /// from contributions or metadata stored elsewhere).
+  uint64_t FileSize = 0;
+  /// The alignment of the most aligned contribution.
+  unsigned MaxAlign = 0U;
+
+  bool AlwaysEmit = false;
+
+  bool shouldEmit() const {
+    return AlwaysEmit || VirtualSize > 0 || FileSize > 0;
+  }
+
+  typedef void (*WriterFn)(Context &Ctxt, const OutputSection &OScn,
+                           std::uint8_t *Data, const Layout &Lout);
+  WriterFn Writer = nullptr;
+};
 
 //-MARK: Segment
 struct Segment {
-  EnumIndexedArray<SectionKind, SectionKind::last, SectionInfoVector> Sections;
+  EnumIndexedArray<SectionKind, SectionKind::last, OutputSection *> Sections;
   uint64_t VirtualAddr = 0;
   uint64_t VirtualSize = 0;
   uint64_t FileSize = 0;
@@ -174,78 +219,30 @@ struct Segment {
 template <typename Value>
 using SegmentIndexedArray =
     EnumIndexedArray<SegmentKind, SegmentKind::last, Value>;
-using SegmentArray = SegmentIndexedArray<Segment>;
-using LayoutOutput = SegmentArray;
 
-namespace details {
+//-MARK: Layout
+class Layout {
+public:
+  EnumIndexedArray<SectionKind, SectionKind::last, OutputSection> Sections;
+  SegmentIndexedArray<Segment> Segments;
 
-// TODO: remove_cvref was introduced in C++20.
-template <typename T> struct remove_cvref {
-  typedef std::remove_cv_t<std::remove_reference_t<T>> type;
-};
-template <typename T> using remove_cvref_t = typename remove_cvref<T>::type;
+  template <typename Function> void forEachSegment(Function F) const {
+    forEachSegmentImpl(*this, F);
+  }
+  template <typename Function> void forEachSegment(Function F) {
+    forEachSegmentImpl(*this, F);
+  }
 
-template <typename LayoutOutputType, typename Function>
-void for_each_segment(LayoutOutputType &LO, Function F) {
-  for (auto Seg = firstSegmentKind(); Seg != SegmentKind::last; ++Seg) {
-    if (Seg != rld::SegmentKind::discard) {
-      F(Seg, LO[Seg]);
+private:
+  template <typename LayoutType, typename Function>
+  static void forEachSegmentImpl(LayoutType &Lout, Function F) {
+    for (auto Seg = firstSegmentKind(); Seg != SegmentKind::last; ++Seg) {
+      if (Seg != rld::SegmentKind::discard) {
+        F(Seg, Lout.Segments[Seg]);
+      }
     }
   }
-}
-
-template <typename LayoutOutputType, typename Function>
-void for_each_section(LayoutOutputType &LO, Function F) {
-  for_each_segment(LO, [&F](SegmentKind SegmentK, auto &Seg) {
-    static_assert(std::is_same<Segment, remove_cvref_t<decltype(Seg)>>::value,
-                  "Expected Seg to be of type Segment");
-    for (rld::SectionKind SKind = rld::firstSectionKind();
-         SKind != rld::SectionKind::last; ++SKind) {
-      F(SKind, Seg.Sections[SKind]);
-    }
-  });
-}
-
-template <typename LayoutOutputType, typename Function>
-void for_each_contribution(LayoutOutputType &LO, Function F) {
-  for_each_section(LO, [&F](SectionKind SKind, auto const &SI) {
-    static_assert(
-        std::is_same<SectionInfoVector, remove_cvref_t<decltype(SI)>>::value,
-        "Expected SI to be of type SectionInfoVector");
-    for (auto &Contribution : SI) {
-      F(SKind, Contribution);
-    }
-  });
-}
-
-} // end namespace details
-
-template <typename Function>
-void for_each_segment(const LayoutOutput &LO, Function F) {
-  details::for_each_segment(LO, F);
-}
-template <typename Function>
-void for_each_segment(LayoutOutput &LO, Function F) {
-  details::for_each_segment(LO, F);
-}
-
-template <typename Function>
-void for_each_section(const LayoutOutput &LO, Function F) {
-  details::for_each_section(LO, F);
-}
-template <typename Function>
-void for_each_section(LayoutOutput &LO, Function F) {
-  details::for_each_section(LO, F);
-}
-
-template <typename Function>
-void for_each_contribution(const LayoutOutput &LO, Function F) {
-  details::for_each_contribution(LO, F);
-}
-template <typename Function>
-void for_each_contribution(LayoutOutput &LO, Function F) {
-  details::for_each_contribution(LO, F);
-}
+};
 
 //-MARK: LayoutBuilder
 class LayoutBuilder {
@@ -262,7 +259,7 @@ public:
   /// The main layout thread entry point.
   void run();
 
-  std::unique_ptr<LayoutOutput> flattenSegments();
+  std::unique_ptr<Layout> flattenSegments();
 
 private:
   Context &Ctx_;
@@ -299,8 +296,8 @@ private:
 
   static SectionToSegmentArray const SectionToSegment_;
 
-  /// The Segments_ container is built as layout runs.
-  std::unique_ptr<LayoutOutput> Segments_;
+  /// The Layout_ container is built as layout runs.
+  std::unique_ptr<Layout> Layout_;
 
   static constexpr decltype(auto) sectionNum(pstore::repo::section_kind SKind) {
     return static_cast<std::underlying_type<pstore::repo::section_kind>::type>(
@@ -322,7 +319,8 @@ private:
   void addSymbolBody(Symbol::Body const &Body, uint32_t Ordinal,
                      StringAddress const Name);
 
-  static std::uint64_t prevSectionEnd(SectionInfoVector const &SI);
+  static std::uint64_t
+  prevSectionEnd(OutputSection::ContributionVector const &Contributions);
   static void checkSectionToSegmentArray();
 
   void debugDumpLayout() const;

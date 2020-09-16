@@ -16,13 +16,13 @@ constexpr auto DebugType = "rld-copy";
 
 template <pstore::repo::section_kind SKind,
           typename SType = typename pstore::repo::enum_to_section<SKind>::type>
-static void copySection(Context &Ctxt, SectionInfo const &S,
-                 std::uint8_t *Dest) {
-  auto *const Section = reinterpret_cast<SType const *>(S.Section);
+static void copySection(Context &Ctxt, Contribution const &Contribution,
+                        std::uint8_t *Dest) {
+  auto *const Section = reinterpret_cast<SType const *>(Contribution.Section);
 
   llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
-    llvm::dbgs() << "copy to " << format_hex(reinterpret_cast<std::uintptr_t>(Dest))
-                 << '\n';
+    llvm::dbgs() << "copy to "
+                 << format_hex(reinterpret_cast<std::uintptr_t>(Dest)) << '\n';
   });
 
   auto const d = Section->payload();
@@ -49,7 +49,7 @@ static void copySection(Context &Ctxt, SectionInfo const &S,
 
 template <>
 void copySection<pstore::repo::section_kind::bss>(Context &Ctxt,
-                                                  SectionInfo const &S,
+                                                  Contribution const &S,
                                                   std::uint8_t *Dest) {
   llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
     llvm::dbgs() << "BSS fill " << reinterpret_cast<std::uintptr_t>(Dest)
@@ -63,62 +63,55 @@ void copySection<pstore::repo::section_kind::bss>(Context &Ctxt,
 }
 
 template <>
-void copySection<pstore::repo::section_kind::dependent>(
-    Context &, SectionInfo const &, std::uint8_t *) {
+void copySection<pstore::repo::section_kind::dependent>(Context &,
+                                                        Contribution const &,
+                                                        std::uint8_t *) {
   // discard
 }
 
-
 namespace rld {
 
-    void copyToOutput(
-        Context &Ctxt,
-        llvm::ThreadPool &Workers,
-        uint8_t *const Data,
-        const LayoutOutput &LO,
-        const SegmentIndexedArray<uint64_t> &SegmentDataOffsets
-    ) {
+void copyToOutput(
+    Context &Ctxt, llvm::ThreadPool &Workers, uint8_t *const Data,
+    const Layout &L,
+    rld::SectionArray<llvm::Optional<uint64_t>> &SectionFileOffsets,
+    uint64_t TargetDataOffset) {
 
-    for (auto SegmentK = firstSegmentKind();
-       SegmentK != SegmentKind::last; ++SegmentK) {
-    const Segment &Segment = LO[SegmentK];
-    const uint64_t StartOffset = SegmentDataOffsets[SegmentK];
+  for (SectionKind SectionK = firstSectionKind(); SectionK != SectionKind::last;
+       ++SectionK) {
+    const OutputSection::ContributionVector &Contributions =
+        L.Sections[SectionK].Contributions;
+    if (Contributions.empty()) {
+      continue;
+    }
+    assert(SectionFileOffsets[SectionK].hasValue() &&
+           "No layout position for a section with contributions");
+    Workers.async(
+        [SectionK, &Ctxt, Data, &Contributions](uint64_t Start) {
+          for (Contribution const &Contribution : Contributions) {
+            llvmDebug(DebugType, Ctxt.IOMut,
+                      [SectionK]() { llvm::dbgs() << SectionK << ": "; });
 
-    assert(Segment.Sections.size() == static_cast<std::underlying_type<SectionKind>::type>(SectionKind::last));
-    for (SectionKind SectionK = firstSectionKind();
-         SectionK != SectionKind::last; ++SectionK) {
-      if (LO[SegmentK].Sections[SectionK].empty()) {
-        continue;
-      }
-
-      Workers.async([SectionK, SegmentK, Data, StartOffset, &LO, &Ctxt]() {
-        for (SectionInfo const &Section :
-             LO[SegmentK].Sections[SectionK]) {
-          llvmDebug(DebugType, Ctxt.IOMut, [SectionK, SegmentK]() {
-            llvm::dbgs() << SegmentK << '/' << SectionK << ": ";
-          });
-
-          auto *const Dest =
-              Data + alignTo(Section.Offset, Section.Align) + StartOffset;
-          // FIXME: not all values of rld::SectionKind can be cast to
-          // repo::section_kind!
-          switch (static_cast<pstore::repo::section_kind>(SectionK)) {
+            auto *const Dest =
+                Data + alignTo(Contribution.Offset, Contribution.Align) + Start;
+            // FIXME: not all values of rld::SectionKind can be cast to
+            // repo::section_kind!
+            switch (static_cast<pstore::repo::section_kind>(SectionK)) {
 #define X(a)                                                                   \
   case pstore::repo::section_kind::a:                                          \
-    copySection<pstore::repo::section_kind::a>(Ctxt, Section, Dest);           \
+    copySection<pstore::repo::section_kind::a>(Ctxt, Contribution, Dest);      \
     break;
 
-            PSTORE_MCREPO_SECTION_KINDS
+              PSTORE_MCREPO_SECTION_KINDS
 #undef X
-          default:
-            llvm_unreachable("Bad section kind");
-            break;
+            default:
+              llvm_unreachable("Bad section kind");
+              break;
+            }
           }
-        }
-      });
-    }
+        },
+        TargetDataOffset + *SectionFileOffsets[SectionK]);
   }
 }
 
 } // end namespace rld
-

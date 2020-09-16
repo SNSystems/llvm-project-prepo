@@ -384,36 +384,22 @@ elfSectionNameAndLength(rld::SectionKind SKind) {
 
 #undef X
 
-struct ElfSectionInfo {
-  /// If the section will appear in the memory image of a process, this member
-  /// gives the address at which the section's first byte should reside.
-  /// Otherwise, the member contains 0. Provides the sh_addr value for the
-  /// Elf_Shdr structure.
-  uint64_t Address = 0;
-  uint64_t Offset = 0;
-  uint64_t Size = 0;
-  uint64_t NameOffset = 0;
-  bool Emit = false;
-  /// The alignment of the section data. Always a power of 2.
-  unsigned Align = 1U;
-};
-
 template <typename ELFT>
-auto emitProgramHeaders(
-    typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr,
-    const rld::FileRegion &TargetDataRegion, const rld::LayoutOutput &Layout,
-    const rld::SegmentIndexedArray<uint64_t> &SegmentDataOffsets) ->
+auto emitProgramHeaders(typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr,
+                        Context &Ctxt, const rld::FileRegion &TargetDataRegion,
+                        const rld::Layout &Lout,
+                        const rld::SegmentIndexedArray<llvm::Optional<uint64_t>>
+                            &SegmentDataOffsets) ->
     typename llvm::object::ELFFile<ELFT>::Elf_Phdr *;
 
 template <typename ELFT>
-auto emitSectionHeaders(typename llvm::object::ELFFile<ELFT>::Elf_Shdr *Shdr,
-                        const SectionArray<ElfSectionInfo> &ElfSections) ->
+auto emitSectionHeaders(
+    typename llvm::object::ELFFile<ELFT>::Elf_Shdr *Shdr, const Layout &Lout,
+    const SectionArray<llvm::Optional<uint64_t>> &SectionFileOffsets,
+    const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t>
+        &NameOffsets,
+    uint64_t TargetDataOffset) ->
     typename llvm::object::ELFFile<ELFT>::Elf_Shdr *;
-
-// Produce the section names string table.
-char *
-emitSectionHeaderStringTable(char *SectionNamePtr,
-                             const SectionArray<ElfSectionInfo> &ElfSections);
 
 } // end namespace elf
 } // end namespace rld
