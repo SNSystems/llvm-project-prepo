@@ -216,10 +216,12 @@ auto rld::elf::emitProgramHeaders(
       return;
     }
 
-    const uint64_t SegmentDataOffset =
-        SegmentDataOffsets[Kind].getValueOr(0U) + TargetDataRegion.offset();
-    assert(SegmentDataOffset >= TargetDataRegion.offset() &&
-           SegmentDataOffset + Segment.FileSize < TargetDataRegion.end());
+    uint64_t SegmentDataOffset = SegmentDataOffsets[Kind].getValueOr(0U);
+    if (Segment.HasOutputSections) {
+        SegmentDataOffset += TargetDataRegion.offset();
+        assert(SegmentDataOffset >= TargetDataRegion.offset() &&
+            SegmentDataOffset + Segment.FileSize < TargetDataRegion.end());
+    }
 
     Phdr->p_type = elfSegmentKind<ELFT>(Kind);
     Phdr->p_flags = elfSegmentFlags<ELFT>(Kind);

@@ -499,6 +499,7 @@ std::unique_ptr<Layout> LayoutBuilder::flattenSegments() {
     auto A = Seg.VirtualAddr;
     forEachSectionKind([&](SectionKind SectionK) {
       if (OutputSection *const OScn = Seg.Sections[SectionK]) {
+Seg.HasOutputSections = true;
         assert(OScn->VirtualAddr == 0);
         A = alignTo(A, OScn->MaxAlign);
         OScn->VirtualAddr = A;

@@ -444,6 +444,8 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
   const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t> NameOffsets =
       buildSectionStringTable(Lout);
 
+Lout->Segments[SegmentKind::phdr].AlwaysEmit = true;
+
   // Flattens the layout so that sections and segments don't overlap and
   // establishes their position in the SectionData region of the final file.
   // Data here is 0 based.
@@ -453,6 +455,8 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
   const uint64_t LayoutEnd = computeSectionFileOffsets(
       Ctxt, *Lout, &SegmentFileOffsets, &SectionFileOffsets);
   assert(SectionFileOffsets[rld::SectionKind::shstrtab].hasValue());
+
+
 
   const unsigned NumSections = std::accumulate(
       std::begin(Lout->Sections), std::end(Lout->Sections), NumImplicitSections,
@@ -465,6 +469,14 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
         return Acc + static_cast<unsigned>(Segment.shouldEmit());
       });
 
+{
+    Segment & phdr = Lout->Segments[SegmentKind::phdr];
+    phdr.FileSize = sizeof (Elf_Phdr) * NumSegments;
+    phdr.VirtualSize = sizeof (Elf_Phdr) * NumSegments;
+    phdr.VirtualAddr += sizeof (Elf_Ehdr);
+    phdr.MaxAlign = 1U;
+}
+
   enum class Region {
     FileHeader,
     SegmentTable,
@@ -474,14 +486,12 @@ void elfOutput(rld::Context &Ctxt, llvm::ThreadPool &WorkPool,
   };
   rld::EnumIndexedArray<Region, Region::Last, rld::FileRegion> FileRegions;
   FileRegions[Region::FileHeader] = rld::FileRegion{0, sizeof(Elf_Ehdr)};
-  FileRegions[Region::SegmentTable] = rld::FileRegion{
-      FileRegions[Region::FileHeader].end(), NumSegments * sizeof(Elf_Phdr)};
-  FileRegions[Region::SectionData] = rld::FileRegion{
-      alignTo(FileRegions[Region::SegmentTable].end(),
-              NumSegments > 0U ? firstSegmentAlignment(*Lout) : 1U),
-      LayoutEnd};
-  FileRegions[Region::SectionTable] = rld::FileRegion{
-      FileRegions[Region::SectionData].end(), NumSections * sizeof(Elf_Shdr)};
+  FileRegions[Region::SegmentTable] = rld::FileRegion{FileRegions[Region::FileHeader].end(), NumSegments * sizeof(Elf_Phdr)};
+  FileRegions[Region::SectionData] = rld::FileRegion{alignTo(FileRegions[Region::SegmentTable].end(), NumSegments > 0U ? firstSegmentAlignment(*Lout) : 1U), LayoutEnd};
+  FileRegions[Region::SectionTable] = rld::FileRegion{FileRegions[Region::SectionData].end(), NumSections * sizeof(Elf_Shdr)};
+
+SegmentFileOffsets[SegmentKind::phdr] = sizeof (Elf_Ehdr);
+
 
   uint64_t const TotalSize = FileRegions.back().end();
   rld::llvmDebug(DebugType, Ctxt.IOMut, [TotalSize]() {

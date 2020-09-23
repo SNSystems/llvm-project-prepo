@@ -212,6 +212,7 @@ struct Segment {
   uint64_t FileSize = 0;
   unsigned MaxAlign = 1U;
   bool AlwaysEmit = false;
+bool HasOutputSections = false;
 
   bool shouldEmit() const { return AlwaysEmit || VirtualSize > 0; }
 };
