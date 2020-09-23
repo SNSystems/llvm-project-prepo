@@ -236,7 +236,7 @@ template <typename ELFT> constexpr auto elfSectionType(rld::SectionKind Kind) {
   case SectionKind::shstrtab:
     return Elf_Word{llvm::ELF::SHT_STRTAB};
 
-  case SectionKind::dependent:
+  case SectionKind::linked_definitions:
   case SectionKind::last:
     assert(false); //
     return Elf_Word{};
@@ -284,7 +284,7 @@ template <typename ELFT> constexpr auto elfSectionFlags(SectionKind Kind) {
   case SectionKind::shstrtab:
     return Elf_Word{};
 
-  case SectionKind::dependent:
+  case SectionKind::linked_definitions:
   case SectionKind::last:
     assert(false); //
     return Elf_Word{};
@@ -320,7 +320,7 @@ template <typename ELFT> constexpr auto elfSectionEntSize(SectionKind Kind) {
   case SectionKind::debug_string:
   case SectionKind::debug_ranges:
   case SectionKind::interp:
-  case SectionKind::dependent:
+  case SectionKind::linked_definitions:
   case SectionKind::shstrtab:
   case SectionKind::strtab:
     break;
@@ -342,7 +342,7 @@ ELF_SECTION_NAME(data, ".data");
 ELF_SECTION_NAME(debug_line, ".debug_line");
 ELF_SECTION_NAME(debug_ranges, ".debug_ranges");
 ELF_SECTION_NAME(debug_string, ".debug_str");
-ELF_SECTION_NAME(dependent, "");
+ELF_SECTION_NAME(linked_definitions, "");
 ELF_SECTION_NAME(interp, ".interp");
 ELF_SECTION_NAME(mergeable_1_byte_c_string, ".rodata.str1.1");
 ELF_SECTION_NAME(mergeable_2_byte_c_string, ".rodata.str2.2");

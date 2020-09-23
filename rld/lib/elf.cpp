@@ -77,7 +77,7 @@ ELF_SECTION_NAME(debug_ranges, ".debug_ranges");
 ELF_SECTION_NAME(interp, ".interp");
 ELF_SECTION_NAME(shstrtab, ".shstrtab");
 ELF_SECTION_NAME(strtab, ".strtab");
-ELF_SECTION_NAME(dependent, "");
+ELF_SECTION_NAME(linked_definitions, "");
 
 #undef ELF_SECTION_NAME
 

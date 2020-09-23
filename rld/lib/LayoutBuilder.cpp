@@ -113,7 +113,7 @@ LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
     {SectionKind::debug_string, SegmentKind::discard},
     {SectionKind::debug_ranges, SegmentKind::discard},
     {SectionKind::interp, SegmentKind::interp},
-    {SectionKind::dependent, SegmentKind::discard},
+    {SectionKind::linked_definitions, SegmentKind::discard},
     {SectionKind::shstrtab, SegmentKind::discard}, // TODO:An unnecessary entry?
                                                    // Use the repo section enum?
     {SectionKind::strtab, SegmentKind::discard},   // TODO:An unnecessary entry?
@@ -212,7 +212,7 @@ inline bool hasFileData(pstore::repo::section_kind Kind) {
         return true;
     case pstore::repo::section_kind::bss:
     case pstore::repo::section_kind::thread_bss:
-    case pstore::repo::section_kind::dependent:
+    case pstore::repo::section_kind::linked_definitions:
     case pstore::repo::section_kind::last:
         return false;
     }
@@ -278,7 +278,7 @@ template <> struct HasFileData<pstore::repo::section_kind::bss> {
 template <> struct HasFileData<pstore::repo::section_kind::thread_bss> {
   static constexpr bool value = false;
 };
-template <> struct HasFileData<pstore::repo::section_kind::dependent> {
+template <> struct HasFileData<pstore::repo::section_kind::linked_definitions> {
   static constexpr bool value = false;
 };
 template <> struct HasFileData<pstore::repo::section_kind::last> {

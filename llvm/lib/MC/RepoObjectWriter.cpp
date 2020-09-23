@@ -190,10 +190,10 @@ public:
                     const pstore::index::debug_line_header_index::value_type
                         &DebugLineHeader);
 
-  static void
-  updateDependents(pstore::repo::dependents &Dependent,
-                   const pstore::repo::compilation &Compilation,
-                   pstore::typed_address<pstore::repo::compilation> addr);
+  static void updateLinkedDefinitions(
+      pstore::repo::linked_definitions &LinkedDefinitions,
+      const pstore::repo::compilation &Compilation,
+      pstore::typed_address<pstore::repo::compilation> Addr);
 
   uint64_t writeObject(MCAssembler &Asm, const MCAsmLayout &Layout) override;
 };
@@ -781,7 +781,7 @@ DispatcherCollectionType RepoObjectWriter::buildFragmentData(
           pstore::repo::debug_line_section_creation_dispatcher>(
           DebugLineHeader.first, DebugLineHeader.second, Content.get());
       break;
-    case pstore::repo::section_kind::dependent:
+    case pstore::repo::section_kind::linked_definitions:
       llvm_unreachable("Invalid section content!");
       break;
     default:
@@ -793,25 +793,28 @@ DispatcherCollectionType RepoObjectWriter::buildFragmentData(
   }
 
   if (!Contents.Dependents.empty()) {
-    Dispatchers.emplace_back(new pstore::repo::dependents_creation_dispatcher(
-        Contents.Dependents.begin(), Contents.Dependents.end()));
+    Dispatchers.emplace_back(
+        new pstore::repo::linked_definitions_creation_dispatcher(
+            Contents.Dependents.begin(), Contents.Dependents.end()));
   }
 
   return Dispatchers;
 }
 
-void RepoObjectWriter::updateDependents(
-    pstore::repo::dependents &Dependent, const pstore::repo::compilation &Compilation,
-    pstore::typed_address<pstore::repo::compilation> addr) {
-  for (auto &member : Dependent) {
-    // Currently, dependent member value is the index in the Ticket.
-    auto index = member.absolute();
-    assert(index < Compilation.size());
-    auto offset = reinterpret_cast<std::uintptr_t>(&Compilation[index]) -
-                  reinterpret_cast<std::uintptr_t>(&Compilation);
-	// Update the dependent member to record the ticket address.
-    member = pstore::typed_address<pstore::repo::compilation_member>::make(
-        addr.absolute() + offset);
+void RepoObjectWriter::updateLinkedDefinitions(
+    pstore::repo::linked_definitions &LinkedDefinitions,
+    const pstore::repo::compilation &Compilation,
+    pstore::typed_address<pstore::repo::compilation> Addr) {
+  for (auto &Member : LinkedDefinitions) {
+    // Currently, the linked definition member value is the index in the
+    // compilation.
+    const auto Index = Member.absolute();
+    assert(Index < Compilation.size());
+    const auto Offset = reinterpret_cast<std::uintptr_t>(&Compilation[Index]) -
+                        reinterpret_cast<std::uintptr_t>(&Compilation);
+    // Update the dependent member to record the ticket address.
+    Member = pstore::typed_address<pstore::repo::compilation_member>::make(
+        Addr.absolute() + Offset);
   }
 }
 
@@ -1060,14 +1063,16 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
           CompilationMembers.end());
       CompilationIndex->insert(Transaction, std::make_pair(TicketDigest, CExtent));
 
-      // Update the dependents for each fragment index->address
+      // Update the linked-definitions for each fragment index->address
       for (auto &KV : RepoFragments) {
         std::shared_ptr<pstore::repo::fragment> Fragment =
             pstore::repo::fragment::load(Transaction, KV.second);
-        if (auto Dependent =
-                Fragment->atp<pstore::repo::section_kind::dependent>()) {
-          updateDependents(*Dependent, *pstore::repo::compilation::load(Db, CExtent),
-                           CExtent.addr);
+        if (auto *const LinkedDefinitions =
+                Fragment
+                    ->atp<pstore::repo::section_kind::linked_definitions>()) {
+          updateLinkedDefinitions(*LinkedDefinitions,
+                                  *pstore::repo::compilation::load(Db, CExtent),
+                                  CExtent.addr);
         }
       }
     }

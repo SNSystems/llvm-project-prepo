@@ -63,9 +63,8 @@ void copySection<pstore::repo::section_kind::bss>(Context &Ctxt,
 }
 
 template <>
-void copySection<pstore::repo::section_kind::dependent>(Context &,
-                                                        Contribution const &,
-                                                        std::uint8_t *) {
+void copySection<pstore::repo::section_kind::linked_definitions>(
+    Context &, Contribution const &, std::uint8_t *) {
   // discard
 }
 

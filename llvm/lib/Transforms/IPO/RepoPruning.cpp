@@ -171,7 +171,7 @@ static bool hasExistingGOInModule(
   return false;
 }
 
-static void addDependentFragments(
+static void addLinkedDefinitions(
     Module &M, StringSet<> &DependentFragments,
     std::shared_ptr<const pstore::index::fragment_index> const &Fragments,
     const pstore::database &Repository, pstore::index::digest const &Digest) {
@@ -180,20 +180,21 @@ static void addDependentFragments(
   assert(It != Fragments->end(Repository));
   // Create the dependent's RepoDefinition if it exists in the repository.
   auto Fragment = pstore::repo::fragment::load(Repository, It->second);
-  if (auto Dependents =
-          Fragment->atp<pstore::repo::section_kind::dependent>()) {
-    for (pstore::typed_address<pstore::repo::compilation_member> Dependent :
-         *Dependents) {
-      auto CM = pstore::repo::compilation_member::load(Repository, Dependent);
+  if (auto LinkedDefinitions =
+          Fragment->atp<pstore::repo::section_kind::linked_definitions>()) {
+    for (pstore::typed_address<pstore::repo::compilation_member> Definition :
+         *LinkedDefinitions) {
+      auto CM = pstore::repo::compilation_member::load(Repository, Definition);
       StringRef MDName =
           toStringRef(pstore::get_sstring_view(Repository, CM->name).second);
-      LLVM_DEBUG(dbgs() << "    Prunning dependent name: " << MDName << '\n');
+      LLVM_DEBUG(dbgs() << "    Prunning linked-definition name: " << MDName
+                        << '\n');
       auto DMD = RepoDefinition::get(
           M.getContext(), MDName, toDigestType(CM->digest),
           toGVLinkage(CM->linkage()), toGVVisibility(CM->visibility()), true);
-      // If functions 'A' and 'B' are dependent on function 'C', only add a
+      // If functions 'A' and 'B' are linked to function 'C', only add a
       // single RepoDefinition of 'C' to the 'repo.definitions' in order to
-      // avoid multiple compilation_members of function 'C' in the compilation.
+      // avoid multiple instances of definition 'C' in the compilation.
       if (DependentFragments.insert(MDName).second) {
         NamedMDNode *const NMD = M.getOrInsertNamedMetadata("repo.definitions");
         assert(NMD && "NamedMDNode cannot be NULL!");
@@ -201,8 +202,8 @@ static void addDependentFragments(
         // If function 'A' is dependent on function 'B' and 'B' is dependent on
         // function 'C', both RepoDefinition of 'B' and 'C' need to be added
         // into in the 'repo.definitions' during the pruning.
-        addDependentFragments(M, DependentFragments, Fragments, Repository,
-                              CM->digest);
+        addLinkedDefinitions(M, DependentFragments, Fragments, Repository,
+                             CM->digest);
       }
     }
   }
@@ -273,12 +274,12 @@ static bool doPruning(Module &M) {
   }
 
   std::map<pstore::index::digest, const GlobalObject *> ModuleFragments;
-  StringSet<> DependentFragments; // Record all dependents.
+  StringSet<> LinkedDefinitions; // Record all linked definitions.
 
   // Erase the unchanged global objects.
   auto EraseUnchangedGlobalObject =
       [&ModuleFragments, &Fragments, &Repository, &M,
-       &DependentFragments](GlobalObject &GO) -> bool {
+       &LinkedDefinitions](GlobalObject &GO) -> bool {
     if (GO.isDeclaration() || GO.hasAvailableExternallyLinkage() ||
         !isSafeToPrune(GO))
       return false;
@@ -291,7 +292,7 @@ static bool doPruning(Module &M) {
                                            DigestStatus.first.low()};
 
     if (hasExistingGOInRepository(Repository, Fragments, Key, GO)) {
-      addDependentFragments(M, DependentFragments, Fragments, Repository, Key);
+      addLinkedDefinitions(M, LinkedDefinitions, Fragments, Repository, Key);
       removeOrPrune(GO);
       return true;
     }
