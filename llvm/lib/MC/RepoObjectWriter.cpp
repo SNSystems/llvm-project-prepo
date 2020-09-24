@@ -74,21 +74,18 @@ private:
 
   DenseMap<const MCSectionRepo *, std::vector<RepoRelocationEntry>> Relocations;
 
-  // A mapping of a fragment digest to its dependent fragments (saved in the
+  // A mapping of a fragment digest to its linked definitions (saved in the
   // RepoDefinition metadata).
   std::map<repodefinition::DigestType, DenseSet<const RepoDefinition *>>
-      Dependents;
+      LinkedDefinitions;
 
-  // A mapping of a dependent RepoDefinition to its new symbol name which is
-  // used in the string index, compilation member and fragment in the database.
+  // A mapping of a linked definition RepoDefinition to its new symbol name
+  // which is used in the string index, compilation member and fragment in the
+  // database.
   DenseMap<const RepoDefinition *, std::string> RenamesTN;
 
   // Note that I don't use StringMap because we take pointers into this
   // structure that must survive insertion.
-  // TODO: Compare the performance between std::map and std::unordered_map. If
-  // the std::unordered_map operation is faster than std::unordered_map, we
-  // should use the std::unordered_map and store the ordered module string set
-  // into the database later.
   using ModuleNamesContainer =
       std::map<pstore::raw_sstring_view,
                pstore::typed_address<pstore::indirect_string>>;
@@ -96,18 +93,17 @@ private:
   using NamesWithPrefixContainer =
       SmallVector<std::unique_ptr<std::string>, 16>;
 
-  /// A structure of a fragment content.
   struct FragmentContentsType {
     /// Sections contain all the section_contents in this fragment.
     SmallVector<std::unique_ptr<pstore::repo::section_content>, 4> Sections;
-    /// Dependents contain all the ticket_members on which this fragment is
-    /// dependent.
+    /// The definitions which must be present in a compilation contining this
+    /// fragment.
     SmallVector<pstore::typed_address<pstore::repo::compilation_member>, 4>
-        Dependents;
+        LinkedDefinitions;
   };
 
   // A mapping of a fragment digest to its contents (which include the
-  // section contents and dependent fragments).
+  // section contents and linked definitions).
   using ContentsType =
       std::map<repodefinition::DigestType, FragmentContentsType>;
 
@@ -137,7 +133,7 @@ public:
   void reset() override {
     Renames.clear();
     Relocations.clear();
-    Dependents.clear();
+    LinkedDefinitions.clear();
     RenamesTN.clear();
     MCObjectWriter::reset();
   }
@@ -162,7 +158,8 @@ public:
                         MCSection &Sec, const MCAsmLayout &Layout,
                         ModuleNamesContainer &Names);
 
-  void buildDependents(ContentsType &Contents, const TicketType &Tickets) const;
+  void buildLinkedDefinitions(ContentsType &Contents,
+                              const TicketType &Tickets) const;
 
   pstore::raw_sstring_view getSymbolName(const MCAssembler &Asm,
                                          const RepoDefinition &TicketMember,
@@ -308,16 +305,16 @@ void RepoObjectWriter::recordRelocation(MCAssembler &Asm,
   }
 
   StringRef UsedSymbolName = RenamedSymA->getName();
-  if (auto const *Dependent = SymA->CorrespondingRepoDefinition) {
-    Dependents[FixupSection.hash()].insert(Dependent);
-    if (GlobalValue::isLocalLinkage(Dependent->getLinkage())) {
+  if (auto const *Definition = SymA->CorrespondingRepoDefinition) {
+    LinkedDefinitions[FixupSection.hash()].insert(Definition);
+    if (GlobalValue::isLocalLinkage(Definition->getLinkage())) {
       const std::string SymbolName =
-          Dependent->getPruned()
-              ? Dependent->getNameAsString().str()
+          Definition->getPruned()
+              ? Definition->getNameAsString().str()
               : MCSymbolRepo::getFullName(Ctx, UsedSymbolName,
-                                          Dependent->getDigest());
+                                          Definition->getDigest());
       UsedSymbolName = StringRef(
-          RenamesTN.insert(std::make_pair(Dependent, std::move(SymbolName)))
+          RenamesTN.insert(std::make_pair(Definition, std::move(SymbolName)))
               .first->second);
     }
   }
@@ -560,17 +557,18 @@ void RepoObjectWriter::writeSectionData(ContentsType &Fragments,
   Fragments[Section.hash()].Sections.push_back(std::move(Content));
 }
 
-void RepoObjectWriter::buildDependents(ContentsType &Fragments,
-                                       const TicketType &Tickets) const {
-  for (auto const &Dependent : Dependents) {
-    auto &D = Fragments[Dependent.first].Dependents;
-    for (auto const &TN : Dependent.second) {
+void RepoObjectWriter::buildLinkedDefinitions(ContentsType &Fragments,
+                                              const TicketType &Tickets) const {
+  for (auto const &LD : LinkedDefinitions) {
+    auto &D = Fragments[LD.first].LinkedDefinitions;
+    for (auto const &TN : LD.second) {
       // The corresponding compilation_member lies inside of Tickets.
       assert(TN->CorrespondingCompilationMember >= Tickets.data() &&
              TN->CorrespondingCompilationMember <= &Tickets.back());
-      // Record the ticket index in the fragment dependents here. Once the ticket
-      // file is stored into the repository,  the fragment dependents are updated
-      // from the ticket index to the ticket address in the repository.
+      // Record the compilation index in the linked definitions here. Once the
+      // compilation is recorded in the repository,  the linked definitions are
+      // updated from the compilation index to the definition address in the
+      // repository.
       D.push_back(pstore::typed_address<pstore::repo::compilation_member>::make(
           TN->CorrespondingCompilationMember - Tickets.data()));
     }
@@ -730,8 +728,9 @@ pstore::index::digest RepoObjectWriter::buildCompilationRecord(
       // Update the Ticket node to remember the corrresponding ticket member.
       Symbol->CorrespondingCompilationMember = &CompilationMembers.back();
       // If this RepoDefinition was created by the backend, it will be put into
-      // dependent list of a fragment. If this fragment is pruned, its dependent
-      // definitions will be pruned and contributed to the ticket hash.
+      // the linked-definitions section of a fragment. If this fragment is
+      // pruned, its linked-definitions will be pruned and contribute to the
+      // compilation hash.
       CompilationHash.update(makeByteArrayRef(DigestVal));
       CompilationHash.update(makeByteArrayRef(Linkage));
       CompilationHash.update(makeByteArrayRef(Visibility));
@@ -792,10 +791,11 @@ DispatcherCollectionType RepoObjectWriter::buildFragmentData(
     Dispatchers.emplace_back(std::move(Dispatcher));
   }
 
-  if (!Contents.Dependents.empty()) {
+  if (!Contents.LinkedDefinitions.empty()) {
     Dispatchers.emplace_back(
         new pstore::repo::linked_definitions_creation_dispatcher(
-            Contents.Dependents.begin(), Contents.Dependents.end()));
+            Contents.LinkedDefinitions.begin(),
+            Contents.LinkedDefinitions.end()));
   }
 
   return Dispatchers;
@@ -812,7 +812,7 @@ void RepoObjectWriter::updateLinkedDefinitions(
     assert(Index < Compilation.size());
     const auto Offset = reinterpret_cast<std::uintptr_t>(&Compilation[Index]) -
                         reinterpret_cast<std::uintptr_t>(&Compilation);
-    // Update the dependent member to record the ticket address.
+    // Update the linked definition member to record the compilation address.
     Member = pstore::typed_address<pstore::repo::compilation_member>::make(
         Addr.absolute() + Offset);
   }
@@ -908,7 +908,7 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
   pstore::index::digest TicketDigest = buildCompilationRecord(
       Db, Asm, Names, PrefixedNames, Fragments, OutputFile, TripleStr);
 
-  buildDependents(Fragments, CompilationMembers);
+  buildLinkedDefinitions(Fragments, CompilationMembers);
 
   pstore::indirect_string_adder NameAdder(Names.size());
 
