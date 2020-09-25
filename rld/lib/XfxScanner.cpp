@@ -93,7 +93,7 @@ void resolve(State &S, FragmentAddress FAddr,
 }
 
 template <>
-inline void resolve<pstore::repo::section_kind::dependent>(
+inline void resolve<pstore::repo::section_kind::linked_definitions>(
     State & /*S*/,
     pstore::typed_address<pstore::repo::fragment> /*FragmentAddress*/,
     const pstore::repo::fragment & /*Fragment*/) {}

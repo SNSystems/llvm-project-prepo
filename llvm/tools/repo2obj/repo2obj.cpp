@@ -369,7 +369,7 @@ getELFSectionType(pstore::repo::section_kind Kind,
     REPO_TO_ELF_SECTION(text)
     REPO_TO_ELF_SECTION(thread_bss)
     REPO_TO_ELF_SECTION(thread_data)
-  case pstore::repo::section_kind::dependent:
+  case pstore::repo::section_kind::linked_definitions:
   case pstore::repo::section_kind::last:
     break;
   }

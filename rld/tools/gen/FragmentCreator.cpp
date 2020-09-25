@@ -126,8 +126,8 @@ auto FragmentCreator::createDispatcher<pstore::repo::section_kind::debug_line>()
 }
 
 template <>
-auto FragmentCreator::createDispatcher<pstore::repo::section_kind::dependent>()
-    -> DispatcherPtr {
+auto FragmentCreator::createDispatcher<
+    pstore::repo::section_kind::linked_definitions>() -> DispatcherPtr {
   return {};
 }
 
@@ -148,7 +148,7 @@ void FragmentCreator::setDispatcherContent<
 
 template <>
 void FragmentCreator::setDispatcherContent<
-    pstore::repo::section_kind::dependent>(
+    pstore::repo::section_kind::linked_definitions>(
     pstore::repo::section_creation_dispatcher *,
     pstore::repo::section_content const *) {}
 
