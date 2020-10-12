@@ -4,12 +4,10 @@
 ;
 ; RUN: rm -rf %t && mkdir -p %t
 ;
-; RUN: env REPOFILE=%t/db1.db clang -c -x ir %s -o %t/ticket1.o
-; RUN: env REPOFILE=%t/db2.db clang -c -x ir %s -o %t/ticket2.o
+; RUN: env REPOFILE=%t/db1.db clang -c -x ir -target x86_64-pc-linux-gnu-repo %s -o %t/ticket1.o
+; RUN: env REPOFILE=%t/db2.db clang -c -x ir -target x86_64-pc-linux-gnu-repo %s -o %t/ticket2.o
 ; RUN: repo2obj --repo=%t/db1.db %t/ticket1.o
 ; RUN: not repo2obj --repo=%t/db2.db %t/ticket1.o
-
-target triple = "x86_64-pc-linux-gnu-repo"
 
 define void @f() {
 entry:
