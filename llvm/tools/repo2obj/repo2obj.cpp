@@ -161,7 +161,7 @@ template <class ELFT> struct ELFState {
 // initELFHeader
 // ~~~~~~~~~~~~~
 template <class ELFT> void ELFState<ELFT>::initELFHeader(Elf_Ehdr &Header) {
-  using namespace llvm::ELF;
+  using namespace ELF;
   Header.e_ident[EI_MAG0] = 0x7f;
   Header.e_ident[EI_MAG1] = 'E';
   Header.e_ident[EI_MAG2] = 'L';
@@ -250,7 +250,7 @@ template <typename ELFT> void ELFState<ELFT>::setEShNum(Elf_Ehdr &Header) {
   // table entries is contained in the sh_size field of the section header at
   // index 0. Otherwise, the sh_size member of the initial section header entry
   // contains the value zero.
-  if (NumberOfSections < llvm::ELF::SHN_LORESERVE) {
+  if (NumberOfSections < ELF::SHN_LORESERVE) {
     Header.e_shnum = NumberOfSections;
     assert(SectionHeaders[0].sh_size == 0);
   } else {
@@ -279,7 +279,7 @@ void ELFState<ELFT>::buildGroupSection(pstore::database const &Db,
     auto SignatureSymbol = Symbols.findSymbol(
         pstore::indirect_string::read(Db, GI.IdentifyingSymbol));
     assert(SignatureSymbol != nullptr &&
-           SignatureSymbol->Index != llvm::ELF::STN_UNDEF);
+           SignatureSymbol->Index != ELF::STN_UNDEF);
     static auto const GroupString = Generated.add(".group");
     ELFState<ELFT>::Elf_Shdr SH;
     zero(SH);
@@ -419,20 +419,22 @@ int main(int argc, char *argv[]) {
     error("Error opening '" + OutputFilename + "': " + EC.message());
   }
 
-  ErrorOr<pstore::index::digest> DigestOrError =
-      llvm::repo::getTicketIdFromFile(TicketPath);
+  pstore::database Db{getRepoPath(), pstore::database::access_mode::read_only};
+
+  const ErrorOr<pstore::index::digest> DigestOrError =
+      mc::repo::getDigestFromTicket(TicketPath, &Db);
   if (!DigestOrError) {
     error("Error: '" + TicketPath + "' (" + DigestOrError.getError().message() +
           ")");
     return EXIT_FAILURE;
   }
 
-  pstore::index::digest const &Digest = DigestOrError.get();
+  const pstore::index::digest &Digest = DigestOrError.get();
   LLVM_DEBUG(dbgs() << "'" << TicketPath << "' : " << Digest << '\n');
 
-  pstore::database Db(getRepoPath(), pstore::database::access_mode::read_only);
-  std::shared_ptr<pstore::index::compilation_index const> const CompilationIndex =
-      pstore::index::get_index<pstore::trailer::indices::compilation>(Db);
+  const std::shared_ptr<const pstore::index::compilation_index>
+      CompilationIndex =
+          pstore::index::get_index<pstore::trailer::indices::compilation>(Db);
   if (!CompilationIndex) {
     error("Error: compilation index was not found.");
     return EXIT_FAILURE;
@@ -460,14 +462,14 @@ int main(int argc, char *argv[]) {
   auto *const State = new ELFState<ELFT>(Db);
   State->initialize(Db);
 
-  std::array<llvm::Optional<std::vector<std::uint8_t>>,
+  std::array<Optional<std::vector<std::uint8_t>>,
              static_cast<std::size_t>(pstore::repo::section_kind::last)>
       Prefixes;
   {
     std::vector<OutputSection<ELFT>::SectionInfo> OutputSections;
     OutputSections.resize(::pstore::repo::fragment::member_array::max_size());
 
-    llvm::Optional<pstore::extent<std::uint8_t>> DebugLineHeaderExtent;
+    Optional<pstore::extent<std::uint8_t>> DebugLineHeaderExtent;
     auto Ticket = pstore::repo::compilation::load(Db, CompilationPos->second);
 
     for (auto const &CM : *Ticket) {
@@ -651,9 +653,8 @@ int main(int argc, char *argv[]) {
   static_assert(
       static_cast<std::underlying_type_t<SectionIndices>>(
           SectionIndices::StringTab) <
-          static_cast<
-              std::underlying_type_t<decltype(llvm::ELF::SHN_LORESERVE)>>(
-              llvm::ELF::SHN_LORESERVE),
+          static_cast<std::underlying_type_t<decltype(ELF::SHN_LORESERVE)>>(
+              ELF::SHN_LORESERVE),
       "String table index should be less than LORESERVE");
   Header.e_shstrndx = SectionIndices::StringTab;
 
