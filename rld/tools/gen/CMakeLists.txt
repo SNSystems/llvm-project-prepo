@@ -46,13 +46,18 @@ set (XXHASH_BUILD_ENABLE_INLINE_API OFF) #optional
 set (XXHASH_BUILD_XXHSUM OFF) #optional
 add_subdirectory (xxHash/cmake_unofficial EXCLUDE_FROM_ALL)
 
+set(LLVM_LINK_COMPONENTS
+  MC
+  Support
+)
+
 add_llvm_tool (rld-gen
   gen.cpp
   fibonacci.hpp
   hash.h
   FragmentCreator.cpp
 )
-target_link_libraries (rld-gen PRIVATE LLVMSupport pstore-core pstore-mcrepo)
+target_link_libraries (rld-gen PRIVATE pstore-core pstore-mcrepo)
 target_link_libraries (rld-gen PRIVATE xxHash::xxhash)
 
 set_target_properties (rld-gen PROPERTIES
