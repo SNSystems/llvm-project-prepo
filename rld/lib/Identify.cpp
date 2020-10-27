@@ -182,7 +182,7 @@ std::pair<bool, size_t> rld::Identifier::addFile(const Twine &Path,
 bool rld::Identifier::addTicketFile(const Twine &Name, MemoryBufferRef Memory,
                                     const Ordinals &Ord, bool InArchive) {
   ErrorOr<pstore::index::digest> CompilationDigestOrError =
-      repo::getTicketId(Memory);
+      mc::repo::getDigestFromTicket(Memory, &Db_);
   if (!CompilationDigestOrError) {
     return this->error([&](raw_ostream &OS) {
       OS << "File \"" << Name << "\". "
@@ -276,15 +276,15 @@ rld::Identifier::addArchiveContents(const Twine &ArchivePath,
 // ~~~~~~~~~~~
 auto rld::Identifier::getFileKind(MemoryBufferRef Memory) -> ErrorOr<FileKind> {
   // TODO: teach identify_magic about repo ticket files.
-  if (Memory.getBufferSize() == repo::TicketFileSize) {
+  if (Memory.getBufferSize() == mc::repo::TicketFileSize) {
     // It might be a ticket file.
     const ErrorOr<pstore::index::digest> DigestOrError =
-        repo::getTicketId(Memory);
+        mc::repo::getDigestFromTicket(Memory, nullptr);
     if (DigestOrError) {
       return FileKind::Ticket;
     }
     if (DigestOrError.getError() !=
-        make_error_code(repo::TicketError::CorruptedTicket)) {
+        make_error_code(mc::repo::TicketError::CorruptedTicket)) {
       return DigestOrError.getError();
     }
   }

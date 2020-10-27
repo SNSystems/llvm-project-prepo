@@ -46,6 +46,8 @@
 
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/MC/MCRepoTicketFile.h"
+#include "llvm/Support/EndianStream.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 
@@ -178,30 +180,6 @@ private:
 
 } // end anonymous namespace
 
-// FIXME: a variation is found in MCRepoTicketFile.cpp
-static std::error_code writeTicketFile(llvm::StringRef const &Path,
-                                pstore::index::digest const &digest) {
-  static constexpr auto magic_size = size_t{8};
-#if PSTORE_IS_BIG_ENDIAN
-  static constexpr std::array<char, MagicSize> be_magic{
-      {'R', 'e', 'p', 'o', 'T', 'c', 'k', 't'}};
-  constexpr auto signature = &be_magic;
-#else
-  static constexpr std::array<char, magic_size> le_magic{
-      {'t', 'k', 'c', 'T', 'o', 'p', 'e', 'R'}};
-  constexpr auto signature = &le_magic;
-#endif
-
-  std::error_code EC;
-  llvm::raw_fd_ostream OutFile(Path, EC);
-  if (EC) {
-    return EC;
-  }
-  OutFile.write(signature->data(), signature->size());
-  OutFile.write(reinterpret_cast<char const *>(&digest), sizeof(digest));
-  return OutFile.error();
-}
-
 namespace {
 
 template <typename T>
@@ -307,7 +285,7 @@ static llvm::SmallString<128> quoteAndEscape (llvm::StringRef const & S) {
     return Result;
 }
 
-static std::error_code writeConfigFile(llvm::StringRef const & Dir) {
+static llvm::Error writeConfigFile(llvm::StringRef const &Dir) {
   auto const AsBool = [](bool b) { return b ? "true" : "false"; };
 
   llvm::SmallString<128> ConfigFilePath = Dir;
@@ -316,7 +294,7 @@ static std::error_code writeConfigFile(llvm::StringRef const & Dir) {
   std::error_code EC;
   llvm::raw_fd_ostream OutFile(ConfigFilePath, EC);
   if (EC) {
-    return EC;
+    return llvm::errorCodeToError(EC);
   }
 
   constexpr auto Indent = "    ";
@@ -334,9 +312,12 @@ static std::error_code writeConfigFile(llvm::StringRef const & Dir) {
           << ",\n";
   OutFile << Indent << R"("section-size": )" << SectionSize << ",\n";
   OutFile << Indent << R"("triple": )" << quoteAndEscape(Triple) << "\n}\n";
-  return OutFile.error();
+  return llvm::errorCodeToError(OutFile.error());
 }
 
+static llvm::Error makeAbsolute(llvm::SmallVectorImpl<char> &Path) {
+  return llvm::errorCodeToError(llvm::sys::fs::make_absolute(Path));
+}
 
 int main(int argc, char *argv[]) {
   llvm::cl::ParseCommandLineOptions(argc, argv,
@@ -344,6 +325,9 @@ int main(int argc, char *argv[]) {
 
   static auto const ExternalPrefix = "external_"s;
   static auto const AppendPrefix = "append_"s;
+
+  int ExitCode = EXIT_SUCCESS;
+  llvm::ExitOnError ExitOnErr("Error: ", EXIT_FAILURE);
 
   pstore::database Db{getRepositoryPath(), pstore::database::access_mode::writable};
 
@@ -357,15 +341,8 @@ int main(int argc, char *argv[]) {
                       Idx.Names};
 
   llvm::SmallString<128> OutputDir = llvm::StringRef{OutputDirOpt};
-  if (const std::error_code EC = llvm::sys::fs::make_absolute(OutputDir)) {
-    llvm::errs() << "failed to obtain absolute path for " << OutputDir << '\n';
-    return EXIT_FAILURE;
-  }
-
-  if (const std::error_code EC = writeConfigFile(OutputDir)) {
-    llvm::errs() << "failed to write configuration file\n";
-    return EXIT_FAILURE;
-  }
+  ExitOnErr(makeAbsolute(OutputDir));
+  ExitOnErr(writeConfigFile(OutputDir));
 
   IStringAddress TicketPath = Strings.add(Transaction, OutputDir);
   IStringAddress TripleName = Strings.add(Transaction, Triple);
@@ -443,6 +420,7 @@ int main(int argc, char *argv[]) {
     assert(CompilationMembers.size() == SymbolsPerModule);
 
     {
+      // Create an entry in the compilation index.
       auto Compilation = pstore::repo::compilation::alloc(
           Transaction, TicketPath, TripleName, std::begin(CompilationMembers),
           std::end(CompilationMembers));
@@ -450,11 +428,16 @@ int main(int argc, char *argv[]) {
           rawHash(Transaction.db(), Compilation);
       Idx.Compilations->insert(Transaction,
                                std::make_pair(ModuleDigest, Compilation));
-      writeTicketFile(getTicketFilePath(llvm::StringRef{OutputDir}, ModuleCtr),
-                      ModuleDigest);
+
+      // Write the ticket file to disk.
+      ExitOnErr(llvm::mc::repo::writeTicketFile(
+          getTicketFilePath(llvm::StringRef{OutputDir}, ModuleCtr),
+          Transaction.db(), ModuleDigest));
     }
+
     if (Progress) {
-      std::cout << ModuleCtr << std::endl;
+      llvm::outs() << ModuleCtr << '\n';
+      llvm::outs().flush();
     }
   }
 
@@ -462,5 +445,5 @@ int main(int argc, char *argv[]) {
   Strings.flush(Transaction);
   Transaction.commit();
 
-  return EXIT_SUCCESS;
+  return ExitCode;
 }

@@ -1086,7 +1086,7 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
   }
 
   // write the ticket file itself
-  llvm::repo::writeTicketFile(W, CompilationDigest);
+  llvm::mc::repo::writeTicketFile(W, Db, CompilationDigest);
 
   return W.OS.tell() - StartOffset;
 }

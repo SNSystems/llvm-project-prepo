@@ -64,7 +64,7 @@ static NameAndDigest makeNameAndDigest(bool DigestOnly, const StringRef &Name,
     return NameAndDigest{Digest};
   }
   return NameAndDigest{Name, Digest};
-};
+}
 
 // Clamps the size_t input value to the maximum unsigned value.
 static constexpr unsigned clamp_to_unsigned(size_t S) {
@@ -98,16 +98,17 @@ int main(int argc, char *argv[]) {
                               "A utility to dump a compilation's names and "
                               "digests from a program repository.\n");
 
+  pstore::database Db{getRepoPath(RepoPath),
+                      pstore::database::access_mode::read_only};
+
   const ErrorOr<pstore::index::digest> DigestOrError =
-      llvm::repo::getTicketIdFromFile(TicketPath);
+      mc::repo::getDigestFromTicket(TicketPath, &Db);
   if (!DigestOrError) {
     errs() << "Error: '" << TicketPath << "' ("
            << DigestOrError.getError().message() << ")\n";
     return EXIT_FAILURE;
   }
 
-  pstore::database Db{getRepoPath(RepoPath),
-                      pstore::database::access_mode::read_only};
   const auto CompilationIndex =
       pstore::index::get_index<pstore::trailer::indices::compilation>(Db);
   if (!CompilationIndex) {
