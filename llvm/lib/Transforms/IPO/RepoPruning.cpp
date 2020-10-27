@@ -96,7 +96,7 @@ GlobalValue::VisibilityTypes toGVVisibility(pstore::repo::visibility V) {
   llvm_unreachable("Unsupported visibility type");
 }
 
-StringRef toStringRef(pstore::raw_sstring_view S) {
+static StringRef toStringRef(pstore::raw_sstring_view S) {
   return {S.data(), S.size()};
 }
 
@@ -115,7 +115,7 @@ static bool isSafeToPrune(const GlobalObject &GO) {
   return !isIntrinsicGV(GO) || isSafeToPruneIntrinsicGV(GO);
 }
 
-repodefinition::DigestType toDigestType(pstore::index::digest D) {
+static repodefinition::DigestType toDigestType(pstore::index::digest D) {
   repodefinition::DigestType Digest;
   support::endian::write64le(&Digest, D.low());
   support::endian::write64le(&(Digest.Bytes[8]), D.high());
@@ -172,38 +172,46 @@ static bool hasExistingGOInModule(
 }
 
 static void addLinkedDefinitions(
-    Module &M, StringSet<> &DependentFragments,
+    Module &M, StringSet<> &LinkedNames,
     std::shared_ptr<const pstore::index::fragment_index> const &Fragments,
-    const pstore::database &Repository, pstore::index::digest const &Digest) {
+    const pstore::database &Repository, const pstore::index::digest Digest) {
 
-  auto It = Fragments->find(Repository, Digest);
-  assert(It != Fragments->end(Repository));
-  // Create the dependent's RepoDefinition if it exists in the repository.
-  auto Fragment = pstore::repo::fragment::load(Repository, It->second);
+  const auto Pos = Fragments->find(Repository, Digest);
+  assert(Pos != Fragments->end(Repository) &&
+         "Digest was not found in the Repository");
+
+  // Create the linked RepoDefinition if it exists in the repository.
+  auto Fragment = pstore::repo::fragment::load(Repository, Pos->second);
   if (auto LinkedDefinitions =
           Fragment->atp<pstore::repo::section_kind::linked_definitions>()) {
-    for (pstore::typed_address<pstore::repo::compilation_member> Definition :
+    NamedMDNode *const RepoDefinitions =
+        M.getOrInsertNamedMetadata("repo.definitions");
+    assert(RepoDefinitions && "RepoDefinitions cannot be NULL!");
+
+    for (pstore::repo::linked_definitions::value_type const &LinkedDefinition :
          *LinkedDefinitions) {
-      auto CM = pstore::repo::compilation_member::load(Repository, Definition);
-      StringRef MDName =
-          toStringRef(pstore::get_sstring_view(Repository, CM->name).second);
-      LLVM_DEBUG(dbgs() << "    Prunning linked-definition name: " << MDName
+      const auto Definition = pstore::repo::compilation_member::load(
+          Repository, LinkedDefinition.pointer);
+      pstore::shared_sstring_view Owner;
+      const auto MDName =
+          toStringRef(get_sstring_view(Repository, Definition->name, &Owner));
+      LLVM_DEBUG(dbgs() << "    Adding linked-definition name: " << MDName
                         << '\n');
-      auto DMD = RepoDefinition::get(
-          M.getContext(), MDName, toDigestType(CM->digest),
-          toGVLinkage(CM->linkage()), toGVVisibility(CM->visibility()), true);
-      // If functions 'A' and 'B' are linked to function 'C', only add a
-      // single RepoDefinition of 'C' to the 'repo.definitions' in order to
-      // avoid multiple instances of definition 'C' in the compilation.
-      if (DependentFragments.insert(MDName).second) {
-        NamedMDNode *const NMD = M.getOrInsertNamedMetadata("repo.definitions");
-        assert(NMD && "NamedMDNode cannot be NULL!");
-        NMD->addOperand(DMD);
-        // If function 'A' is dependent on function 'B' and 'B' is dependent on
-        // function 'C', both RepoDefinition of 'B' and 'C' need to be added
-        // into in the 'repo.definitions' during the pruning.
-        addLinkedDefinitions(M, DependentFragments, Fragments, Repository,
-                             CM->digest);
+
+      // If fragments A and B are both linked to fragment C, ensure that C
+      // appears in 'repo.definitions' only once to avoid multiple instances of
+      // definition C in the compilation.
+      if (LinkedNames.insert(MDName).second) {
+        RepoDefinitions->addOperand(RepoDefinition::get(
+            M.getContext(), MDName, toDigestType(Definition->digest),
+            toGVLinkage(Definition->linkage()),
+            toGVVisibility(Definition->visibility()), true));
+
+        // If fragment A is has a linked_definition referencing fragment B and B
+        // is linked to C, the RepoDefinition for both 'B' and 'C' needs to be
+        // added to 'repo.definitions'.
+        addLinkedDefinitions(M, LinkedNames, Fragments, Repository,
+                             Definition->digest);
       }
     }
   }

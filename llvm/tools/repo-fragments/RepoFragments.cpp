@@ -140,8 +140,9 @@ int main(int argc, char *argv[]) {
   };
 
   const auto *Sep = "";
-  for (auto const &CM :
-       *pstore::repo::compilation::load(Db, CompilationPos->second)) {
+  auto const Compilation =
+      pstore::repo::compilation::load(Db, CompilationPos->second);
+  for (auto const &CM : *Compilation) {
     // Convert the pstore indirect-string to a StringRef. We don't allocate any
     // unnecessary memory in these steps.
     pstore::shared_sstring_view Owner;

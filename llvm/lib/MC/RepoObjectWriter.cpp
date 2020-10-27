@@ -98,7 +98,7 @@ private:
     SmallVector<std::unique_ptr<pstore::repo::section_content>, 4> Sections;
     /// The definitions which must be present in a compilation contining this
     /// fragment.
-    SmallVector<pstore::typed_address<pstore::repo::compilation_member>, 4>
+    SmallVector<pstore::repo::linked_definitions::value_type, 4>
         LinkedDefinitions;
   };
 
@@ -159,7 +159,8 @@ public:
                         ModuleNamesContainer &Names);
 
   void buildLinkedDefinitions(ContentsType &Contents,
-                              const TicketType &Tickets) const;
+                              pstore::index::digest CompilationDigest,
+                              const TicketType &Definitions) const;
 
   pstore::raw_sstring_view getSymbolName(const MCAssembler &Asm,
                                          const RepoDefinition &TicketMember,
@@ -305,7 +306,8 @@ void RepoObjectWriter::recordRelocation(MCAssembler &Asm,
   }
 
   StringRef UsedSymbolName = RenamedSymA->getName();
-  if (auto const *Definition = SymA->CorrespondingRepoDefinition) {
+  if (const RepoDefinition *const Definition =
+          SymA->CorrespondingRepoDefinition) {
     LinkedDefinitions[FixupSection.hash()].insert(Definition);
     if (GlobalValue::isLocalLinkage(Definition->getLinkage())) {
       const std::string SymbolName =
@@ -557,20 +559,26 @@ void RepoObjectWriter::writeSectionData(ContentsType &Fragments,
   Fragments[Section.hash()].Sections.push_back(std::move(Content));
 }
 
-void RepoObjectWriter::buildLinkedDefinitions(ContentsType &Fragments,
-                                              const TicketType &Tickets) const {
+void RepoObjectWriter::buildLinkedDefinitions(
+    ContentsType &Fragments, const pstore::index::digest CompilationDigest,
+    const TicketType &Definitions) const {
   for (auto const &LD : LinkedDefinitions) {
     auto &D = Fragments[LD.first].LinkedDefinitions;
     for (auto const &TN : LD.second) {
-      // The corresponding compilation_member lies inside of Tickets.
-      assert(TN->CorrespondingCompilationMember >= Tickets.data() &&
-             TN->CorrespondingCompilationMember <= &Tickets.back());
-      // Record the compilation index in the linked definitions here. Once the
-      // compilation is recorded in the repository,  the linked definitions are
-      // updated from the compilation index to the definition address in the
-      // repository.
-      D.push_back(pstore::typed_address<pstore::repo::compilation_member>::make(
-          TN->CorrespondingCompilationMember - Tickets.data()));
+      assert(TN->CorrespondingCompilationMember >= Definitions.data() &&
+             TN->CorrespondingCompilationMember <= &Definitions.back() &&
+             "The corresponding compilation_member must lie within the "
+             "Definitions container.");
+
+      // Record the compilation index in the linked definitions record here.
+      // Once the compilation is stored in the repository and we know its
+      // address, this value is updated to reflect the actual address of the
+      // definition.
+      const auto Index =
+          TN->CorrespondingCompilationMember - Definitions.data();
+      D.emplace_back(
+          CompilationDigest, Index,
+          pstore::typed_address<pstore::repo::compilation_member>::make(Index));
     }
   }
 }
@@ -801,20 +809,17 @@ DispatcherCollectionType RepoObjectWriter::buildFragmentData(
   return Dispatchers;
 }
 
+// Update the linked definition members to record the definition address.
 void RepoObjectWriter::updateLinkedDefinitions(
     pstore::repo::linked_definitions &LinkedDefinitions,
     const pstore::repo::compilation &Compilation,
     pstore::typed_address<pstore::repo::compilation> Addr) {
+  (void)Compilation;
+
   for (auto &Member : LinkedDefinitions) {
-    // Currently, the linked definition member value is the index in the
-    // compilation.
-    const auto Index = Member.absolute();
-    assert(Index < Compilation.size());
-    const auto Offset = reinterpret_cast<std::uintptr_t>(&Compilation[Index]) -
-                        reinterpret_cast<std::uintptr_t>(&Compilation);
-    // Update the linked definition member to record the compilation address.
-    Member = pstore::typed_address<pstore::repo::compilation_member>::make(
-        Addr.absolute() + Offset);
+    assert(Member.index < Compilation.size());
+    Member.pointer =
+        pstore::repo::compilation::index_address(Addr, Member.index);
   }
 }
 
@@ -905,14 +910,14 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
 
   pstore::database &Db = llvm::getRepoDatabase();
   NamesWithPrefixContainer PrefixedNames;
-  pstore::index::digest TicketDigest = buildCompilationRecord(
+  const pstore::index::digest CompilationDigest = buildCompilationRecord(
       Db, Asm, Names, PrefixedNames, Fragments, OutputFile, TripleStr);
 
-  buildLinkedDefinitions(Fragments, CompilationMembers);
+  buildLinkedDefinitions(Fragments, CompilationDigest, CompilationMembers);
 
   pstore::indirect_string_adder NameAdder(Names.size());
 
-  if (!isExistingTicket(Db, TicketDigest)) {
+  if (!isExistingTicket(Db, CompilationDigest)) {
     TransactionType &Transaction = getRepoTransaction();
     {
       std::shared_ptr<pstore::index::compilation_index> const CompilationIndex =
@@ -1061,7 +1066,8 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
       auto CExtent = pstore::repo::compilation::alloc(
           Transaction, OutputPathAddr, TripleAddr, CompilationMembers.begin(),
           CompilationMembers.end());
-      CompilationIndex->insert(Transaction, std::make_pair(TicketDigest, CExtent));
+      CompilationIndex->insert(Transaction,
+                               std::make_pair(CompilationDigest, CExtent));
 
       // Update the linked-definitions for each fragment index->address
       for (auto &KV : RepoFragments) {
@@ -1080,7 +1086,7 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
   }
 
   // write the ticket file itself
-  llvm::repo::writeTicketFile(W, TicketDigest);
+  llvm::repo::writeTicketFile(W, CompilationDigest);
 
   return W.OS.tell() - StartOffset;
 }

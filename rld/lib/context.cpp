@@ -106,9 +106,8 @@ llvm::ErrorOr<llvm::Triple>
 rld::Context::mergeTriple(pstore::repo::compilation const &Compilation) {
   // TODO: store the triple directly to avoid the need for string parsing here?
   pstore::shared_sstring_view Owner;
-  pstore::raw_sstring_view TripleString;
-  std::tie(Owner, TripleString) =
-      pstore::get_sstring_view(this->Db, Compilation.triple());
+  pstore::raw_sstring_view const TripleString =
+      pstore::get_sstring_view(this->Db, Compilation.triple(), &Owner);
   llvm::Triple const CompilationTriple{
       llvm::StringRef{TripleString.data(), TripleString.length()}};
 
