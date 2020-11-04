@@ -7,6 +7,7 @@
     --install-target install-repo2obj \
     --install-target install-repo-ticket-dump \
     --install-target install-repo-fragments \
+    --install-target install-repo-create-ticket \
     --install-target install-clang-resource-headers \
     -- \
     -D CMAKE_BUILD_TYPE=Release \
