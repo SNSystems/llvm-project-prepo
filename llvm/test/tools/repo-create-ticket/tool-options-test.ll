@@ -23,7 +23,7 @@
 
 target triple = "x86_64-pc-linux-gnu-repo"
 
-define void @f() {
+define void @f() !repo_definition !0 {
 entry:
   ret void
 }
