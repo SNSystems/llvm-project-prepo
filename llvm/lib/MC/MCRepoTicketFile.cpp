@@ -163,7 +163,7 @@ static size_t writeTicketFile(Writer &&W, const pstore::database &Db,
   assert(Endian == support::little || Endian == support::big);
 
   TicketFile Ticket;
-  Ticket.Magic = (W.Endian == support::little) ? LERepoMagic : BERepoMagic;
+  Ticket.Magic = (Endian == support::little) ? LERepoMagic : BERepoMagic;
   Ticket.CRC = 0;
   Ticket.Version = support::endian::byte_swap(TicketFileVersion, Endian);
   Ticket.Unused = 0;
