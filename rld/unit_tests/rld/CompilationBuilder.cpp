@@ -126,7 +126,7 @@ CompilationBuilder::createFragmentWithBSSSection(Transaction &T, size_t Size) {
               ->insert(T, std::make_pair(pstore::index::digest{NumFragments},
                                          fragment::alloc(T, &CD, &CD + 1)))
               .first;
-};
+}
 
 // store string
 // ~~~~~~~~~~~~
