@@ -13,7 +13,7 @@ function show_usage() {
   cat << EOF
 Usage: checkout_llvm_prepo.sh [options]
 
-Checkout git sources into /tmp/pstore-build/src. Used inside a docker container.
+Checkout git sources. Used inside a docker container.
 
 Available options:
   -h|--help           show this help message
