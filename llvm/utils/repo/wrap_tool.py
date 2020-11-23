@@ -20,7 +20,7 @@ import os
 import subprocess
 import sys
 
-TICKET_FILE_SIZE = 24
+TICKET_FILE_SIZE = 48
 
 _logger = logging.getLogger(__name__)
 
