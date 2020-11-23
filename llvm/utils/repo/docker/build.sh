@@ -11,4 +11,5 @@
     --install-target install-clang-resource-headers \
     -- \
     -D CMAKE_BUILD_TYPE=Release \
+    -D PSTORE_POSIX_SMALL_FILES=Yes \
     -D LLVM_PARALLEL_LINK_JOBS=1
