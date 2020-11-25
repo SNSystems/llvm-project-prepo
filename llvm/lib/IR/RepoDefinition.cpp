@@ -87,37 +87,36 @@ const Constant *getAliasee(const GlobalAlias *GA) {
 }
 
 template <typename GlobalType>
-void ModuleHashGenerator::calculateGOInfo(const GlobalType *G) {
-  GOInfo GInitInfo = calculateDigestAndDependenciesAndContributions(G);
+void ModuleHashGenerator::calculateGOInfo(const GlobalType *const G) {
+  const GOInfo GInitInfo = calculateDigestAndDependenciesAndContributions(G);
 #ifndef NDEBUG
   LLVM_DEBUG(dbgs() << "\nGO Name:" << G->getName() << "\n");
   LLVM_DEBUG(GInitInfo.dump(true));
 #endif
-  GOInfo &GInfo = GOIMap[G];
-  GInfo.InitialDigest = std::move(GInitInfo.InitialDigest);
-  // Copy G's initial dependencies(`GInitInfo`) into its information map
-  // (`GInfo`).
+  GOInfo *GInfo = &GOIMap[G];
+  GInfo->InitialDigest = GInitInfo.InitialDigest;
+
+  // Append G's initial dependencies.
   std::copy(GInitInfo.Dependencies.begin(), GInitInfo.Dependencies.end(),
-            std::back_inserter(GInfo.Dependencies));
+            std::back_inserter(GInfo->Dependencies));
 
   // The contributions of an object represent a bi-directional link to the
   // contained objects. Here we convert each contribution into entries in the
   // dependency lists for the two objects.
-  // For example, if the Contributions of function `foo`  are global variables
-  // `g` and `q`, the function `foo` is added into the Dependencies of `g` and
-  // `q`.
-  // For example, Contributions[`foo`] = [`g`, `q`]
-  // ====> Dependencies[`g`] = [`foo`],
-  //       Dependencies[`q`] = [`foo`]
-  //       Dependencies[`foo`] = [`g`, `q`]
-  //
-  // The below loop converts Contributions to Dependencies and then just records
-  // Dependencies in the resulting graph.
-  for (auto &GO : GInitInfo.Contributions) {
-    assert(isa<GlobalVariable>(GO) &&
-           "Contributions must be global variables!");
-    GOIMap[GO].Dependencies.emplace_back(G);
-    GInfo.Dependencies.emplace_back(GO);
+  for (auto &Contribution : GInitInfo.Contributions) {
+    const std::pair<GOInfoMap::iterator, bool> EmplaceResult =
+        GOIMap.try_emplace(Contribution);
+    // If we just created an entry in GOIMap for Contribution, we invalidated
+    // GInfo so must re-seat it by finding G once again.
+    if (EmplaceResult.second) {
+      GOInfoMap::iterator NewGPos = GOIMap.find(G);
+      assert(NewGPos != GOIMap.end() &&
+             "There must be an entry for G in GOIMap");
+      GInfo = &NewGPos->second;
+    }
+    EmplaceResult.first->second.Dependencies.emplace_back(G);
+    assert(GOIMap.isPointerIntoBucketsArray(GInfo));
+    GInfo->Dependencies.emplace_back(Contribution);
   }
 }
 
