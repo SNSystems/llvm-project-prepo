@@ -6,7 +6,7 @@
 ; }
 ;
 ; RUN: rm -f %t.db
-; RUN: env REPOFILE=%t.db opt -S -stats -debug-only prepo -debug-only prepo-digest -mtriple x86_64-pc-linux-gnu-repo %s -o /dev/null 2>&1 | FileCheck %s
+; RUN: env REPOFILE=%t.db opt -S -stats -debug-only prepo -debug-only ir -mtriple x86_64-pc-linux-gnu-repo %s -o /dev/null 2>&1 | FileCheck %s
 
 ; REQUIRES: asserts
 
@@ -41,6 +41,6 @@ entry:
 ;CHECK: Returning pre-computed hash for "B"
 ;CHECK: Recording result for "C"
 ;
-;CHECK:      3 prepo-digest - Number of functions hashed
-;CHECK-NEXT: 3 prepo-digest - Number of memoized hashes
-;CHECK-NEXT: 5 prepo-digest - Visited times of memoized hashes
+;CHECK:      3 ir - Number of functions hashed
+;CHECK-NEXT: 3 ir - Number of memoized hashes
+;CHECK-NEXT: 5 ir - Visited times of memoized hashes

@@ -26,8 +26,6 @@
 
 using namespace llvm;
 
-#define DEBUG_TYPE "prepo-digest"
-
 STATISTIC(NumFunctions, "Number of functions hashed");
 STATISTIC(NumVariables, "Number of variables hashed");
 STATISTIC(NumMemoizedHashes, "Number of memoized hashes");

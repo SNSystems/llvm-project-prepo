@@ -1,7 +1,7 @@
 ; Check that @Z is @f's only dependency. @g is not included because it is a noinline function.
 ;
 ; RUN: rm -f %t.db
-; RUN: env REPOFILE=%t.db opt -S -O3 -debug-only prepo-digest -mtriple x86_64-pc-linux-gnu-repo %s -o /dev/null 2>&1 | FileCheck %s
+; RUN: env REPOFILE=%t.db opt -S -O3 -debug-only ir -mtriple x86_64-pc-linux-gnu-repo %s -o /dev/null 2>&1 | FileCheck %s
 
 ; REQUIRES: asserts
 

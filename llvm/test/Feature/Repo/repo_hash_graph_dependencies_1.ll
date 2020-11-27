@@ -2,7 +2,7 @@
 ; global variable A has a reference to function func which will be a Dependencies for A.
 ;
 ; RUN: rm -f %t.db
-; RUN: env REPOFILE=%t.db opt -S -debug-only prepo-digest %s -o /dev/null 2>&1 | FileCheck %s
+; RUN: env REPOFILE=%t.db opt -S -debug-only ir %s -o /dev/null 2>&1 | FileCheck %s
 
 ; REQUIRES: asserts
 

@@ -2,7 +2,7 @@
 ; function main has a reference to global variable Var which will be a Contributions for main.
 ;
 ; RUN: rm -f %t.db
-; RUN: env REPOFILE=%t.db opt -S -debug-only prepo-digest %s -o /dev/null 2>&1 | FileCheck %s
+; RUN: env REPOFILE=%t.db opt -S -debug-only ir %s -o /dev/null 2>&1 | FileCheck %s
 
 ; REQUIRES: asserts
 

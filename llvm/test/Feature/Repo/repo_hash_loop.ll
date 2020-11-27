@@ -5,7 +5,7 @@
 ; }
 ;
 ; RUN: rm -f %t.db
-; RUN: env REPOFILE=%t.db opt -S -stats -debug-only prepo -debug-only prepo-digest -mtriple x86_64-pc-linux-gnu-repo %s -o /dev/null 2>&1 | FileCheck %s
+; RUN: env REPOFILE=%t.db opt -S -stats -debug-only prepo -debug-only ir -mtriple x86_64-pc-linux-gnu-repo %s -o /dev/null 2>&1 | FileCheck %s
 
 ; REQUIRES: asserts
 
@@ -48,7 +48,7 @@ entry:
 ;CHECK: Hashing back reference to #1
 ;CHECK: Recording result for "C"
 ;
-;CHECK:      3 prepo-digest - Number of functions hashed
-;CHECK-NEXT: 1 prepo-digest - Number of memoized hashes
-;CHECK-NEXT: 1 prepo-digest - Visited times of memoized hashes
-;CHECK-NEXT: 6 prepo-digest - Visited times of unmemoized hashes
+;CHECK:      3 ir - Number of functions hashed
+;CHECK-NEXT: 1 ir - Number of memoized hashes
+;CHECK-NEXT: 1 ir - Visited times of memoized hashes
+;CHECK-NEXT: 6 ir - Visited times of unmemoized hashes
