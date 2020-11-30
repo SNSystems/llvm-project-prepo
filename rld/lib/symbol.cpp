@@ -101,7 +101,7 @@ namespace rld {
 inline auto
 Symbol::replaceIfLowerOrdinal(std::lock_guard<SpinLock> const & /*Lock*/,
                               pstore::database const &Db,
-                              pstore::repo::compilation_member const &CM,
+                              pstore::repo::definition const &Def,
                               uint32_t const InputOrdinal) -> Symbol * {
   assert(Definition_ && Definition_->size() == 1U &&
          Definition_->front().inputOrdinal() != InputOrdinal);
@@ -109,11 +109,11 @@ Symbol::replaceIfLowerOrdinal(std::lock_guard<SpinLock> const & /*Lock*/,
     auto &ExistingBody = Definition_->front();
 
     rld::FragmentPtr const Fragment =
-        ExistingBody.fragmentAddress() == CM.fext.addr
+        ExistingBody.fragmentAddress() == Def.fext.addr
             ? ExistingBody.fragment()
-            : pstore::repo::fragment::load(Db, CM.fext);
+            : pstore::repo::fragment::load(Db, Def.fext);
     Definition_.emplace(llvm::SmallVector<Body, 1>{
-        {Body{CM.linkage(), Fragment, CM.fext.addr, InputOrdinal}}});
+        {Body{Def.linkage(), Fragment, Def.fext.addr, InputOrdinal}}});
   }
   return this;
 }
@@ -122,14 +122,14 @@ Symbol::replaceIfLowerOrdinal(std::lock_guard<SpinLock> const & /*Lock*/,
 // ~~~~~~~~~~
 inline auto Symbol::defineImpl(std::lock_guard<SpinLock> const & /*Lock*/,
                                pstore::database const &Db,
-                               pstore::repo::compilation_member const &CM,
+                               pstore::repo::definition const &Def,
                                NotNull<UndefsContainer *> const Undefs,
                                uint32_t const InputOrdinal) -> Symbol * {
   assert(!Definition_ &&
          "defineImpl was called for a symbol which is already defined");
   Definition_.emplace(llvm::SmallVector<Body, 1>{
-      {Body{CM.linkage(), pstore::repo::fragment::load(Db, CM.fext),
-            CM.fext.addr, InputOrdinal}}});
+      {Body{Def.linkage(), pstore::repo::fragment::load(Db, Def.fext),
+            Def.fext.addr, InputOrdinal}}});
   Undefs->remove(this); // remove this symbol from the undef list.
   return this;
 }
@@ -138,36 +138,36 @@ inline auto Symbol::defineImpl(std::lock_guard<SpinLock> const & /*Lock*/,
 // ~~~~~~~~~~~
 inline auto Symbol::replaceImpl(std::lock_guard<SpinLock> const & /*Lock*/,
                                 pstore::database const &Db,
-                                pstore::repo::compilation_member const &CM,
+                                pstore::repo::definition const &Def,
                                 uint32_t const InputOrdinal,
                                 FragmentPtr const &Fragment) -> Symbol * {
   assert(Definition_ &&
          "If we're replacing a definition, then we must already have one.");
   Definition_.emplace(llvm::SmallVector<Body, 1>{
-      {Body{CM.linkage(), Fragment, CM.fext.addr, InputOrdinal}}});
+      {Body{Def.linkage(), Fragment, Def.fext.addr, InputOrdinal}}});
   return this;
 }
 
 inline auto Symbol::replaceImpl(std::lock_guard<SpinLock> const &Lock,
                                 pstore::database const &Db,
-                                pstore::repo::compilation_member const &CM,
+                                pstore::repo::definition const &Def,
                                 uint32_t const InputOrdinal) -> Symbol * {
-  return this->replaceImpl(Lock, Db, CM, InputOrdinal,
-                           pstore::repo::fragment::load(Db, CM.fext));
+  return this->replaceImpl(Lock, Db, Def, InputOrdinal,
+                           pstore::repo::fragment::load(Db, Def.fext));
 }
 
 // update append symbol
 // ~~~~~~~~~~~~~~~~~~~~
 auto Symbol::updateAppendSymbol(pstore::database const &Db,
-                                pstore::repo::compilation_member const &CM,
+                                pstore::repo::definition const &Def,
                                 NotNull<UndefsContainer *> const Undefs,
                                 uint32_t InputOrdinal) -> Symbol * {
-  assert(CM.linkage() == linkage::append);
+  assert(Def.linkage() == linkage::append);
 
   std::lock_guard<decltype(Mut_)> const Lock{Mut_};
   // If we don't have a definition, create one.
   if (!Definition_) {
-    return this->defineImpl(Lock, Db, CM, Undefs, InputOrdinal);
+    return this->defineImpl(Lock, Db, Def, Undefs, InputOrdinal);
   }
 
   // Add this symbol to the existing sorted vector for this symbol.
@@ -203,8 +203,8 @@ auto Symbol::updateAppendSymbol(pstore::database const &Db,
       [=](Symbol::Body const &B) { return B.inputOrdinal() < InputOrdinal; });
   Bodies.insert(Pos.base(),
                 Symbol::Body{linkage::append,
-                             pstore::repo::fragment::load(Db, CM.fext),
-                             CM.fext.addr, InputOrdinal});
+                             pstore::repo::fragment::load(Db, Def.fext),
+                             Def.fext.addr, InputOrdinal});
   assert(std::is_sorted(std::begin(Bodies), std::end(Bodies),
                         [](Symbol::Body const &A, Symbol::Body const &B) {
                           return A.inputOrdinal() < B.inputOrdinal();
@@ -216,16 +216,16 @@ auto Symbol::updateAppendSymbol(pstore::database const &Db,
 // updateExternalSymbol
 // ~~~~~~~~~~~~~~~~~~~~
 auto Symbol::updateExternalSymbol(pstore::database const &Db,
-                                  pstore::repo::compilation_member const &CM,
+                                  pstore::repo::definition const &Def,
                                   NotNull<UndefsContainer *> const Undefs,
                                   uint32_t InputOrdinal) -> Symbol * {
-  assert(CM.linkage() == linkage::external);
+  assert(Def.linkage() == linkage::external);
 
   std::lock_guard<decltype(Mut_)> const Lock{Mut_};
 
   // Do we have a definition of the symbol? If not make one.
   if (!Definition_) {
-    return this->defineImpl(Lock, Db, CM, Undefs, InputOrdinal);
+    return this->defineImpl(Lock, Db, Def, Undefs, InputOrdinal);
   }
 
   // We've already got a definition for this symbol and we're not
@@ -236,20 +236,20 @@ auto Symbol::updateExternalSymbol(pstore::database const &Db,
               linkage::link_once_odr>((*Definition_)[0].linkage())) {
     return nullptr; // Error.
   }
-  return this->replaceImpl(Lock, Db, CM, InputOrdinal);
+  return this->replaceImpl(Lock, Db, Def, InputOrdinal);
 }
 
 // updateCommonSymbol
 // ~~~~~~~~~~~~~~~~~~
 auto Symbol::updateCommonSymbol(pstore::database const &Db,
-                                pstore::repo::compilation_member const &CM,
+                                pstore::repo::definition const &Def,
                                 NotNull<UndefsContainer *> const Undefs,
                                 uint32_t InputOrdinal) -> Symbol * {
-  assert(CM.linkage() == linkage::common);
+  assert(Def.linkage() == linkage::common);
 
   std::lock_guard<decltype(Mut_)> const Lock{Mut_};
   if (!Definition_) {
-    return this->defineImpl(Lock, Db, CM, Undefs, InputOrdinal);
+    return this->defineImpl(Lock, Db, Def, Undefs, InputOrdinal);
   }
   // If we have already have an external definition of this symbol, we
   // just use it,
@@ -266,13 +266,13 @@ auto Symbol::updateCommonSymbol(pstore::database const &Db,
     llvm_unreachable("Internal symbols can't collide");
   case linkage::weak_any:
   case linkage::weak_odr:
-    return this->replaceImpl(Lock, Db, CM, InputOrdinal);
+    return this->replaceImpl(Lock, Db, Def, InputOrdinal);
   case linkage::common:
     auto const BssSize = [](FragmentPtr const &F) {
       assert(F->has_section(pstore::repo::section_kind::bss));
       return F->at<pstore::repo::section_kind::bss>().size();
     };
-    FragmentPtr Fragment = pstore::repo::fragment::load(Db, CM.fext);
+    FragmentPtr Fragment = pstore::repo::fragment::load(Db, Def.fext);
     std::size_t const ThisSize = BssSize(Fragment);
     std::size_t const ExistingSize = BssSize(Definition_->front().fragment());
 
@@ -282,7 +282,7 @@ auto Symbol::updateCommonSymbol(pstore::database const &Db,
     if (ThisSize > ExistingSize ||
         (ThisSize == ExistingSize &&
          InputOrdinal < Definition_->front().inputOrdinal())) {
-      return this->replaceImpl(Lock, Db, CM, InputOrdinal, Fragment);
+      return this->replaceImpl(Lock, Db, Def, InputOrdinal, Fragment);
     }
     return this;
   }
@@ -292,15 +292,15 @@ auto Symbol::updateCommonSymbol(pstore::database const &Db,
 // updateLinkOnceSymbol
 // ~~~~~~~~~~~~~~~~~~~~
 auto Symbol::updateLinkOnceSymbol(pstore::database const &Db,
-                                  pstore::repo::compilation_member const &CM,
+                                  pstore::repo::definition const &Def,
                                   NotNull<UndefsContainer *> const Undefs,
                                   uint32_t InputOrdinal) -> Symbol * {
-  assert(CM.linkage() == linkage::link_once_any ||
-         CM.linkage() == linkage::link_once_odr);
+  assert(Def.linkage() == linkage::link_once_any ||
+         Def.linkage() == linkage::link_once_odr);
 
   std::lock_guard<decltype(Mut_)> const Lock{Mut_};
   if (!Definition_) {
-    return this->defineImpl(Lock, Db, CM, Undefs, InputOrdinal);
+    return this->defineImpl(Lock, Db, Def, Undefs, InputOrdinal);
   }
   assert(Definition_->size() == 1);
   // Link-once may collide with link-once, but nothing else.
@@ -313,21 +313,21 @@ auto Symbol::updateLinkOnceSymbol(pstore::database const &Db,
   // which was responsible for this definition, then
   // ours beats it out; if we're later than ours is
   // discarded.
-  return this->replaceIfLowerOrdinal(Lock, Db, CM, InputOrdinal);
+  return this->replaceIfLowerOrdinal(Lock, Db, Def, InputOrdinal);
 }
 
 // updateWeakSymbol
 // ~~~~~~~~~~~~~~~~
 auto Symbol::updateWeakSymbol(pstore::database const &Db,
-                              pstore::repo::compilation_member const &CM,
+                              pstore::repo::definition const &Def,
                               NotNull<UndefsContainer *> const Undefs,
                               uint32_t InputOrdinal) -> Symbol * {
-  assert(CM.linkage() == linkage::weak_any ||
-         CM.linkage() == linkage::weak_odr);
+  assert(Def.linkage() == linkage::weak_any ||
+         Def.linkage() == linkage::weak_odr);
 
   std::lock_guard<decltype(Mut_)> const Lock{Mut_};
   if (!Definition_) {
-    return this->defineImpl(Lock, Db, CM, Undefs, InputOrdinal);
+    return this->defineImpl(Lock, Db, Def, Undefs, InputOrdinal);
   }
   assert(Definition_->size() == 1U &&
          "The should be exactly 1 weak symbol definition");
@@ -350,7 +350,7 @@ auto Symbol::updateWeakSymbol(pstore::database const &Db,
     // If we're an earlier input file than the one which was responsible
     // for this definition, then ours beats it out; if we're later than
     // ours is discarded.
-    return this->replaceIfLowerOrdinal(Lock, Db, CM, InputOrdinal);
+    return this->replaceIfLowerOrdinal(Lock, Db, Def, InputOrdinal);
   }
   llvm_unreachable("Unknown linkage");
 }
@@ -432,12 +432,13 @@ auto SymbolResolver::addUndefined(
 // add
 // ~~~
 auto SymbolResolver::add(NotNull<GlobalSymbolsContainer *> const Globals,
-                         pstore::repo::compilation_member const &CM,
+                         pstore::repo::definition const &Def,
                          uint32_t InputOrdinal) -> Symbol * {
   return &Globals->emplace_back(
-      CM.name, Symbol::Body(CM.linkage(),
-                            pstore::repo::fragment::load(Context_.Db, CM.fext),
-                            CM.fext.addr, InputOrdinal));
+      Def.name,
+      Symbol::Body(Def.linkage(),
+                   pstore::repo::fragment::load(Context_.Db, Def.fext),
+                   Def.fext.addr, InputOrdinal));
 }
 
 // defineSymbol
@@ -445,37 +446,39 @@ auto SymbolResolver::add(NotNull<GlobalSymbolsContainer *> const Globals,
 Symbol *
 SymbolResolver::defineSymbol(NotNull<GlobalSymbolsContainer *> const Globals,
                              NotNull<UndefsContainer *> const Undefs,
-                             pstore::repo::compilation_member const &CM,
+                             pstore::repo::definition const &Def,
                              uint32_t InputOrdinal) {
 
   llvmDebug(DebugType, Context_.IOMut, [&] {
     pstore::shared_sstring_view Owner;
-    llvm::dbgs() << "> " << CM.name.absolute() << ' '
-                 << stringViewAsRef(loadString(Context_.Db, CM.name, &Owner))
+    llvm::dbgs() << "> " << Def.name.absolute() << ' '
+                 << stringViewAsRef(loadString(Context_.Db, Def.name, &Owner))
                  << '\n';
   });
 
   // Defines a symbol whose body is the supplied fragment.
-  auto AddSymbol = [&]() { return this->add(Globals, CM, InputOrdinal); };
+  auto AddSymbol = [&]() { return this->add(Globals, Def, InputOrdinal); };
 
-  switch (CM.linkage()) {
+  switch (Def.linkage()) {
   case linkage::append:
-    return setSymbolShadow(
-        shadowPointer(Context_, CM.name), AddSymbol, [&](Symbol *const Sym) {
-          return Sym->updateAppendSymbol(Context_.Db, CM, Undefs, InputOrdinal);
-        });
+    return setSymbolShadow(shadowPointer(Context_, Def.name), AddSymbol,
+                           [&](Symbol *const Sym) {
+                             return Sym->updateAppendSymbol(
+                                 Context_.Db, Def, Undefs, InputOrdinal);
+                           });
 
   case linkage::common:
-    return setSymbolShadow(
-        shadowPointer(Context_, CM.name), AddSymbol, [&](Symbol *const Sym) {
-          return Sym->updateCommonSymbol(Context_.Db, CM, Undefs, InputOrdinal);
-        });
+    return setSymbolShadow(shadowPointer(Context_, Def.name), AddSymbol,
+                           [&](Symbol *const Sym) {
+                             return Sym->updateCommonSymbol(
+                                 Context_.Db, Def, Undefs, InputOrdinal);
+                           });
 
   case linkage::external:
-    return setSymbolShadow(shadowPointer(Context_, CM.name), AddSymbol,
+    return setSymbolShadow(shadowPointer(Context_, Def.name), AddSymbol,
                            [&](Symbol *const Sym) {
                              return Sym->updateExternalSymbol(
-                                 Context_.Db, CM, Undefs, InputOrdinal);
+                                 Context_.Db, Def, Undefs, InputOrdinal);
                            });
 
   case linkage::internal:
@@ -484,17 +487,17 @@ SymbolResolver::defineSymbol(NotNull<GlobalSymbolsContainer *> const Globals,
 
   case linkage::link_once_any:
   case linkage::link_once_odr:
-    return setSymbolShadow(shadowPointer(Context_, CM.name), AddSymbol,
+    return setSymbolShadow(shadowPointer(Context_, Def.name), AddSymbol,
                            [&](Symbol *const Sym) {
                              return Sym->updateLinkOnceSymbol(
-                                 Context_.Db, CM, Undefs, InputOrdinal);
+                                 Context_.Db, Def, Undefs, InputOrdinal);
                            });
 
   case linkage::weak_any:
   case linkage::weak_odr:
     return setSymbolShadow(
-        shadowPointer(Context_, CM.name), AddSymbol, [&](Symbol *const Sym) {
-          return Sym->updateWeakSymbol(Context_.Db, CM, Undefs, InputOrdinal);
+        shadowPointer(Context_, Def.name), AddSymbol, [&](Symbol *const Sym) {
+          return Sym->updateWeakSymbol(Context_.Db, Def, Undefs, InputOrdinal);
         });
   }
   llvm_unreachable("Unknown linkage");

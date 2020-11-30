@@ -137,19 +137,19 @@ CompilationBuilder::compile(NameAndLinkageIterator First,
 
   using Digest = pstore::index::digest;
   using Compilation = pstore::repo::compilation;
-  using CompilationMember = pstore::repo::compilation_member;
+  using Definition = pstore::repo::definition;
 
   auto Transaction = pstore::begin(Db_);
 
-  std::vector<CompilationMember> Definitions;
+  std::vector<Definition> Definitions;
   std::transform(
       First, Last, std::back_inserter(Definitions),
       [&FragmentCreator, &Transaction, this](NameAndLinkagePair const &NL) {
         auto const FragmentDigestAndExtent =
             FragmentCreator(Transaction, NameAdder_);
-        return CompilationMember{
-            FragmentDigestAndExtent.first, FragmentDigestAndExtent.second,
-            NameAdder_.add(Transaction, NL.first), NL.second};
+        return Definition{FragmentDigestAndExtent.first,
+                          FragmentDigestAndExtent.second,
+                          NameAdder_.add(Transaction, NL.first), NL.second};
       });
 
   constexpr auto Path = "/path";

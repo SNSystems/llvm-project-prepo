@@ -107,8 +107,8 @@ private:
   using ContentsType =
       std::map<repodefinition::DigestType, FragmentContentsType>;
 
-  using TicketType = std::vector<pstore::repo::compilation_member>;
-  TicketType CompilationMembers;
+  using DefinitionContainer = std::vector<pstore::repo::definition>;
+  DefinitionContainer CompilationDefinitions;
 
   BumpPtrAllocator Alloc;
   StringSaver VersionSymSaver{Alloc};
@@ -160,7 +160,7 @@ public:
 
   void buildLinkedDefinitions(ContentsType &Contents,
                               pstore::index::digest CompilationDigest,
-                              const TicketType &Definitions) const;
+                              const DefinitionContainer &Definitions) const;
 
   pstore::raw_sstring_view getSymbolName(const MCAssembler &Asm,
                                          const RepoDefinition &TicketMember,
@@ -561,24 +561,23 @@ void RepoObjectWriter::writeSectionData(ContentsType &Fragments,
 
 void RepoObjectWriter::buildLinkedDefinitions(
     ContentsType &Fragments, const pstore::index::digest CompilationDigest,
-    const TicketType &Definitions) const {
+    const DefinitionContainer &Definitions) const {
   for (auto const &LD : LinkedDefinitions) {
     auto &D = Fragments[LD.first].LinkedDefinitions;
     for (auto const &TN : LD.second) {
-      assert(TN->CorrespondingCompilationMember >= Definitions.data() &&
-             TN->CorrespondingCompilationMember <= &Definitions.back() &&
-             "The corresponding compilation_member must lie within the "
+      assert(TN->CorrespondingDefinition >= Definitions.data() &&
+             TN->CorrespondingDefinition <= &Definitions.back() &&
+             "The corresponding definition must lie within the "
              "Definitions container.");
 
       // Record the compilation index in the linked definitions record here.
       // Once the compilation is stored in the repository and we know its
       // address, this value is updated to reflect the actual address of the
       // definition.
-      const auto Index =
-          TN->CorrespondingCompilationMember - Definitions.data();
+      const auto Index = TN->CorrespondingDefinition - Definitions.data();
       D.emplace_back(
           CompilationDigest, Index,
-          pstore::typed_address<pstore::repo::compilation_member>::make(Index));
+          pstore::typed_address<pstore::repo::definition>::make(Index));
     }
   }
 }
@@ -703,7 +702,7 @@ pstore::index::digest RepoObjectWriter::buildCompilationRecord(
   // Only record all compilation members one time.
   DenseSet<RepoDefinition *> SeenCompilationMembers;
   auto Definitions = Asm.getContext().getDefinitions();
-  CompilationMembers.reserve(Definitions.size());
+  CompilationDefinitions.reserve(Definitions.size());
   for (const auto Symbol : Definitions) {
     if (!SeenCompilationMembers.insert(Symbol).second)
       continue;
@@ -728,13 +727,12 @@ pstore::index::digest RepoObjectWriter::buildCompilationRecord(
     // member is not emitted and doesn't insert to the database, and it does
     // not contribute to the hash.
     if (Symbol->getPruned() || Fragments.find(D) != Fragments.end()) {
-      CompilationMembers.emplace_back(
+      CompilationDefinitions.emplace_back(
           DigestVal, pstore::extent<pstore::repo::fragment>(),
           pstore::typed_address<pstore::indirect_string>(
               pstore::address{NamePtr}),
           Linkage, Visibility);
-      // Update the Ticket node to remember the corrresponding ticket member.
-      Symbol->CorrespondingCompilationMember = &CompilationMembers.back();
+      Symbol->CorrespondingDefinition = &CompilationDefinitions.back();
       // If this RepoDefinition was created by the backend, it will be put into
       // the linked-definitions section of a fragment. If this fragment is
       // pruned, its linked-definitions will be pruned and contribute to the
@@ -913,7 +911,7 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
   const pstore::index::digest CompilationDigest = buildCompilationRecord(
       Db, Asm, Names, PrefixedNames, Fragments, OutputFile, TripleStr);
 
-  buildLinkedDefinitions(Fragments, CompilationDigest, CompilationMembers);
+  buildLinkedDefinitions(Fragments, CompilationDigest, CompilationDefinitions);
 
   pstore::indirect_string_adder NameAdder(Names.size());
 
@@ -1015,27 +1013,24 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
       auto TripleAddr = TriplePos->second;
 
       // Set the compilation member's grahment extent.
-      auto setFragmentExtent =
-          [&RepoFragments, &FragmentsIndex,
-           &Db](pstore::repo::compilation_member &CompilationMember)
+      auto setFragmentExtent = [&RepoFragments, &FragmentsIndex,
+                                &Db](pstore::repo::definition &Definition)
           -> llvm::Optional<pstore::index::fragment_index::const_iterator> {
-        if (RepoFragments.find(CompilationMember.digest) !=
-            RepoFragments.end()) {
-          CompilationMember.fext = RepoFragments[CompilationMember.digest];
+        if (RepoFragments.find(Definition.digest) != RepoFragments.end()) {
+          Definition.fext = RepoFragments[Definition.digest];
           return llvm::None;
         }
-        auto It = FragmentsIndex->find(Db, CompilationMember.digest);
+        auto It = FragmentsIndex->find(Db, Definition.digest);
         if (It != FragmentsIndex->end(Db)) {
-          CompilationMember.fext = It->second;
+          Definition.fext = It->second;
         }
         return It;
       };
 
-      // The name field of each of ticket_member is pointing into the 'Names'
+      // The name field of each of definition is pointing into the 'Names'
       // map. Here we turn that into the pstore address of the string.
-      for (pstore::repo::compilation_member &CompilationMember :
-           CompilationMembers) {
-        auto FragmentIndexIt = setFragmentExtent(CompilationMember);
+      for (pstore::repo::definition &Definition : CompilationDefinitions) {
+        auto FragmentIndexIt = setFragmentExtent(Definition);
 
 #ifndef NDEBUG
         // Check that we have a fragment for this ticket member's digest
@@ -1043,29 +1038,29 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
         // TODO: remove this check once we're completely confident in the
         // back-end implementation.
         if (!FragmentIndexIt) {
-          FragmentIndexIt = FragmentsIndex->find(Db, CompilationMember.digest);
+          FragmentIndexIt = FragmentsIndex->find(Db, Definition.digest);
         }
 #endif // NDEBUG
 
         if (FragmentIndexIt &&
             FragmentIndexIt.getValue() == FragmentsIndex->end(Db)) {
           report_fatal_error("The digest of missing repository fragment " +
-                             CompilationMember.digest.to_hex_string() +
-                             " was found in a compilation member.");
+                             Definition.digest.to_hex_string() +
+                             " was found in a definition.");
         }
 
         auto MNC = reinterpret_cast<ModuleNamesContainer::value_type const *>(
-            CompilationMember.name.absolute());
-        CompilationMember.name = MNC->second;
-        LLVM_DEBUG(dbgs() << " compilation member name '"
-                          << stringViewAsRef(MNC->first) << "' digest '"
-                          << CompilationMember.digest << "' adding." << '\n');
+            Definition.name.absolute());
+        Definition.name = MNC->second;
+        LLVM_DEBUG(dbgs() << " definition name '" << stringViewAsRef(MNC->first)
+                          << "' digest '" << Definition.digest << "' adding."
+                          << '\n');
       }
 
       // Store the Compilation.
       auto CExtent = pstore::repo::compilation::alloc(
-          Transaction, OutputPathAddr, TripleAddr, CompilationMembers.begin(),
-          CompilationMembers.end());
+          Transaction, OutputPathAddr, TripleAddr,
+          CompilationDefinitions.begin(), CompilationDefinitions.end());
       CompilationIndex->insert(Transaction,
                                std::make_pair(CompilationDigest, CExtent));
 

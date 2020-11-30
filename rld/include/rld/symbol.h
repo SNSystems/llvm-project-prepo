@@ -197,12 +197,12 @@ public:
   /// \returns this on success or nullptr if there was an existing non-append
   ///   definition of the symbol.
   Symbol *updateAppendSymbol(pstore::database const &Db,
-                             pstore::repo::compilation_member const &CM,
+                             pstore::repo::definition const &Def,
                              NotNull<UndefsContainer *> const Undefs,
                              uint32_t InputOrdinal);
 
   /// \param Db  The owning database.
-  /// \param CM  The new definition's compilation member.
+  /// \param Def  The new definition.
   /// \param Undefs  The collection of undefined symbols.
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
@@ -210,12 +210,12 @@ public:
   /// \returns this on success or nullptr if there was an existing non-append
   ///   definition of the symbol.
   Symbol *updateCommonSymbol(pstore::database const &Db,
-                             pstore::repo::compilation_member const &CM,
+                             pstore::repo::definition const &Def,
                              NotNull<UndefsContainer *> const Undefs,
                              uint32_t InputOrdinal);
 
   /// \param Db  The owning database.
-  /// \param CM  The new definition's compilation member.
+  /// \param Def  The new definition.
   /// \param Undefs  The collection of undefined symbols.
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
@@ -223,12 +223,12 @@ public:
   /// \returns this on success or nullptr if there was an existing incompatible
   ///   definition of the symbol.
   Symbol *updateExternalSymbol(pstore::database const &Db,
-                               pstore::repo::compilation_member const &CM,
+                               pstore::repo::definition const &Def,
                                NotNull<UndefsContainer *> const Undefs,
                                uint32_t InputOrdinal);
 
   /// \param Db  The owning database.
-  /// \param CM  The new definition's compilation member.
+  /// \param Def  The new definition.
   /// \param Undefs  The collection of undefined symbols.
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
@@ -236,12 +236,12 @@ public:
   /// \returns this on success or nullptr if there was an existing incompatible
   /// definition of the symbol.
   Symbol *updateLinkOnceSymbol(pstore::database const &Db,
-                               pstore::repo::compilation_member const &CM,
+                               pstore::repo::definition const &Def,
                                NotNull<UndefsContainer *> const Undefs,
                                uint32_t InputOrdinal);
 
   /// \param Db  The owning database.
-  /// \param CM  The new definition's compilation member.
+  /// \param Def  The new definition.
   /// \param Undefs  The collection of undefined symbols.
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
@@ -249,7 +249,7 @@ public:
   /// \returns this on success or nullptr if there was an existing incompatible
   /// definition of the symbol.
   Symbol *updateWeakSymbol(pstore::database const &Db,
-                           pstore::repo::compilation_member const &CM,
+                           pstore::repo::definition const &Def,
                            NotNull<UndefsContainer *> const Undefs,
                            uint32_t InputOrdinal);
 
@@ -260,21 +260,21 @@ private:
   ///
   /// \param Lock A lock on the symbol's mutex.
   /// \param Db  The owning database.
-  /// \param CM  The new definition's compilation member.
+  /// \param Def  The new definition.
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
   /// \returns this.
   Symbol *replaceIfLowerOrdinal(std::lock_guard<Mutex> const &Lock,
                                 pstore::database const &Db,
-                                pstore::repo::compilation_member const &CM,
+                                pstore::repo::definition const &Def,
                                 uint32_t InputOrdinal);
 
   /// Associates a body with the symbol which must not already have one.
   ///
   /// \param Lock A lock on the symbol's mutex.
   /// \param Db  The owning database.
-  /// \param CM  The new definition's compilation member.
+  /// \param Def  The new definition.
   /// \param Undefs  The collection of undefined symbols.
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
@@ -282,7 +282,7 @@ private:
   /// \returns this.
   Symbol *defineImpl(std::lock_guard<Mutex> const &Lock,
                      pstore::database const &Db,
-                     pstore::repo::compilation_member const &CM,
+                     pstore::repo::definition const &Def,
                      NotNull<UndefsContainer *> const Undefs,
                      uint32_t InputOrdinal);
 
@@ -290,21 +290,21 @@ private:
   ///
   /// \param Lock A lock on the symbol's mutex.
   /// \param Db  The containing database.
-  /// \param CM  The new definition's compilation member.
+  /// \param Def  The new definition.
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   /// Used to impose an order on the symbol definitions that is not related to
   /// the order in which the files are scanned.
   /// \returns this.
   Symbol *replaceImpl(std::lock_guard<Mutex> const &Lock,
                       pstore::database const &Db,
-                      pstore::repo::compilation_member const &CM,
+                      pstore::repo::definition const &Def,
                       uint32_t InputOrdinal);
 
   /// Associates a body with the symbol which must already have one.
   ///
   /// \param Lock  A lock on the symbol's mutex.
   /// \param Db  The containing database.
-  /// \param CM  The new definition's compilation member.
+  /// \param Def  The new definition.
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   /// Used to impose an order on the symbol definitions that is not related to
   /// the order in which the files are scanned.
@@ -313,7 +313,7 @@ private:
   /// \returns this.
   Symbol *replaceImpl(std::lock_guard<Mutex> const &Lock,
                       pstore::database const &Db,
-                      pstore::repo::compilation_member const &CM,
+                      pstore::repo::definition const &Def,
                       uint32_t const InputOrdinal, FragmentPtr const &Fragment);
 
   void setName(StringAddress N) {
@@ -471,12 +471,11 @@ public:
 private:
   Symbol *defineSymbol(NotNull<GlobalSymbolsContainer *> const Globals,
                        NotNull<UndefsContainer *> const Undefs,
-                       pstore::repo::compilation_member const &CM,
+                       pstore::repo::definition const &Def,
                        uint32_t InputCount);
 
   Symbol *add(NotNull<GlobalSymbolsContainer *> const Globals,
-              pstore::repo::compilation_member const &CM,
-              uint32_t InputOrdinal);
+              pstore::repo::definition const &Def, uint32_t InputOrdinal);
 
   Context &Context_;
 };
@@ -492,14 +491,14 @@ SymbolResolver::defineSymbols(NotNull<GlobalSymbolsContainer *> const Globals,
   LocalSymbolsContainer Locals{Compilation.size()};
 
   // Define the symbols in this module.
-  for (pstore::repo::compilation_member const &CM : Compilation) {
+  for (pstore::repo::definition const &Def : Compilation) {
     if (Symbol *const Symbol =
-            this->defineSymbol(Globals, Undefs, CM, InputOrdinal)) {
+            this->defineSymbol(Globals, Undefs, Def, InputOrdinal)) {
 
-      Locals.insert({CM.name, Symbol});
+      Locals.insert({Def.name, Symbol});
     } else {
       Error = true;
-      ErrorFn(CM.name); // Allow the error to be reported to the user.
+      ErrorFn(Def.name); // Allow the error to be reported to the user.
     }
   }
 

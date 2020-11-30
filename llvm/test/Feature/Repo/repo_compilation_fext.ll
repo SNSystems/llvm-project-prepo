@@ -30,4 +30,4 @@ entry:
   ret i32 %call
 }
 
-; CHECK: LLVM ERROR: The digest of missing repository fragment {{[0-9a-fA-F]+}} was found in a compilation member.
+; CHECK: LLVM ERROR: The digest of missing repository fragment {{[0-9a-fA-F]+}} was found in a definition.

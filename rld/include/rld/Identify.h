@@ -73,11 +73,10 @@ using StringAddress = pstore::typed_address<pstore::indirect_string>;
 using Ordinals = std::pair<size_t, size_t>;
 
 struct ArchiveSymbolInfo {
-  ArchiveSymbolInfo(pstore::repo::compilation_member const &CM,
-                    Ordinals const &O)
-      : CompilationMember{CM}, Ordinal{O} {}
+  ArchiveSymbolInfo(pstore::repo::definition const &Def, Ordinals const &O)
+      : Definition{Def}, Ordinal{O} {}
 
-  pstore::repo::compilation_member CompilationMember;
+  pstore::repo::definition Definition;
   Ordinals Ordinal;
 };
 
