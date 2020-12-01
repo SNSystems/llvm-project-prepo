@@ -11,8 +11,6 @@
 
 using namespace llvm;
 
-void MCRepoObjectTargetWriter::anchor() {}
-
 MCRepoObjectTargetWriter::MCRepoObjectTargetWriter() {}
 
 bool MCRepoObjectTargetWriter::needsRelocateWithSymbol(const MCSymbol &Sym,

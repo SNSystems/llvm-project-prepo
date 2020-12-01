@@ -11,13 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/MC/MCRepoObjectWriter.h"
-
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/StringMap.h"
 #include "llvm/IR/RepoGlobals.h"
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCAsmInfo.h"
@@ -28,20 +23,17 @@
 #include "llvm/MC/MCFixupKindInfo.h"
 #include "llvm/MC/MCObjectFileInfo.h"
 #include "llvm/MC/MCObjectWriter.h"
+#include "llvm/MC/MCRepoObjectWriter.h"
 #include "llvm/MC/MCRepoTicketFile.h"
 #include "llvm/MC/MCSectionRepo.h"
 #include "llvm/MC/MCSymbolRepo.h"
 #include "llvm/MC/MCValue.h"
 #include "llvm/MC/StringTableBuilder.h"
 #include "llvm/Support/Compression.h"
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/Endian.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
-#include "llvm/Support/Format.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/StringSaver.h"
-#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -61,7 +53,6 @@ using namespace llvm;
 #define DEBUG_TYPE "repo-object"
 
 namespace {
-typedef DenseMap<const MCSectionRepo *, uint32_t> SectionIndexMapTy;
 
 using TransactionType = pstore::transaction<pstore::transaction_lock>;
 
@@ -108,15 +99,6 @@ private:
   using DefinitionContainer = std::vector<pstore::repo::definition>;
   DefinitionContainer CompilationDefinitions;
 
-  BumpPtrAllocator Alloc;
-  StringSaver VersionSymSaver{Alloc};
-
-  // TargetObjectWriter wrappers.
-  unsigned getRelocType(MCContext &Ctx, const MCValue &Target,
-                        const MCFixup &Fixup, bool IsPCRel) const {
-    return TargetObjectWriter->getRelocType(Ctx, Target, Fixup, IsPCRel);
-  }
-
   pstore::index::debug_line_header_index::value_type
   writeDebugLineHeader(TransactionType &Transaction, ContentsType &Fragments);
 
@@ -136,8 +118,6 @@ public:
     MCObjectWriter::reset();
   }
 
-  ~RepoObjectWriter() override;
-
   void WriteWord(uint64_t Word) { W.write<uint64_t>(Word); }
 
   template <typename T> void write(T Val) { W.write(Val); }
@@ -145,9 +125,6 @@ public:
   void recordRelocation(MCAssembler &Asm, const MCAsmLayout &Layout,
                         const MCFragment *Fragment, const MCFixup &Fixup,
                         MCValue Target, uint64_t &FixedValue) override;
-
-  // Map from a signature symbol to the group section index
-  typedef DenseMap<const MCSymbol *, unsigned> RevGroupMapTy;
 
   void executePostLayoutBinding(MCAssembler &Asm,
                                 const MCAsmLayout &Layout) override;
@@ -195,8 +172,6 @@ public:
 };
 } // end anonymous namespace
 
-RepoObjectWriter::~RepoObjectWriter() {}
-
 void RepoObjectWriter::executePostLayoutBinding(MCAssembler &Asm,
                                                 const MCAsmLayout &Layout) {
   // Section symbols are used as definitions for undefined symbols with matching
@@ -224,29 +199,12 @@ void RepoObjectWriter::recordRelocation(MCAssembler &Asm,
   MCAsmBackend &Backend = Asm.getBackend();
   bool IsPCRel = Backend.getFixupKindInfo(Fixup.getKind()).Flags &
                  MCFixupKindInfo::FKF_IsPCRel;
-  auto const &FixupSection = cast<MCSectionRepo>(*Fragment->getParent());
+  const auto &FixupSection = cast<MCSectionRepo>(*Fragment->getParent());
   uint64_t C = Target.getConstant();
   uint64_t FixupOffset = Layout.getFragmentOffset(Fragment) + Fixup.getOffset();
   MCContext &Ctx = Asm.getContext();
 
   if (const MCSymbolRefExpr *RefB = Target.getSymB()) {
-    assert(RefB->getKind() == MCSymbolRefExpr::VK_None &&
-           "Should not have constructed this");
-
-    // Let A, B and C being the components of Target and R be the location of
-    // the fixup. If the fixup is not pcrel, we want to compute (A - B + C).
-    // If it is pcrel, we want to compute (A - B + C - R).
-
-    // In general, ELF has no relocations for -B. It can only represent (A + C)
-    // or (A + C - R). If B = R + K and the relocation is not pcrel, we can
-    // replace B to implement it: (A - R - K + C)
-    if (IsPCRel) {
-      Ctx.reportError(
-          Fixup.getLoc(),
-          "No fixup available to represent this relative expression");
-      return;
-    }
-
     const auto &SymB = cast<MCSymbolRepo>(RefB->getSymbol());
 
     if (SymB.isUndefined()) {
@@ -264,37 +222,37 @@ void RepoObjectWriter::recordRelocation(MCAssembler &Asm,
       return;
     }
 
-    uint64_t SymBOffset = Layout.getSymbolOffset(SymB);
-    uint64_t K = SymBOffset - FixupOffset;
+    assert(!IsPCRel && "should have been folded");
     IsPCRel = true;
-    C -= K;
+    C += FixupOffset - Layout.getSymbolOffset(SymB);
   }
 
   // We either rejected the fixup or folded B into C at this point.
   const MCSymbolRefExpr *RefA = Target.getSymA();
   const auto *SymA = RefA ? cast<MCSymbolRepo>(&RefA->getSymbol()) : nullptr;
 
-  //bool ViaWeakRef = false;
+  // bool ViaWeakRef = false;
   if (SymA && SymA->isVariable()) {
     const MCExpr *Expr = SymA->getVariableValue();
     if (const auto *Inner = dyn_cast<MCSymbolRefExpr>(Expr)) {
       if (Inner->getKind() == MCSymbolRefExpr::VK_WEAKREF) {
         SymA = cast<MCSymbolRepo>(&Inner->getSymbol());
-        //ViaWeakRef = true; TODO: we're not supporting weak references at the moment.
+        // ViaWeakRef = true; TODO: we're not supporting weak references at the
+        // moment.
       }
     }
   }
 
-  unsigned Type = getRelocType(Ctx, Target, Fixup, IsPCRel);
-  uint64_t OriginalC = C;
+  unsigned Type = TargetObjectWriter->getRelocType(Ctx, Target, Fixup, IsPCRel);
   bool RelocateWithSymbol = false;
-  if (!RelocateWithSymbol && SymA && !SymA->isUndefined())
-    C += Layout.getSymbolOffset(*SymA);
+  FixedValue = !RelocateWithSymbol && SymA && !SymA->isUndefined()
+                   ? C + Layout.getSymbolOffset(*SymA)
+                   : C;
 
-  uint64_t Addend = C;
+  uint64_t Addend = FixedValue;
   FixedValue = 0;
 
-  const auto *RenamedSymA = SymA;
+  const MCSymbolRepo *RenamedSymA = SymA;
   if (SymA) {
     if (const MCSymbolRepo *R = Renames.lookup(SymA)) {
       RenamedSymA = R;
@@ -319,8 +277,8 @@ void RepoObjectWriter::recordRelocation(MCAssembler &Asm,
     }
   }
 
-  Relocations[&FixupSection].emplace_back(
-      FixupOffset, RenamedSymA, Type, Addend, SymA, OriginalC, UsedSymbolName);
+  Relocations[&FixupSection].emplace_back(FixupOffset, RenamedSymA, Type,
+                                          Addend, SymA, C, UsedSymbolName);
 }
 
 namespace {
@@ -466,8 +424,8 @@ void RepoObjectWriter::writeSectionData(ContentsType &Fragments,
   if (Section.isDummy()) {
     pstore::index::digest Digest{Section.hash().high(), Section.hash().low()};
     LLVM_DEBUG(dbgs() << "A dummy section: section type '"
-                      << SectionKindToRepoType(Section)
-                      << "' and digest '" << Digest.to_hex_string() << "' \n");
+                      << SectionKindToRepoType(Section) << "' and digest '"
+                      << Digest.to_hex_string() << "' \n");
 
     // The default (dummy) section must have no data, no external/internal
     // fixups.
@@ -507,8 +465,9 @@ void RepoObjectWriter::writeSectionData(ContentsType &Fragments,
   Content->xfixups.reserve(Relocs.size());
   for (auto const &Relocation : Relocs) {
     using repo_relocation_type = pstore::repo::relocation_type;
-    assert (Relocation.Type >= std::numeric_limits <repo_relocation_type>::min ()
-            && Relocation.Type <= std::numeric_limits <repo_relocation_type>::max ());
+    assert(Relocation.Type >=
+               std::numeric_limits<repo_relocation_type>::min() &&
+           Relocation.Type <= std::numeric_limits<repo_relocation_type>::max());
 
     MCSymbolRepo const *const Symbol = Relocation.Symbol;
     if (Symbol->isInSection()) {
@@ -751,10 +710,11 @@ pstore::index::digest RepoObjectWriter::buildCompilationRecord(
 static bool isExistingTicket(const pstore::database &Db,
                              const pstore::index::digest &CompilationDigest) {
   if (auto TicketIndex =
-          pstore::index::get_index<pstore::trailer::indices::compilation>(Db,
-                                                                     false)) {
+          pstore::index::get_index<pstore::trailer::indices::compilation>(
+              Db, false)) {
     if (TicketIndex->find(Db, CompilationDigest) != TicketIndex->end(Db)) {
-      LLVM_DEBUG(dbgs() << "compilation " << CompilationDigest << " exists. skipping\n");
+      LLVM_DEBUG(dbgs() << "compilation " << CompilationDigest
+                        << " exists. skipping\n");
       return true;
     }
   }
@@ -1099,5 +1059,5 @@ std::unique_ptr<MCObjectWriter>
 llvm::createRepoObjectWriter(std::unique_ptr<MCRepoObjectTargetWriter> MOTW,
                              raw_pwrite_stream &OS, bool IsLittleEndian) {
   return std::make_unique<RepoObjectWriter>(std::move(MOTW), OS,
-                                             IsLittleEndian);
+                                            IsLittleEndian);
 }

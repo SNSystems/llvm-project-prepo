@@ -12,8 +12,6 @@
 
 #include "llvm/ADT/Triple.h"
 #include "llvm/MC/MCObjectWriter.h"
-#include "llvm/MC/MCValue.h"
-#include "llvm/Support/DataTypes.h"
 #include "llvm/Support/raw_ostream.h"
 #include <vector>
 
@@ -21,12 +19,10 @@ namespace llvm {
 class MCAssembler;
 class MCContext;
 class MCFixup;
-class MCFragment;
 class MCObjectWriter;
 class MCSymbol;
 class MCSymbolRepo;
 class MCValue;
-class raw_pwrite_stream;
 
 struct RepoRelocationEntry {
   uint64_t Offset;            // Where is the relocation.
@@ -57,15 +53,14 @@ struct RepoRelocationEntry {
 };
 
 class MCRepoObjectTargetWriter : public MCObjectTargetWriter {
-  virtual void anchor();
 
 protected:
   MCRepoObjectTargetWriter();
 
 public:
-  virtual ~MCRepoObjectTargetWriter() {}
+  virtual ~MCRepoObjectTargetWriter() = default;
 
-  virtual Triple::ObjectFormatType getFormat() const { return Triple::Repo; }
+  Triple::ObjectFormatType getFormat() const override { return Triple::Repo; }
   static bool classof(const MCObjectTargetWriter *W) {
 	  return W->getFormat() == Triple::Repo;
   }

@@ -113,6 +113,7 @@ void MCContext::reset() {
   MachOUniquingMap.clear();
   ELFUniquingMap.clear();
   COFFUniquingMap.clear();
+  RepoUniquingMap.clear();
   WasmUniquingMap.clear();
   XCOFFUniquingMap.clear();
 
@@ -168,6 +169,8 @@ MCSymbol *MCContext::createSymbolImpl(const StringMapEntry<bool> *Name,
   static_assert(std::is_trivially_destructible<MCSymbolELF>(),
                 "MCSymbol classes must be trivially destructible");
   static_assert(std::is_trivially_destructible<MCSymbolMachO>(),
+                "MCSymbol classes must be trivially destructible");
+  static_assert(std::is_trivially_destructible<MCSymbolRepo>(),
                 "MCSymbol classes must be trivially destructible");
   static_assert(std::is_trivially_destructible<MCSymbolWasm>(),
                 "MCSymbol classes must be trivially destructible");

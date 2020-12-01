@@ -100,10 +100,6 @@ X86RepoMCAsmInfo::X86RepoMCAsmInfo(const Triple &T) {
 
   // Exceptions handling
   ExceptionsType = ExceptionHandling::DwarfCFI;
-
-  // Always enable the integrated assembler by default.
-  // Clang also enabled it when the OS is Solaris but that is redundant here.
-  UseIntegratedAssembler = true;
 }
 
 void X86ELFMCAsmInfo::anchor() { }

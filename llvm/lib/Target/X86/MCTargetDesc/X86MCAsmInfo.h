@@ -38,13 +38,7 @@ struct X86_64MCAsmInfoDarwin : public X86MCAsmInfoDarwin {
 // Repo: There needs to be a cross-target MCAsmInfoRepo to match the ELF
 // pattern.
 class X86RepoMCAsmInfo : public MCAsmInfoRepo {
-  virtual void anchor() override;
-  /// Targets can implement this method to specify a section to switch to if the
-  /// translation unit doesn't have any trampolines that require an executable
-  /// stack.
-  MCSection *getNonexecutableStackSection(MCContext &Ctx) const override {
-    return nullptr;
-  }
+  void anchor() override;
 
 public:
   explicit X86RepoMCAsmInfo(const Triple &Triple);
