@@ -158,10 +158,9 @@ if(LLVM_BUILD_EXAMPLES)
   endif()
 endif()
 
-#if(LLVM_TOOL_PSTORE_BUILD)
-# depend on pstore system tests instead?
-#  set(LLVM_TEST_DEPENDS ${LLVM_TEST_DEPENDS} pstore-dump)
-#endif()
+if(LLVM_TOOL_PSTORE_BUILD)
+  set(LLVM_TEST_DEPENDS ${LLVM_TEST_DEPENDS} pstore-dump)
+endif()
 
 if(LLVM_TOOL_REPO2OBJ_BUILD)
   set(LLVM_TEST_DEPENDS ${LLVM_TEST_DEPENDS} repo2obj)
