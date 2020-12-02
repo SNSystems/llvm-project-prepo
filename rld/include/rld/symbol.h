@@ -189,7 +189,7 @@ public:
   }
 
   /// \param Db  The owning database.
-  /// \param CM  The new definition's compilation member.
+  /// \param Def  The new definition.
   /// \param Undefs  The collection of undefined symbols.
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to

@@ -77,9 +77,8 @@ namespace {
 cl::opt<std::string> TicketPath(cl::Positional,
                                 cl::desc("<Path of the ticket file>"),
                                 cl::Required);
-cl::list<std::string>
-    Names(cl::Positional, cl::ZeroOrMore,
-          cl::desc("<Compilation member(s) to be displayed>"));
+cl::list<std::string> Names(cl::Positional, cl::ZeroOrMore,
+                            cl::desc("<Definitions(s) to be displayed>"));
 cl::opt<std::string> RepoPath("repo", cl::Optional,
                               cl::desc("Path of the program repository"),
                               cl::init("./clang.db"));

@@ -79,9 +79,7 @@ private:
   std::map<repodefinition::DigestType, DenseSet<const RepoDefinition *>>
       LinkedDefinitions;
 
-  // A mapping of a linked definition RepoDefinition to its new symbol name
-  // which is used in the string index, compilation member and fragment in the
-  // database.
+  // A mapping of a linked definition RepoDefinition to its new symbol name.
   DenseMap<const RepoDefinition *, std::string> RenamesTN;
 
   // Note that I don't use StringMap because we take pointers into this
@@ -699,12 +697,11 @@ pstore::index::digest RepoObjectWriter::buildCompilationRecord(
   CompilationHash.update(Triple.size());
   CompilationHash.update(Triple);
 
-  // Only record all compilation members one time.
-  DenseSet<RepoDefinition *> SeenCompilationMembers;
+  DenseSet<RepoDefinition *> SeenDefinitions;
   auto Definitions = Asm.getContext().getDefinitions();
   CompilationDefinitions.reserve(Definitions.size());
   for (const auto Symbol : Definitions) {
-    if (!SeenCompilationMembers.insert(Symbol).second)
+    if (!SeenDefinitions.insert(Symbol).second)
       continue;
     repodefinition::DigestType const D = Symbol->getDigest();
     // Insert this name into the module-wide string set. This set is later
@@ -1012,7 +1009,7 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
       assert(TriplePos != Names.end() && "Triple can't be found!");
       auto TripleAddr = TriplePos->second;
 
-      // Set the compilation member's grahment extent.
+      // Set the definition's fragment extent.
       auto setFragmentExtent = [&RepoFragments, &FragmentsIndex,
                                 &Db](pstore::repo::definition &Definition)
           -> llvm::Optional<pstore::index::fragment_index::const_iterator> {
