@@ -265,13 +265,16 @@ public:
 private:
   Context &Ctx_;
   NotNull<GlobalsStorage *> const Globals_;
+  /// The number of compilations that are to be scanned by the front-end.
   uint32_t const NumCompilations_;
 
   /// Implements the ordered processing of input files.
   ///
   /// As symbol resolution completes for each input file, the visit() member is
   /// called. Layout waits for each file in turn by calling waitFor() with a
-  /// monotonically increasing value.
+  /// monotonically increasing value. This ensures that we perform layout for
+  /// each compilation in-order even in the face of their scan phases being
+  /// completed out-of-order.
   class Visited {
   public:
     explicit Visited(uint32_t NumCompilations);
