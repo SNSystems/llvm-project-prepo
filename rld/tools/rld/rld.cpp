@@ -221,7 +221,7 @@ static auto makeInterpCompilation(
   using pstore::indirect_string;
   using pstore::typed_address;
   using pstore::repo::compilation;
-  using pstore::repo::compilation_member;
+  using pstore::repo::definition;
   using pstore::repo::linkage;
 
   // Use the string adder to insert a string into the index and flush it to the
@@ -241,8 +241,8 @@ static auto makeInterpCompilation(
   auto const PathAddr = typed_address<indirect_string>::make(
       adder.add(Transaction, Names, &PathNameView).first.get_address());
 
-  compilation_member Symbol{interp_fragment_digest, FragmentDxtent, SymbolAddr,
-                            linkage::internal_no_symbol};
+  definition Symbol{interp_fragment_digest, FragmentDxtent, SymbolAddr,
+                    linkage::internal_no_symbol};
   pstore::extent<compilation> const CompilationExtent = compilation::alloc(
       Transaction, PathAddr, TripleAddr, &Symbol, &Symbol + 1);
 

@@ -29,7 +29,7 @@ entry:
 ;CHECK: A dummy section: section type 'data' and digest '5bd6b20e01f53e3934b74d557528add0'
 ;CHECK: fragment 2b0427c883fc6573e7fd156fc646b64b adding.
 ;CHECK: fragment 5bd6b20e01f53e3934b74d557528add0 adding.
-;CHECK: compilation member name 'foo' digest '2b0427c883fc6573e7fd156fc646b64b' adding.
-;CHECK: compilation member name 'bar' digest '2b0427c883fc6573e7fd156fc646b64b' adding.
-;CHECK: compilation member name 'a' digest '5bd6b20e01f53e3934b74d557528add0' adding.
-;CHECK: compilation member name 'b' digest '5bd6b20e01f53e3934b74d557528add0' adding.
+;CHECK: definition name 'foo' digest '2b0427c883fc6573e7fd156fc646b64b' adding.
+;CHECK: definition name 'bar' digest '2b0427c883fc6573e7fd156fc646b64b' adding.
+;CHECK: definition name 'a' digest '5bd6b20e01f53e3934b74d557528add0' adding.
+;CHECK: definition name 'b' digest '5bd6b20e01f53e3934b74d557528add0' adding.

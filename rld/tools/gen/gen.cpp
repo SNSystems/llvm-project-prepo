@@ -380,13 +380,13 @@ int main(int argc, char *argv[]) {
           CommonInfo.createFragments(Transaction, BssCreator, Strings);
     }
 
-    std::vector<pstore::repo::compilation_member> CompilationMembers;
-    CompilationMembers.reserve(SymbolsPerModule);
+    std::vector<pstore::repo::definition> Definitions;
+    Definitions.reserve(SymbolsPerModule);
 
     for (auto ExternalCtr = 0U; ExternalCtr < ExternalPerModule;
          ++ExternalCtr) {
       auto const DigestExtentPair = FCreator(Transaction, FragmentCount++);
-      CompilationMembers.emplace_back(
+      Definitions.emplace_back(
           DigestExtentPair.first, DigestExtentPair.second,
           Strings.add(Transaction,
                       ExternalPrefix + std::to_string(ExternalCount++)),
@@ -394,36 +394,36 @@ int main(int argc, char *argv[]) {
     }
     for (auto AppendCtr = 0U; AppendCtr < AppendPerModule; ++AppendCtr) {
       auto const DigestExtentPair = FCreator(Transaction, FragmentCount++);
-      CompilationMembers.emplace_back(
-          DigestExtentPair.first, DigestExtentPair.second,
-          AppendNames[AppendCtr], pstore::repo::linkage::append);
+      Definitions.emplace_back(DigestExtentPair.first, DigestExtentPair.second,
+                               AppendNames[AppendCtr],
+                               pstore::repo::linkage::append);
     }
 
-    for (auto const &CM : CompilationMembers) {
-      Idx.Fragments->insert(Transaction, std::make_pair(CM.digest, CM.fext));
+    for (auto const &Def : Definitions) {
+      Idx.Fragments->insert(Transaction, std::make_pair(Def.digest, Def.fext));
     }
 
     assert(LinkOnceInfo.fragments().size() == LinkOncePerModule);
     for (auto const &LO : LinkOnceInfo.fragments()) {
       auto const &DigestExtentPair = std::get<0>(LO);
-      CompilationMembers.emplace_back(DigestExtentPair.first,
-                                      DigestExtentPair.second, std::get<1>(LO),
-                                      pstore::repo::linkage::link_once_any);
+      Definitions.emplace_back(DigestExtentPair.first, DigestExtentPair.second,
+                               std::get<1>(LO),
+                               pstore::repo::linkage::link_once_any);
     }
     assert(CommonInfo.fragments().size() == CommonPerModule);
     for (auto const &Common : CommonInfo.fragments()) {
       auto const &DigestExtentPair = std::get<0>(Common);
-      CompilationMembers.emplace_back(
-          DigestExtentPair.first, DigestExtentPair.second, std::get<1>(Common),
-          pstore::repo::linkage::common);
+      Definitions.emplace_back(DigestExtentPair.first, DigestExtentPair.second,
+                               std::get<1>(Common),
+                               pstore::repo::linkage::common);
     }
-    assert(CompilationMembers.size() == SymbolsPerModule);
+    assert(Definitions.size() == SymbolsPerModule);
 
     {
       // Create an entry in the compilation index.
       auto Compilation = pstore::repo::compilation::alloc(
-          Transaction, TicketPath, TripleName, std::begin(CompilationMembers),
-          std::end(CompilationMembers));
+          Transaction, TicketPath, TripleName, std::begin(Definitions),
+          std::end(Definitions));
       pstore::index::digest const ModuleDigest =
           rawHash(Transaction.db(), Compilation);
       Idx.Compilations->insert(Transaction,

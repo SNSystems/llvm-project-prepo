@@ -190,8 +190,8 @@ static void addLinkedDefinitions(
 
     for (pstore::repo::linked_definitions::value_type const &LinkedDefinition :
          *LinkedDefinitions) {
-      const auto Definition = pstore::repo::compilation_member::load(
-          Repository, LinkedDefinition.pointer);
+      const auto Definition =
+          pstore::repo::definition::load(Repository, LinkedDefinition.pointer);
       pstore::shared_sstring_view Owner;
       const auto MDName =
           toStringRef(get_sstring_view(Repository, Definition->name, &Owner));
@@ -208,7 +208,7 @@ static void addLinkedDefinitions(
             toGVVisibility(Definition->visibility()), true));
 
         // If fragment A is has a linked_definition referencing fragment B and B
-        // is linked to C, the RepoDefinition for both 'B' and 'C' needs to be
+        // is linked to C, the RepoDefinition for both B and C needs to be
         // added to 'repo.definitions'.
         addLinkedDefinitions(M, LinkedNames, Fragments, Repository,
                              Definition->digest);

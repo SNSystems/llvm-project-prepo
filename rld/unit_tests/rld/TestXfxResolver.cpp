@@ -167,7 +167,7 @@ TEST_F(XfxScannerTest, RefToUndef) {
 
   EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
   EXPECT_EQ(Globals_.size(), 2U)
-      << "Expected 2 globals: the compilation member and the undef";
+      << "Expected 2 globals: the definition and the undef";
   EXPECT_EQ(Locals->size(), 1U)
       << "The compilation should have a single definition";
 
