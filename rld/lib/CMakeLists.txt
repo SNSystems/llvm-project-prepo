@@ -55,6 +55,7 @@ add_llvm_library (LLVMrld
     "${CMAKE_CURRENT_BINARY_DIR}/include/rld/config.h"
 
     elf.cpp
+    ElfOutput.cpp
     context.cpp
     copy.cpp
     ErrorCode.cpp

@@ -45,6 +45,7 @@
 #define RLD_SECTION_KIND_H
 
 #include "pstore/mcrepo/section.hpp"
+#include "rld/AdvanceEnum.h"
 
 namespace rld {
 
