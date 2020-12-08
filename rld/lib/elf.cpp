@@ -216,18 +216,11 @@ auto rld::elf::emitProgramHeaders(
       return;
     }
 
-    uint64_t SegmentDataOffset = SegmentDataOffsets[Kind].getValueOr(0U);
-    if (Segment.HasOutputSections) {
-        SegmentDataOffset += TargetDataRegion.offset();
-        assert(SegmentDataOffset >= TargetDataRegion.offset() &&
-            SegmentDataOffset + Segment.FileSize < TargetDataRegion.end());
-    }
-
     Phdr->p_type = elfSegmentKind<ELFT>(Kind);
     Phdr->p_flags = elfSegmentFlags<ELFT>(Kind);
     Phdr->p_vaddr = hasPhysicalAddress(Kind) ? Segment.VirtualAddr : 0;
     Phdr->p_paddr = Phdr->p_vaddr;
-    Phdr->p_offset = SegmentDataOffset;
+    Phdr->p_offset = SegmentDataOffsets[Kind].getValueOr(0U);
     Phdr->p_filesz = Segment.FileSize;
     Phdr->p_memsz = hasPhysicalAddress(Kind) ? Segment.VirtualSize : 0;
 

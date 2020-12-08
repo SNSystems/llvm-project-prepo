@@ -1,0 +1,115 @@
+// RUN: rm -rf %t && mkdir -p %t
+// RUN: pstore-import %t/db.db %s
+// RUN: repo-create-ticket --repo %t/db.db -o %t/t0.o 008fecf0ccab0c7a71a5672579eaca1e
+// RUN: repo-create-ticket --repo %t/db.db -o %t/t1.o 6c951506a8c75884774cd5d4507740cd
+// RUN: rld --repo=%t/db.db -o %t/rld.out %t/t0.o %t/t1.o
+// RUN: llvm-readelf --program-headers %t/rld.out | FileCheck %s
+
+// CHECK: Elf file type is EXEC (Executable file)
+// CHECK: Entry point 0x200000
+// CHECK: There are 4 program headers, starting at offset 64
+//
+// CHECK: Program Headers:
+// CHECK:   Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
+// CHECK:   PHDR           0x000040 0x0000000000200040 0x0000000000200040 0x0000e0 0x0000e0 R   0x1
+// CHECK:   LOAD           0x000000 0x0000000000200000 0x0000000000200000 0x001038 0x001038 R   0x1000
+// CHECK:   LOAD           0x002000 0x0000000000201000 0x0000000000201000 0x0000c6 0x0000c6 R E 0x1000
+// CHECK:   GNU_STACK      0x000000 0x0000000000000000 0x0000000000000000 0x000000 0x000000 RW  0x0
+//
+// CHECK:  Section to Segment mapping:
+// CHECK:   Segment Sections...
+// CHECK:    00
+// CHECK:    01     .rodata.str1.1 .rodata
+// CHECK:    02     .text
+// CHECK:    03
+// CHECK:    None   .shstrtab
+
+
+{
+    "version":1,
+    "id":"7bae6eae-ce1d-4fe9-a45d-981f0e5758d6",
+    "transactions":[
+        {
+            // generation 1
+            "names":[
+                "x86_64-pc-linux-gnu-repo",
+                "main",
+                "printf",
+                ".str.1",
+                ".str",
+                "ultimate_answer",
+                "/path",
+                "foo"
+            ],
+            "fragments":{
+                "f9bb578a7abfc702dc7fa54f7b4af05f":{
+                    "text":{
+                        "align":16,
+                        "data":"VUiJ5bgrAAAAXcM="
+                    }
+                },
+                "1ce0ffb3c3f3440bbdcfd26e4d66dc24":{
+                    "mergeable_1_byte_c_string":{
+                        "data":"JWQKAA=="
+                    }
+                },
+                "96ded9543181a34d8d1427698348ad1d":{
+                    "text":{
+                        "align":16,
+                        "data":"VUiJ5UiD7BBIvwAAAAAAAAAAsADoAAAAAL8GAAAAiUX86AAAAABIvwAAAAAAAAAAicawAOgAAAAAMcmJRfiJyEiDxBBdww=="
+                    }
+                },
+                "d86ded26b9f6811fe38f8a5812db1dc9":{
+                    "mergeable_1_byte_c_string":{
+                        "data":"SGVsbG8sIHdvcmxkLgoA"
+                    }
+                }
+            },
+            "compilations":{
+                "008fecf0ccab0c7a71a5672579eaca1e":{
+                    "path":6, //"/path"
+                    "triple":0, //"x86_64-pc-linux-gnu-repo"
+                    "definitions":[
+                        {"digest":"f9bb578a7abfc702dc7fa54f7b4af05f","name":5,"linkage":"external"}, //"ultimate_answer"
+                        {"digest":"96ded9543181a34d8d1427698348ad1d","name":1,"linkage":"external"}, //"main"
+                        {"digest":"d86ded26b9f6811fe38f8a5812db1dc9","name":4,"linkage":"internal_no_symbol"}, //".str"
+                        {"digest":"1ce0ffb3c3f3440bbdcfd26e4d66dc24","name":3,"linkage":"internal_no_symbol"} //".str.1"
+                    ]
+                }
+            }
+        },
+        {
+            // generation 2
+            "fragments":{
+                "024badfa2effcb85e10be56851688097":{
+                    "text":{
+                        "align":16,
+                        "data":"VUiJ5Yl9+ItF+IPA/4nBg+gDSIlN8A+HPgAAAEiLRfBIiwzFAAAAAP/hx0X8BQAAAOkrAAAAx0X8BgAAAOkfAAAAx0X8BwAAAOkTAAAAx0X8CAAAAOkHAAAAx0X8CQAAAItF/F3D",
+                        "ifixups":[
+                            {"section":"read_only","type":11,"offset":36,"addend":0}
+                        ]
+                    },
+                    "read_only":{
+                        "align":8,
+                        "data":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                        "ifixups":[
+                            {"section":"text","type":1,"offset":0,"addend":42},
+                            {"section":"text","type":1,"offset":8,"addend":54},
+                            {"section":"text","type":1,"offset":16,"addend":66},
+                            {"section":"text","type":1,"offset":24,"addend":78}
+                        ]
+                    }
+                }
+            },
+            "compilations":{
+                "6c951506a8c75884774cd5d4507740cd":{
+                    "path":6, //"/path"
+                    "triple":0, //"x86_64-pc-linux-gnu-repo"
+                    "definitions":[
+                        {"digest":"024badfa2effcb85e10be56851688097","name":7,"linkage":"external"} //"foo"
+                    ]
+                }
+            }
+        }
+    ]
+}

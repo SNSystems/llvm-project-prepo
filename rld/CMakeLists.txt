@@ -41,6 +41,10 @@
 # TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS WITH THE SOFTWARE.
 #===----------------------------------------------------------------------===//
+set (RLD_SOURCE_DIR  "${CMAKE_CURRENT_SOURCE_DIR}")
+
 add_subdirectory (lib)
+add_subdirectory (test)
 add_subdirectory (tools)
 add_subdirectory (unit_tests)
+
