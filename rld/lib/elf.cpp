@@ -313,7 +313,7 @@ auto rld::elf::emitSectionHeaders(
       Shdr->sh_flags = elfSectionFlags<ELFT>(SectionK);
       Shdr->sh_addr = OScn.VirtualAddr;
       assert(SectionFileOffsets[SectionK].hasValue() &&
-             "Emitting a section for which we have no computed a file offset");
+             "Emitting a section for which we have not computed a file offset");
       Shdr->sh_offset =
           *SectionFileOffsets[SectionK] +
           TargetDataOffset; // File offset of section data, in bytes

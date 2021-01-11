@@ -478,9 +478,6 @@ void LayoutBuilder::run() {
       }
     }
   }
-
-  llvmDebug(DebugType, Ctx_.IOMut,
-            [&] { debugDumpSymbols(Ctx_, Globals_->all()); });
 }
 
 // flatten segments

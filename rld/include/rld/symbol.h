@@ -85,6 +85,11 @@ private:
 
 class Symbol;
 
+//*               _      __                 _        _               *
+//*  _  _ _ _  __| |___ / _|___  __ ___ _ _| |_ __ _(_)_ _  ___ _ _  *
+//* | || | ' \/ _` / -_)  _(_-< / _/ _ \ ' \  _/ _` | | ' \/ -_) '_| *
+//*  \_,_|_||_\__,_\___|_| /__/ \__\___/_||_\__\__,_|_|_||_\___|_|   *
+//*                                                                  *
 //-MARK: UndefsContainer
 class UndefsContainer {
 public:
@@ -109,6 +114,11 @@ private:
   container list_;
 };
 
+//*                _         _  *
+//*  ____  _ _ __ | |__  ___| | *
+//* (_-< || | '  \| '_ \/ _ \ | *
+//* /__/\_, |_|_|_|_.__/\___/_| *
+//*     |__/                    *
 //-MARK: Symbol
 class Symbol : public llvm::ilist_node<Symbol> {
 public:
@@ -177,16 +187,8 @@ public:
     return Definition_.hasValue();
   }
 
-  StringAddress name() const {
-    const std::lock_guard<decltype(Mut_)> Lock{Mut_};
-    static_assert(sizeof(Name_) == 5U,
-                  "Expected the Name_ field to be 5 bytes");
-    return StringAddress::make(Name_[0] |
-                               (static_cast<uint64_t>(Name_[1]) << 8) |
-                               (static_cast<uint64_t>(Name_[2]) << 16) |
-                               (static_cast<uint64_t>(Name_[3]) << 24) |
-                               (static_cast<uint64_t>(Name_[4]) << 32));
-  }
+  /// Returns name name of the symbol.
+  StringAddress name() const;
 
   /// \param Db  The owning database.
   /// \param Def  The new definition.
@@ -316,27 +318,48 @@ private:
                       pstore::repo::definition const &Def,
                       uint32_t const InputOrdinal, FragmentPtr const &Fragment);
 
-  void setName(StringAddress N) {
-    std::uint64_t const NAbs = N.absolute();
-    static_assert(sizeof(Name_) == 5U,
-                  "Expected the Name_ field to be 5 bytes");
-    Name_[0] = static_cast<uint8_t>(NAbs & 0xFF);
-    Name_[1] = static_cast<uint8_t>((NAbs >> 8) & 0xFF);
-    Name_[2] = static_cast<uint8_t>((NAbs >> 16) & 0xFF);
-    Name_[3] = static_cast<uint8_t>((NAbs >> 24) & 0xFF);
-    Name_[4] = static_cast<uint8_t>((NAbs >> 32) & 0xFF);
-  }
+  void setName(StringAddress N);
 
   mutable Mutex Mut_; // TODO: is this really better than std::mutex?
+  static constexpr size_t NameElements_ = (StringAddress::total_bits + 7U) / 8U;
   /// The next field is a StringAddress, but optimized so that we don't need
   /// 8-bytes and 8-byte alignment.
-  uint8_t Name_[(StringAddress::total_bits + 7) / 8]; // StringAddress Name_;
+  uint8_t Name_[NameElements_]; // StringAddress Name_;
 
   /// We allow an array of definitions so that append symbols can associate
   /// multiple definitions with a single name.
   llvm::Optional<BodyContainer> Definition_;
 };
 
+// name
+// ~~~~
+inline StringAddress Symbol::name() const {
+  const std::lock_guard<decltype(Mut_)> Lock{Mut_};
+  static_assert(NameElements_ == 5U, "Expected the Name_ field to be 5 bytes");
+  return StringAddress::make(static_cast<uint64_t>(Name_[0]) |
+                             (static_cast<uint64_t>(Name_[1]) << 8) |
+                             (static_cast<uint64_t>(Name_[2]) << 16) |
+                             (static_cast<uint64_t>(Name_[3]) << 24) |
+                             (static_cast<uint64_t>(Name_[4]) << 32));
+}
+
+// set name
+// ~~~~~~~~
+inline void Symbol::setName(StringAddress N) {
+  std::uint64_t const NAbs = N.absolute();
+  static_assert(NameElements_ == 5U, "Expected the Name_ field to be 5 bytes");
+  Name_[0] = static_cast<uint8_t>(NAbs & 0xFF);
+  Name_[1] = static_cast<uint8_t>((NAbs >> 8) & 0xFF);
+  Name_[2] = static_cast<uint8_t>((NAbs >> 16) & 0xFF);
+  Name_[3] = static_cast<uint8_t>((NAbs >> 24) & 0xFF);
+  Name_[4] = static_cast<uint8_t>((NAbs >> 32) & 0xFF);
+}
+
+//*               _      __                 _        _               *
+//*  _  _ _ _  __| |___ / _|___  __ ___ _ _| |_ __ _(_)_ _  ___ _ _  *
+//* | || | ' \/ _` / -_)  _(_-< / _/ _ \ ' \  _/ _` | | ' \/ -_) '_| *
+//*  \_,_|_||_\__,_\___|_| /__/ \__\___/_||_\__\__,_|_|_||_\___|_|   *
+//*                                                                  *
 inline void UndefsContainer::remove(Symbol *Sym) {
   std::lock_guard<std::mutex> const Lock{mut_};
   list_.remove(*Sym); // remove this symbol from the undef list.
