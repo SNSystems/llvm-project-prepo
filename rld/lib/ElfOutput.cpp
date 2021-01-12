@@ -43,7 +43,7 @@ static void sectionNameTableWriter(Context &, const OutputSection &OScn,
 }
 
 static EnumIndexedArray<SectionKind, SectionKind::last, uint64_t>
-buildSectionStringTable(Layout *const Lout) {
+buildSectionNameStringTable(Layout *const Lout) {
   OutputSection &ShStrTab = Lout->Sections[SectionKind::shstrtab];
   ShStrTab.AlwaysEmit = true;
 
@@ -275,9 +275,13 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
   llvm::NamedRegionTimer Timer("ELF Output", "Binary Output Phase",
                                rld::TimerGroupName, rld::TimerGroupDescription);
 
-  const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t> NameOffsets =
-      buildSectionStringTable(Lout);
   const uint64_t StringTableSize = prepareStringTable(Ctxt, Lout, Globals);
+  const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t> NameOffsets =
+      buildSectionNameStringTable(Lout);
+
+  // After this point, don't do anything that might cause additional sections to
+  // be emitted. Once we've decided which names are going into the section name
+  // string table, it's too late to add any more!
 
   Lout->Segments[SegmentKind::phdr].AlwaysEmit = true;
 
