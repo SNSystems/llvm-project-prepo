@@ -189,7 +189,7 @@ constexpr auto elfSegmentFlags(rld::SegmentKind const Kind) ->
   llvm_unreachable("Invalid segment kind");
 }
 
-inline bool hasPhysicalAddress(rld::SegmentKind const Kind) {
+inline constexpr bool hasPhysicalAddress(rld::SegmentKind const Kind) {
   switch (Kind) {
   case rld::SegmentKind::phdr:
   case rld::SegmentKind::data:
@@ -205,6 +205,19 @@ inline bool hasPhysicalAddress(rld::SegmentKind const Kind) {
     return false;
   }
   llvm_unreachable("Invalid rld SegmentKind");
+}
+
+template <typename ELFT>
+constexpr unsigned char elfVisibility(pstore::repo::visibility SV) {
+  switch (SV) {
+  case pstore::repo::visibility::default_vis:
+    return llvm::ELF::STV_DEFAULT;
+  case pstore::repo::visibility::hidden_vis:
+    return llvm::ELF::STV_HIDDEN;
+  case pstore::repo::visibility::protected_vis:
+    return llvm::ELF::STV_PROTECTED;
+  }
+  llvm_unreachable("Unsupported visibility type");
 }
 
 template <typename ELFT> constexpr auto elfSectionType(rld::SectionKind Kind) {
@@ -235,6 +248,9 @@ template <typename ELFT> constexpr auto elfSectionType(rld::SectionKind Kind) {
   case SectionKind::strtab:
   case SectionKind::shstrtab:
     return Elf_Word{llvm::ELF::SHT_STRTAB};
+
+  case SectionKind::symtab:
+    return Elf_Word{llvm::ELF::SHT_SYMTAB};
 
   case SectionKind::linked_definitions:
   case SectionKind::last:
@@ -282,6 +298,7 @@ template <typename ELFT> constexpr auto elfSectionFlags(SectionKind Kind) {
   case SectionKind::interp:
   case SectionKind::strtab:
   case SectionKind::shstrtab:
+  case SectionKind::symtab:
     return Elf_Word{};
 
   case SectionKind::linked_definitions:
@@ -309,6 +326,8 @@ template <typename ELFT> constexpr auto elfSectionEntSize(SectionKind Kind) {
     return Elf_Word{16};
   case SectionKind::mergeable_const_32:
     return Elf_Word{32};
+  case SectionKind::symtab:
+    return Elf_Word{sizeof(typename llvm::object::ELFFile<ELFT>::Elf_Sym)};
   case SectionKind::text:
   case SectionKind::data:
   case SectionKind::bss:
@@ -355,6 +374,7 @@ ELF_SECTION_NAME(read_only, ".rodata");
 ELF_SECTION_NAME(rel_ro, ".data.rel");
 ELF_SECTION_NAME(shstrtab, ".shstrtab");
 ELF_SECTION_NAME(strtab, ".strtab");
+ELF_SECTION_NAME(symtab, ".symtab");
 ELF_SECTION_NAME(text, ".text");
 ELF_SECTION_NAME(thread_bss, ".tbss");
 ELF_SECTION_NAME(thread_data, ".tls");
@@ -366,7 +386,7 @@ ELF_SECTION_NAME(thread_data, ".tls");
     return {ElfSectionName<rld::SectionKind::x>::name,                         \
             ElfSectionName<rld::SectionKind::x>::length};
 
-inline std::pair<char const *, std::size_t>
+inline constexpr std::pair<char const *, std::size_t>
 elfSectionNameAndLength(rld::SectionKind SKind) {
   switch (SKind) {
     PSTORE_MCREPO_SECTION_KINDS
@@ -376,6 +396,9 @@ elfSectionNameAndLength(rld::SectionKind SKind) {
   case rld::SectionKind::strtab:
     return {ElfSectionName<rld::SectionKind::strtab>::name,
             ElfSectionName<rld::SectionKind::strtab>::length};
+  case rld::SectionKind::symtab:
+    return {ElfSectionName<rld::SectionKind::symtab>::name,
+            ElfSectionName<rld::SectionKind::symtab>::length};
   case rld::SectionKind::last:
     break;
   }

@@ -73,12 +73,13 @@ llvm::StringRef rld::stringViewAsRef(pstore::raw_sstring_view S) {
   return {S.data(), S.size()};
 }
 
-
 //*   ___         _           _    *
 //*  / __|___ _ _| |_ _____ _| |_  *
 //* | (__/ _ \ ' \  _/ -_) \ /  _| *
 //*  \___\___/_||_\__\___/_\_\\__| *
 //*                                *
+// ctor
+// ~~~~
 rld::Context::Context(pstore::database &D)
     : Db{D}, ShadowDb_{
                  createShadowMemory(static_cast<std::size_t>(Db.size()))} {}
@@ -88,8 +89,18 @@ void rld::Context::MmapDeleter::operator()(std::uint8_t *P) const {
   llvm::sys::Memory::releaseMappedMemory(Block);
 }
 
-// createShadowMemory
+// record compilation
 // ~~~~~~~~~~~~~~~~~~
+pstore::repo::compilation const &rld::Context::recordCompilation(
+    pstore::extent<pstore::repo::compilation> const &CompilationExtent) {
+  std::lock_guard<std::mutex> Lock{CompilationsMut_};
+  Compilations_.emplace_back(
+      pstore::repo::compilation::load(this->Db, CompilationExtent));
+  return *Compilations_.back();
+}
+
+// create shadow memory
+// ~~~~~~~~~~~~~~~~~~~~
 auto rld::Context::createShadowMemory(std::size_t Size) -> ShadowPtr {
   using llvm::sys::Memory;
 
@@ -100,8 +111,8 @@ auto rld::Context::createShadowMemory(std::size_t Size) -> ShadowPtr {
                    MmapDeleter(Size)};
 }
 
-// mergeTriple
-// ~~~~~~~~~~~
+// merge triple
+// ~~~~~~~~~~~~
 llvm::ErrorOr<llvm::Triple>
 rld::Context::mergeTriple(pstore::repo::compilation const &Compilation) {
   // TODO: store the triple directly to avoid the need for string parsing here?

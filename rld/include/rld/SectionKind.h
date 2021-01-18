@@ -54,29 +54,34 @@ namespace rld {
 //* \__ \/ -_) _|  _| / _ \ ' \| ' <| | ' \/ _` | *
 //* |___/\___\__|\__|_\___/_||_|_|\_\_|_||_\__,_| *
 //*                                               *
+#define RLD_SECTION_KINDS                                                      \
+  RLD_X(shstrtab)                                                              \
+  RLD_X(strtab)                                                                \
+  RLD_X(symtab)
+
 enum class SectionKind {
 #define X(a) a,
-  PSTORE_MCREPO_SECTION_KINDS shstrtab,
-  strtab,
-  last // Never used. Always last.
+#define RLD_X(a) a,
+  PSTORE_MCREPO_SECTION_KINDS RLD_SECTION_KINDS last // Never used. Always last.
+#undef RLD_X
 #undef X
 };
 
 #define X(x)                                                                   \
   case SectionKind::x:                                                         \
     return OS << #x;
+#define RLD_X(x) X(x)
+
 template <typename OStream> OStream &operator<<(OStream &OS, SectionKind Kind) {
   switch (Kind) {
     PSTORE_MCREPO_SECTION_KINDS
-  case SectionKind::shstrtab:
-    return OS << "shstrtab";
-  case SectionKind::strtab:
-    return OS << "strtab";
+    RLD_SECTION_KINDS
   case SectionKind::last:
     break;
   }
   llvm_unreachable("unknown SectionKind");
 }
+#undef RLD_X
 #undef X
 
 constexpr auto firstSectionKind() noexcept -> SectionKind {
@@ -97,11 +102,13 @@ PSTORE_MCREPO_SECTION_KINDS
 #undef X
 
 // pre-increment
-inline SectionKind &operator++(SectionKind &SK) noexcept {
+inline constexpr SectionKind &operator++(SectionKind &SK) noexcept {
 #define X(x) SectionKind::x,
+#define RLD_X(x) X(x)
   return SK = enum_values<SectionKind,
-                          PSTORE_MCREPO_SECTION_KINDS SectionKind::shstrtab,
-                          SectionKind::strtab, SectionKind::last>::advance(SK);
+                          PSTORE_MCREPO_SECTION_KINDS RLD_SECTION_KINDS
+                              SectionKind::last>::advance(SK);
+#undef RLD_X
 #undef X
 }
 
@@ -111,9 +118,6 @@ inline SectionKind operator++(SectionKind &SK, int) noexcept {
   ++SK;
   return prev;
 }
-
-constexpr std::size_t NumSectionKinds =
-    static_cast<std::underlying_type<SectionKind>::type>(SectionKind::last);
 
 } // end namespace rld
 

@@ -91,10 +91,9 @@ void Scanner::run(
                  << InputOrdinal << ")\n";
   });
 
-  auto const Compilation =
-      pstore::repo::compilation::load(Context_.Db, CompilationExtent);
+  auto const &Compilation = Context_.recordCompilation(CompilationExtent);
 
-  llvm::ErrorOr<llvm::Triple> const EOT = Context_.mergeTriple(*Compilation);
+  llvm::ErrorOr<llvm::Triple> const EOT = Context_.mergeTriple(Compilation);
   if (!EOT) {
     // FIXME: handle the error somehow
   }
@@ -108,11 +107,11 @@ void Scanner::run(
 
   SymbolResolver Resolver{Context_};
   llvm::Optional<LocalSymbolsContainer> Locals = Resolver.defineSymbols(
-      GlobalSymbols, Undefs_, *Compilation, InputOrdinal, ErrorFn);
+      GlobalSymbols, Undefs_, Compilation, InputOrdinal, ErrorFn);
 
   bool Error = !Locals.hasValue();
   if (!Error) {
-    assert(Locals->size() == Compilation->size());
+    assert(Locals->size() == Compilation.size());
     //    XfxScanner FixupScanner{Context_, Undefs_};
     Error =
         resolveXfixups(Context_, *Locals, GlobalSymbols, Undefs_, InputOrdinal);

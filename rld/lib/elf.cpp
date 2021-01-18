@@ -77,6 +77,7 @@ ELF_SECTION_NAME(debug_ranges, ".debug_ranges");
 ELF_SECTION_NAME(interp, ".interp");
 ELF_SECTION_NAME(shstrtab, ".shstrtab");
 ELF_SECTION_NAME(strtab, ".strtab");
+ELF_SECTION_NAME(symtab, ".symtab");
 ELF_SECTION_NAME(linked_definitions, "");
 
 #undef ELF_SECTION_NAME
@@ -258,6 +259,29 @@ auto rld::elf::emitProgramHeaders(
   return Phdr;
 }
 
+/// \param Lout The layout.
+/// \returns A table which contains the index of section-header record for each
+/// of the
+///   various section-kinds.
+static rld::SectionIndexedArray<unsigned>
+getLinkSections(const rld::Layout &Lout) {
+  using namespace rld;
+
+  SectionIndexedArray<unsigned> Links;
+  auto Index = 1U;
+  forEachSectionKind([&](SectionKind SectionK) {
+    const OutputSection &OScn = Lout.Sections[SectionK];
+    if (OScn.shouldEmit()) {
+      Links[SectionK] = Index;
+      ++Index;
+    } else {
+      Links[SectionK] = 0;
+    }
+  });
+
+  return Links;
+}
+
 template auto rld::elf::emitProgramHeaders<llvm::object::ELF64LE>(
     typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Phdr *Phdr,
     Context &Ctxt, const rld::FileRegion &TargetDataRegion,
@@ -299,12 +323,15 @@ auto rld::elf::emitSectionHeaders(
     uint64_t TargetDataOffset) ->
     typename llvm::object::ELFFile<ELFT>::Elf_Shdr * {
 
+  // A table which contains the index of section-header record for each of the
+  // various section-kinds.
+  SectionIndexedArray<unsigned> Links = getLinkSections(Lout);
+
   // The Null section.
   std::memset(Shdr, 0, sizeof(*Shdr));
   ++Shdr;
 
-  for (SectionKind SectionK = firstSectionKind(); SectionK != SectionKind::last;
-       ++SectionK) {
+  forEachSectionKind([&](SectionKind SectionK) {
     const OutputSection &OScn = Lout.Sections[SectionK];
     if (OScn.shouldEmit()) {
       std::memset(Shdr, 0, sizeof(*Shdr));
@@ -318,14 +345,14 @@ auto rld::elf::emitSectionHeaders(
           *SectionFileOffsets[SectionK] +
           TargetDataOffset; // File offset of section data, in bytes
       Shdr->sh_size = OScn.FileSize;
-      //  Elf_Word sh_link;      // Section type-specific header table index
+      Shdr->sh_link = OScn.Link == SectionKind::last ? 0 : Links[OScn.Link];
       //  link Elf_Word sh_info;      // Section type-specific extra information
       Shdr->sh_addralign = OScn.MaxAlign;
       Shdr->sh_entsize = elfSectionEntSize<ELFT>(SectionK);
 
       ++Shdr;
     }
-  }
+  });
 
   return Shdr;
 }

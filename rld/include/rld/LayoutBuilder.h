@@ -194,6 +194,10 @@ struct OutputSection {
   unsigned MaxAlign = 0U;
 
   bool AlwaysEmit = false;
+  // The section to which this section is linked. Used to set the
+  // section header's sh_link field. A value of 'last' corresponds to an sh_link
+  // value of 0.
+  SectionKind Link = SectionKind::last;
 
   bool shouldEmit() const {
     return AlwaysEmit || VirtualSize > 0 || FileSize > 0;
@@ -204,15 +208,19 @@ struct OutputSection {
   WriterFn Writer = nullptr;
 };
 
+template <typename Value>
+using SectionIndexedArray =
+    EnumIndexedArray<SectionKind, SectionKind::last, Value>;
+
 //-MARK: Segment
 struct Segment {
-  EnumIndexedArray<SectionKind, SectionKind::last, OutputSection *> Sections;
+  SectionIndexedArray<OutputSection *> Sections;
   uint64_t VirtualAddr = 0;
   uint64_t VirtualSize = 0;
   uint64_t FileSize = 0;
   unsigned MaxAlign = 1U;
   bool AlwaysEmit = false;
-bool HasOutputSections = false;
+  bool HasOutputSections = false;
 
   bool shouldEmit() const { return AlwaysEmit || VirtualSize > 0; }
 };
@@ -224,7 +232,7 @@ using SegmentIndexedArray =
 //-MARK: Layout
 class Layout {
 public:
-  EnumIndexedArray<SectionKind, SectionKind::last, OutputSection> Sections;
+  SectionIndexedArray<OutputSection> Sections;
   SegmentIndexedArray<Segment> Segments;
 
   template <typename Function> void forEachSegment(Function F) const {

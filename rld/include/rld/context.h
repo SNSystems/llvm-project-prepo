@@ -118,7 +118,6 @@ template <typename T> inline llvm::FormattedNumber format_hex(T N) {
 
 namespace rld {
 
-class Context;
 class SymbolTable;
 
 class Context {
@@ -133,6 +132,9 @@ public:
 
   pstore::database &Db;
   mutable std::mutex IOMut;
+
+  pstore::repo::compilation const &recordCompilation(
+      pstore::extent<pstore::repo::compilation> const &CompilationExtent);
 
 private:
   class MmapDeleter {
@@ -150,6 +152,9 @@ private:
 
   mutable std::mutex TripleMut_;
   llvm::Optional<llvm::Triple> Triple_;
+
+  std::mutex CompilationsMut_;
+  std::list<std::shared_ptr<pstore::repo::compilation const>> Compilations_;
 };
 
 } // namespace rld

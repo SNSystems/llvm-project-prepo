@@ -152,29 +152,30 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os, rld::SegmentKind kind) {
   return os;
 }
 
-llvm::raw_ostream &operator<<(llvm::raw_ostream &os, rld::SectionKind SKind) {
+llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, rld::SectionKind SKind) {
 #define X(x)                                                                   \
   case rld::SectionKind::x:                                                    \
-    os << #x;                                                                  \
+    OS << #x;                                                                  \
     break;
 
   switch (SKind) {
     PSTORE_MCREPO_SECTION_KINDS
   case rld::SectionKind::shstrtab:
-    os << "shstrtab";
+    OS << "shstrtab";
     break;
   case rld::SectionKind::strtab:
-    os << "strtab";
+    OS << "strtab";
+    break;
+  case rld::SectionKind::symtab:
+    OS << "symtab";
     break;
   case rld::SectionKind::last:
-    os << "last"; // Never used. Always last.
+    OS << "last"; // Never used. Always last.
     break;
   }
 #undef X
-  return os;
+  return OS;
 }
-
-
 
 #if ADD_IDENT_SEGMENT
 constexpr pstore::index::digest interp_fragment_digest{

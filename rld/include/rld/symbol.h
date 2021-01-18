@@ -124,15 +124,15 @@ class Symbol : public llvm::ilist_node<Symbol> {
 public:
   class Body {
   public:
-    Body(pstore::repo::linkage Linkage,
-         std::shared_ptr<const pstore::repo::fragment> const &Fragment,
-         FragmentAddress FAddr, uint32_t InputOrdinal)
-        : InputOrdinal_{InputOrdinal}, Linkage_{Linkage}, Fragment_{Fragment},
+    Body(pstore::repo::definition const *const Def,
+         const std::shared_ptr<const pstore::repo::fragment> &Fragment,
+         const FragmentAddress FAddr, const uint32_t InputOrdinal)
+        : InputOrdinal_{InputOrdinal}, Def_{Def}, Fragment_{Fragment},
           FAddr_{FAddr} {}
 
-    pstore::repo::linkage linkage() const {
-      return static_cast<pstore::repo::linkage>(Linkage_);
-    }
+    pstore::repo::linkage linkage() const { return Def_->linkage(); }
+    pstore::repo::visibility visibility() const { return Def_->visibility(); }
+
     uint32_t inputOrdinal() const { return InputOrdinal_; }
     const std::shared_ptr<const pstore::repo::fragment> &fragment() const {
       return Fragment_;
@@ -145,8 +145,8 @@ public:
     /// the command line is retained regardless of the order in which the files
     /// are processed.
     uint32_t InputOrdinal_;
-    /// The symbol's linkage.
-    pstore::repo::linkage Linkage_;
+    /// The symbol's definition.
+    pstore::repo::definition const *Def_;
     /// The fragment which provides the definition of this symbol.
     FragmentPtr Fragment_;
     /// The fragment's address. Used to find its shadow memory offset.
@@ -157,6 +157,7 @@ public:
     setName(N);
     assert(name() == N);
   }
+
   Symbol(StringAddress N, Body &&Definition)
       : Definition_{llvm::SmallVector<Body, 1>{std::move(Definition)}} {
     setName(N);
@@ -170,7 +171,7 @@ public:
   enum { DefinitionIndex, LockIndex };
 
   auto definition() const
-      -> std::tuple<OptionalBodies const &, std::unique_lock<Mutex>> {
+      -> std::tuple<const OptionalBodies &, std::unique_lock<Mutex>> {
     std::unique_lock<Mutex> Lock{Mut_};
     return {std::cref(Definition_), std::move(Lock)};
   }
@@ -187,7 +188,7 @@ public:
     return Definition_.hasValue();
   }
 
-  /// Returns name name of the symbol.
+  /// \returns The name of the symbol.
   StringAddress name() const;
 
   /// \param Db  The owning database.
@@ -198,9 +199,9 @@ public:
   ///   the order in which the files are scanned.
   /// \returns this on success or nullptr if there was an existing non-append
   ///   definition of the symbol.
-  Symbol *updateAppendSymbol(pstore::database const &Db,
-                             pstore::repo::definition const &Def,
-                             NotNull<UndefsContainer *> const Undefs,
+  Symbol *updateAppendSymbol(const pstore::database &Db,
+                             const pstore::repo::definition &Def,
+                             const NotNull<UndefsContainer *> Undefs,
                              uint32_t InputOrdinal);
 
   /// \param Db  The owning database.
@@ -211,9 +212,9 @@ public:
   ///   the order in which the files are scanned.
   /// \returns this on success or nullptr if there was an existing non-append
   ///   definition of the symbol.
-  Symbol *updateCommonSymbol(pstore::database const &Db,
-                             pstore::repo::definition const &Def,
-                             NotNull<UndefsContainer *> const Undefs,
+  Symbol *updateCommonSymbol(const pstore::database &Db,
+                             const pstore::repo::definition &Def,
+                             const NotNull<UndefsContainer *> Undefs,
                              uint32_t InputOrdinal);
 
   /// \param Db  The owning database.
@@ -224,9 +225,9 @@ public:
   ///   the order in which the files are scanned.
   /// \returns this on success or nullptr if there was an existing incompatible
   ///   definition of the symbol.
-  Symbol *updateExternalSymbol(pstore::database const &Db,
-                               pstore::repo::definition const &Def,
-                               NotNull<UndefsContainer *> const Undefs,
+  Symbol *updateExternalSymbol(const pstore::database &Db,
+                               const pstore::repo::definition &Def,
+                               const NotNull<UndefsContainer *> Undefs,
                                uint32_t InputOrdinal);
 
   /// \param Db  The owning database.
@@ -237,9 +238,9 @@ public:
   ///   the order in which the files are scanned.
   /// \returns this on success or nullptr if there was an existing incompatible
   /// definition of the symbol.
-  Symbol *updateLinkOnceSymbol(pstore::database const &Db,
-                               pstore::repo::definition const &Def,
-                               NotNull<UndefsContainer *> const Undefs,
+  Symbol *updateLinkOnceSymbol(const pstore::database &Db,
+                               const pstore::repo::definition &Def,
+                               const NotNull<UndefsContainer *> Undefs,
                                uint32_t InputOrdinal);
 
   /// \param Db  The owning database.
@@ -250,9 +251,9 @@ public:
   ///   the order in which the files are scanned.
   /// \returns this on success or nullptr if there was an existing incompatible
   /// definition of the symbol.
-  Symbol *updateWeakSymbol(pstore::database const &Db,
-                           pstore::repo::definition const &Def,
-                           NotNull<UndefsContainer *> const Undefs,
+  Symbol *updateWeakSymbol(const pstore::database &Db,
+                           const pstore::repo::definition &Def,
+                           const NotNull<UndefsContainer *> Undefs,
                            uint32_t InputOrdinal);
 
 private:
@@ -267,9 +268,9 @@ private:
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
   /// \returns this.
-  Symbol *replaceIfLowerOrdinal(std::lock_guard<Mutex> const &Lock,
-                                pstore::database const &Db,
-                                pstore::repo::definition const &Def,
+  Symbol *replaceIfLowerOrdinal(const std::lock_guard<Mutex> &Lock,
+                                const pstore::database &Db,
+                                const pstore::repo::definition &Def,
                                 uint32_t InputOrdinal);
 
   /// Associates a body with the symbol which must not already have one.
@@ -282,10 +283,10 @@ private:
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
   /// \returns this.
-  Symbol *defineImpl(std::lock_guard<Mutex> const &Lock,
-                     pstore::database const &Db,
-                     pstore::repo::definition const &Def,
-                     NotNull<UndefsContainer *> const Undefs,
+  Symbol *defineImpl(const std::lock_guard<Mutex> &Lock,
+                     const pstore::database &Db,
+                     const pstore::repo::definition &Def,
+                     const NotNull<UndefsContainer *> Undefs,
                      uint32_t InputOrdinal);
 
   /// Associates a body with the symbol which must already have one.
@@ -297,9 +298,9 @@ private:
   /// Used to impose an order on the symbol definitions that is not related to
   /// the order in which the files are scanned.
   /// \returns this.
-  Symbol *replaceImpl(std::lock_guard<Mutex> const &Lock,
-                      pstore::database const &Db,
-                      pstore::repo::definition const &Def,
+  Symbol *replaceImpl(const std::lock_guard<Mutex> &Lock,
+                      const pstore::database &Db,
+                      const pstore::repo::definition &Def,
                       uint32_t InputOrdinal);
 
   /// Associates a body with the symbol which must already have one.
@@ -313,10 +314,10 @@ private:
   /// \param Fragment  The symbol's fragment. This is the data that is
   /// associated with the symbol.
   /// \returns this.
-  Symbol *replaceImpl(std::lock_guard<Mutex> const &Lock,
-                      pstore::database const &Db,
-                      pstore::repo::definition const &Def,
-                      uint32_t const InputOrdinal, FragmentPtr const &Fragment);
+  Symbol *replaceImpl(const std::lock_guard<Mutex> &Lock,
+                      const pstore::database &Db,
+                      const pstore::repo::definition &Def,
+                      uint32_t InputOrdinal, const FragmentPtr &Fragment);
 
   void setName(StringAddress N);
 
@@ -370,6 +371,11 @@ inline void UndefsContainer::insert(Symbol *Sym) {
   list_.push_back(*Sym); // add this symbol to the undef list.
 }
 
+//*  ___ _            _              ___     _     _               *
+//* / __| |_  __ _ __| |_____ __ __ | _ \___(_)_ _| |_ ___ _ _ ___ *
+//* \__ \ ' \/ _` / _` / _ \ V  V / |  _/ _ \ | ' \  _/ -_) '_(_-< *
+//* |___/_||_\__,_\__,_\___/\_/\_/  |_| \___/_|_||_\__\___|_| /__/ *
+//*                                                                *
 // shadow pointer
 // ~~~~~~~~~~~~~~
 template <typename T>
@@ -482,33 +488,34 @@ public:
   /// \param ErrorFn  Called in the event of an error.
   template <typename Function>
   llvm::Optional<LocalSymbolsContainer>
-  defineSymbols(NotNull<GlobalSymbolsContainer *> const Globals,
-                NotNull<UndefsContainer *> const Undefs,
-                pstore::repo::compilation const &Compilation,
+  defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
+                const NotNull<UndefsContainer *> Undefs,
+                const pstore::repo::compilation &Compilation,
                 uint32_t InputOrdinal, Function ErrorFn);
 
-  static Symbol *addUndefined(NotNull<GlobalSymbolsContainer *> const Globals,
-                              NotNull<UndefsContainer *> const Undefs,
-                              StringAddress const Name);
+  static Symbol *addUndefined(const NotNull<GlobalSymbolsContainer *> Globals,
+                              const NotNull<UndefsContainer *> Undefs,
+                              const StringAddress Name);
 
 private:
-  Symbol *defineSymbol(NotNull<GlobalSymbolsContainer *> const Globals,
-                       NotNull<UndefsContainer *> const Undefs,
-                       pstore::repo::definition const &Def,
+  Symbol *defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
+                       const NotNull<UndefsContainer *> Undefs,
+                       const pstore::repo::definition &Def,
                        uint32_t InputCount);
 
-  Symbol *add(NotNull<GlobalSymbolsContainer *> const Globals,
-              pstore::repo::definition const &Def, uint32_t InputOrdinal);
+  Symbol *add(const NotNull<GlobalSymbolsContainer *> Globals,
+              const pstore::repo::definition &Def, uint32_t InputOrdinal);
 
   Context &Context_;
 };
 
 template <typename Function>
 llvm::Optional<LocalSymbolsContainer>
-SymbolResolver::defineSymbols(NotNull<GlobalSymbolsContainer *> const Globals,
-                              NotNull<UndefsContainer *> const Undefs,
-                              pstore::repo::compilation const &Compilation,
-                              uint32_t InputOrdinal, Function ErrorFn) {
+SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
+                              const NotNull<UndefsContainer *> Undefs,
+                              const pstore::repo::compilation &Compilation,
+                              const uint32_t InputOrdinal,
+                              const Function ErrorFn) {
   bool Error = false;
 
   LocalSymbolsContainer Locals{Compilation.size()};
@@ -532,9 +539,9 @@ SymbolResolver::defineSymbols(NotNull<GlobalSymbolsContainer *> const Globals,
 }
 
 Symbol *referenceSymbol(Context &Ctx, StringAddress Name,
-                        LocalSymbolsContainer const &Locals,
-                        NotNull<GlobalSymbolsContainer *> const Globals,
-                        NotNull<UndefsContainer *> const Undefs);
+                        const LocalSymbolsContainer &Locals,
+                        const NotNull<GlobalSymbolsContainer *> Globals,
+                        const NotNull<UndefsContainer *> Undefs);
 
 } // end namespace rld
 #endif // RLD_SYMBOL_H

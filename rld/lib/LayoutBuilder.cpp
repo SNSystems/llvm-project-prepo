@@ -117,6 +117,7 @@ LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
     {SectionKind::shstrtab, SegmentKind::discard}, // TODO:An unnecessary entry?
                                                    // Use the repo section enum?
     {SectionKind::strtab, SegmentKind::discard},   // TODO:An unnecessary entry?
+    {SectionKind::symtab, SegmentKind::discard},   // TODO:An unnecessary entry?
 }};
 
 // check section to segment array

@@ -101,6 +101,25 @@ uint64_t prepareStringTable(rld::Context &Ctxt, rld::Layout *const Lout,
   return StringTableSize;
 }
 
+// prepare symbol table
+// ~~~~~~~~~~~~~~~~~~~~
+template <typename ELFT>
+static uint64_t prepareSymbolTable(rld::Layout *const Lout,
+                                   const GlobalSymbolsContainer &Globals) {
+  using Elf_Sym = typename llvm::object::ELFFile<ELFT>::Elf_Sym;
+  // FIXME: this shouldn't include the symbols with internal_no_symbol linkage.
+  const uint64_t NumSymbols = Globals.size();
+
+  OutputSection &StrTab = Lout->Sections[SectionKind::symtab];
+  StrTab.AlwaysEmit = true;
+  StrTab.FileSize = NumSymbols * sizeof(Elf_Sym);
+  StrTab.MaxAlign = alignof(Elf_Sym);
+  StrTab.Link = SectionKind::strtab;
+  StrTab.Writer = nullptr;
+
+  return NumSymbols;
+}
+
 // first segment alignment
 // ~~~~~~~~~~~~~~~~~~~~~~~
 static unsigned firstSegmentAlignment(const rld::Layout &Lout) {
@@ -111,6 +130,8 @@ static unsigned firstSegmentAlignment(const rld::Layout &Lout) {
   return FirstSegment->MaxAlign;
 }
 
+// compute section file offsets
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // Compute the file offsets for the segments and the sections that they contain.
 // The result is returned in the two output-parameters: SegmentFileOffsets and
 // SectionFileOffsets. Note that these values are all 0 based: that is, no
@@ -169,14 +190,16 @@ static uint64_t computeSectionFileOffsets(
   return FileOffset;
 }
 
+enum class Region { FileHeader, SegmentTable, SectionData, SectionTable, Last };
+
 using ELFT = llvm::object::ELFType<llvm::support::little, true>;
 using Elf_Ehdr = llvm::object::ELFFile<ELFT>::Elf_Ehdr;
 using Elf_Shdr = llvm::object::ELFFile<ELFT>::Elf_Shdr;
 using Elf_Phdr = llvm::object::ELFFile<ELFT>::Elf_Phdr;
 using Elf_Sym = llvm::object::ELFFile<ELFT>::Elf_Sym;
 
-enum class Region { FileHeader, SegmentTable, SectionData, SectionTable, Last };
-
+// flatten segments
+// ~~~~~~~~~~~~~~~~
 /// Flattens the layout so that sections and segments don't overlap and
 /// establishes their position in the SectionData region of the final file.
 /// Data here is 0 based.
@@ -276,6 +299,7 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
                                rld::TimerGroupName, rld::TimerGroupDescription);
 
   const uint64_t StringTableSize = prepareStringTable(Ctxt, Lout, Globals);
+  const uint64_t SymbolTableSize = prepareSymbolTable<ELFT>(Lout, Globals);
   const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t> NameOffsets =
       buildSectionNameStringTable(Lout);
 
@@ -382,7 +406,8 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
         FileRegions[Region::SectionData].offset());
 
     (void)End;
-    assert(End - Start == NumSections);
+    assert(End - Start == NumSections && "The expected number of sections were "
+                                         "not produced by emitSectionheader()");
     assert(reinterpret_cast<uint8_t *>(Start) +
                FileRegions[Region::SectionTable].size() ==
            reinterpret_cast<uint8_t *>(End));
@@ -399,24 +424,76 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
   });
 
   WorkPool.async([&Ctxt, &FileRegions, BufferStart, &Globals, StringTableSize,
-                  &SectionFileOffsets]() {
+                  SymbolTableSize, &SectionFileOffsets]() {
     // Produce the string table.
     assert(SectionFileOffsets[SectionKind::strtab].hasValue() &&
            "The strtab section should have been assigned an offset");
-    auto *const Data = BufferStart + FileRegions[Region::SectionData].offset() +
-                       *SectionFileOffsets[SectionKind::strtab];
+    assert(SectionFileOffsets[SectionKind::symtab].hasValue() &&
+           "The symbol section should have been assigned an offset");
 
-    auto *Out = Data;
-    *(Out++) = '\0';
+    auto *const StringData = BufferStart +
+                             FileRegions[Region::SectionData].offset() +
+                             *SectionFileOffsets[SectionKind::strtab];
+    auto *StringOut = StringData;
+    auto *const SymbolData = reinterpret_cast<Elf_Sym *>(
+        BufferStart + FileRegions[Region::SectionData].offset() +
+        *SectionFileOffsets[SectionKind::symtab]);
+    auto *SymbolOut = SymbolData;
+
+    *(StringOut++) = '\0'; // The string table's initial null entry.
+                           //    auto NameOffset = Elf_Word{1};
     for (const Symbol &Sym : Globals) {
-      pstore::shared_sstring_view Owner;
-      const pstore::raw_sstring_view Str =
-          loadString(Ctxt.Db, Sym.name(), &Owner);
-      Out = std::copy(std::begin(Str), std::end(Str), Out);
-      *(Out++) = '\0';
+      {
+        pstore::shared_sstring_view Owner;
+        printf("Copying: %s\n",
+               loadString(Ctxt.Db, Sym.name(), &Owner).to_string().c_str());
+
+        std::tuple<const Symbol::OptionalBodies &,
+                   std::unique_lock<Symbol::Mutex>>
+            Def = Sym.definition();
+        const Symbol::OptionalBodies &Bodies = std::get<0>(Def);
+        if (!Bodies) {
+          // this ia an undefined symbol.
+          SymbolOut->st_name =
+              StringOut - StringData; // Symbol name (index into string table)
+          SymbolOut->st_info = 0;
+          SymbolOut->st_shndx = llvm::ELF::SHN_UNDEF;
+          SymbolOut->st_other = 0;
+          SymbolOut->st_value = 0;
+          ++SymbolOut;
+        } else {
+          assert(Bodies->size() == 1);
+
+          for (Symbol::Body const &B : *Bodies) {
+            SymbolOut->st_name =
+                StringOut - StringData; // Symbol name (index into string table)
+            SymbolOut->st_info = 0;
+            SymbolOut->st_shndx = 0;
+            SymbolOut->st_other = 0;
+            SymbolOut->st_value = 0;
+            SymbolOut->setVisibility(elf::elfVisibility<ELFT>(B.visibility()));
+            ++SymbolOut;
+          }
+        }
+      }
+      {
+        // Copy a string.
+        pstore::shared_sstring_view Owner;
+        const pstore::raw_sstring_view Str =
+            loadString(Ctxt.Db, Sym.name(), &Owner);
+        StringOut = std::copy(std::begin(Str), std::end(Str), StringOut);
+        *(StringOut++) = '\0';
+      }
     }
     (void)StringTableSize;
-    assert(Out > Data && static_cast<size_t>(Out - Data) == StringTableSize);
+    assert(StringOut > StringData &&
+           static_cast<size_t>(StringOut - StringData) == StringTableSize);
+
+    (void)SymbolTableSize;
+    printf("Actual:%ld Expected:%llu\n", SymbolOut - SymbolData,
+           SymbolTableSize);
+    assert(SymbolOut >= SymbolData &&
+           static_cast<size_t>(SymbolOut - SymbolData) == SymbolTableSize);
   });
 
   copyToOutput(Ctxt, WorkPool, BufferStart, *Lout, SectionFileOffsets,
