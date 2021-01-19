@@ -95,8 +95,8 @@ void SpecialNames::initialize(const pstore::database &Db, GeneratedNames &Names)
     errs() << program_name << "Warning: name index was not found.\n";
   } else {
     // Get the address of the global tors names from the names set. If the
-    // string is missing, use null since we know that can't appear as a ticket's
-    // name.
+    // string is missing, use null since we know that can't appear as a
+    // definition's name.
     CtorName = findString(Db, *NameIndex, Names.add("llvm.global_ctors"));
     DtorName = findString(Db, *NameIndex, Names.add("llvm.global_dtors"));
   }
@@ -470,21 +470,24 @@ int main(int argc, char *argv[]) {
     OutputSections.resize(::pstore::repo::fragment::member_array::max_size());
 
     Optional<pstore::extent<std::uint8_t>> DebugLineHeaderExtent;
-    auto Ticket = pstore::repo::compilation::load(Db, CompilationPos->second);
+    auto Compilation =
+        pstore::repo::compilation::load(Db, CompilationPos->second);
 
-    for (auto const &CM : *Ticket) {
-      assert(CM.name != pstore::typed_address<pstore::indirect_string>::null());
+    for (auto const &Definition : *Compilation) {
+      assert(Definition.name !=
+             pstore::typed_address<pstore::indirect_string>::null());
       LLVM_DEBUG(dbgs() << "Processing: "
-                        << pstore::indirect_string::read(Db, CM.name) << '\n');
+                        << pstore::indirect_string::read(Db, Definition.name)
+                        << '\n');
 
       std::fill(std::begin(OutputSections), std::end(OutputSections),
                 OutputSection<ELFT>::SectionInfo{});
 
-      pstore::repo::linkage const Linkage = CM.linkage();
+      pstore::repo::linkage const Linkage = Definition.linkage();
       auto const IsLinkOnce = Linkage == pstore::repo::linkage::link_once_any ||
                               Linkage == pstore::repo::linkage::link_once_odr;
 
-      auto const Fragment = pstore::repo::fragment::load(Db, CM.fext);
+      auto const Fragment = pstore::repo::fragment::load(Db, Definition.fext);
 
       if (pstore::repo::debug_line_section const *const DebugLine =
               Fragment->atp<pstore::repo::section_kind::debug_line>()) {
@@ -514,7 +517,7 @@ int main(int argc, char *argv[]) {
       }
 
       if (Linkage == pstore::repo::linkage::common) {
-        auto const Name = pstore::indirect_string::read(Db, CM.name);
+        auto const Name = pstore::indirect_string::read(Db, Definition.name);
         assert(Name.is_in_store());
 
         if (!Fragment->has_section(pstore::repo::section_kind::bss) ||
@@ -530,7 +533,7 @@ int main(int argc, char *argv[]) {
             Fragment->at<pstore::repo::section_kind::bss>();
         State->Symbols.insertSymbol(Name, nullptr /*no output section*/,
                                     0 /*offset*/, BSS.size(), Linkage,
-                                    BSS.align(), CM.visibility());
+                                    BSS.align(), Definition.visibility());
         continue;
       }
       // Go through the sections that this fragment contains creating the
@@ -546,10 +549,11 @@ int main(int argc, char *argv[]) {
         // section to which this fragment's section data will be appended.
         auto const Discriminator =
             shouldCreateSubsection(IsLinkOnce, Section)
-                ? CM.name
+                ? Definition.name
                 : pstore::typed_address<pstore::indirect_string>::null();
         auto const Id = std::make_tuple(
-            getELFSectionType(Section, CM.name, State->Magics), Discriminator);
+            getELFSectionType(Section, Definition.name, State->Magics),
+            Discriminator);
 
         decltype(State->Sections)::iterator Pos;
         bool DidInsert;
@@ -565,11 +569,11 @@ int main(int argc, char *argv[]) {
         // section.
         if (DidInsert && IsLinkOnce) {
           decltype(State->Groups)::iterator GroupPos =
-              State->Groups.find(CM.name);
+              State->Groups.find(Definition.name);
           if (GroupPos == State->Groups.end()) {
             bool _;
-            std::tie(GroupPos, _) =
-                State->Groups.emplace(CM.name, GroupInfo<ELFT>(CM.name));
+            std::tie(GroupPos, _) = State->Groups.emplace(
+                Definition.name, GroupInfo<ELFT>(Definition.name));
           }
 
           GroupPos->second.Members.push_back(OSection);
@@ -594,7 +598,7 @@ int main(int argc, char *argv[]) {
 
       for (pstore::repo::section_kind Section : SectionRange) {
         OutputSections[static_cast<unsigned>(Section)].section()->append(
-            CM, Fragment, Section, State->Symbols, State->Generated,
+            Definition, Fragment, Section, State->Symbols, State->Generated,
             OutputSections);
       }
     }
@@ -660,11 +664,7 @@ int main(int argc, char *argv[]) {
 
   OS.seek(0);
   writeRaw(OS, Header);
-
-  //  if (Res == 0)
   Out->keep();
-
   Out->os().flush();
-
   return EXIT_SUCCESS;
 }
