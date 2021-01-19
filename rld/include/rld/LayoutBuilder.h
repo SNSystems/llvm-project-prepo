@@ -116,9 +116,6 @@ template <typename OStream> OStream &operator<<(OStream &OS, SegmentKind S) {
   return OS << Str;
 }
 
-constexpr std::size_t NumSegments =
-    static_cast<std::underlying_type<SegmentKind>::type>(SegmentKind::last);
-
 // pre-increment
 inline SegmentKind &operator++(SegmentKind &SK) noexcept {
 #define X(x) SegmentKind::x,
@@ -147,16 +144,23 @@ template <typename Function> inline void forEachSectionKind(Function F) {
   }
 }
 
+struct OutputSection;
+
 //-MARK: Contribution
 struct Contribution {
-  Contribution(pstore::repo::section_base const *S, UintptrAddress SA,
-               uint64_t Offset_, uint64_t Size_, unsigned Align_,
-               StringAddress Name_, unsigned const InputOrdinal_)
-      : Section{S}, XfxShadow{SA}, Offset{Offset_}, Size{Size_}, Align{Align_},
-        InputOrdinal{InputOrdinal_}, Name{Name_} {}
+#if 1
+  constexpr Contribution(pstore::repo::section_base const *S, UintptrAddress SA,
+                         OutputSection *Scn_, uint64_t Offset_, uint64_t Size_,
+                         unsigned Align_, StringAddress Name_,
+                         unsigned const InputOrdinal_)
+      : Section{S}, XfxShadow{SA}, Scn{Scn_}, Offset{Offset_}, Size{Size_},
+        Align{Align_}, InputOrdinal{InputOrdinal_}, Name{Name_} {}
+#endif
 
   pstore::repo::section_base const *const Section;
   UintptrAddress const XfxShadow;
+
+  OutputSection *Scn;
 
   /// The output offset from the first section of this type.
   uint64_t const Offset;
@@ -323,13 +327,17 @@ private:
     return static_cast<std::underlying_type<SegmentKind>::type>(Kind);
   }
 
+  /// \tparam SKind The section kind to be added. This must exist within
+  /// fragment \p F. \param F  The fragment which owns the section to be added.
+  /// \param FAddr The pstore address of fragment \p F.
+  /// \returns The offset of this section within the output section.
   template <pstore::repo::section_kind SKind>
-  void addSectionToLayout(FragmentPtr const &F, FragmentAddress FAddr,
-                          StringAddress Name, unsigned InputOrdinal);
+  uint64_t addSectionToLayout(FragmentPtr const &F, FragmentAddress FAddr,
+                              StringAddress Name, unsigned InputOrdinal);
 
   LocalSymbolsContainer recoverDefinitionsFromCUMap(std::size_t Ordinal);
-  void addSymbolBody(Symbol::Body const &Body, uint32_t Ordinal,
-                     StringAddress const Name);
+  void addSymbolBody(Symbol *const Sym, Symbol::Body const &Body,
+                     uint32_t Ordinal, StringAddress const Name);
 
   static std::uint64_t
   prevSectionEnd(OutputSection::ContributionVector const &Contributions);

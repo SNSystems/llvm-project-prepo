@@ -192,34 +192,6 @@ PSTORE_MCREPO_SECTION_KINDS
 
 // has file data
 // ~~~~~~~~~~~~~
-inline bool hasFileData(pstore::repo::section_kind Kind) {
-    switch (Kind) {
-    case pstore::repo::section_kind::text:
-    case pstore::repo::section_kind::data:
-    case pstore::repo::section_kind::rel_ro:
-    case pstore::repo::section_kind::mergeable_1_byte_c_string:
-    case pstore::repo::section_kind::mergeable_2_byte_c_string:
-    case pstore::repo::section_kind::mergeable_4_byte_c_string:
-    case pstore::repo::section_kind::mergeable_const_4:
-    case pstore::repo::section_kind::mergeable_const_8:
-    case pstore::repo::section_kind::mergeable_const_16:
-    case pstore::repo::section_kind::mergeable_const_32:
-    case pstore::repo::section_kind::read_only:
-    case pstore::repo::section_kind::thread_data:
-    case pstore::repo::section_kind::debug_line:
-    case pstore::repo::section_kind::debug_string:
-    case pstore::repo::section_kind::debug_ranges:
-    case pstore::repo::section_kind::interp:
-        return true;
-    case pstore::repo::section_kind::bss:
-    case pstore::repo::section_kind::thread_bss:
-    case pstore::repo::section_kind::linked_definitions:
-    case pstore::repo::section_kind::last:
-        return false;
-    }
-    llvm_unreachable("Unknown rld section_kind");
-}
-
 template <pstore::repo::section_kind Kind> struct HasFileData {};
 template <> struct HasFileData<pstore::repo::section_kind::text> {
   static constexpr bool value = true;
@@ -289,10 +261,10 @@ template <> struct HasFileData<pstore::repo::section_kind::last> {
 // add section to layout
 // ~~~~~~~~~~~~~~~~~~~~~
 template <pstore::repo::section_kind SKind>
-void LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
-                                       const FragmentAddress FAddr,
-                                       const StringAddress Name,
-                                       const unsigned InputOrdinal) {
+uint64_t LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
+                                           const FragmentAddress FAddr,
+                                           const StringAddress Name,
+                                           const unsigned InputOrdinal) {
   assert(F->has_section(SKind) &&
          "Layout can't contain a section that doesn't exist");
 
@@ -300,7 +272,7 @@ void LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
   if (SegmentK == SegmentKind::discard) {
     llvmDebug(DebugType, Ctx_.IOMut,
               [&] { llvm::dbgs() << "    Discarding " << SKind << '\n'; });
-    return;
+    return 0;
   }
 
   auto const & Section = F->at<SKind>();
@@ -331,17 +303,20 @@ void LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
   auto const SectionAddress = UintptrAddress{
       FAddr.to_address() + (reinterpret_cast<std::uint8_t const *>(&Section) -
                             reinterpret_cast<std::uint8_t const *>(F.get()))};
-  OutputSection->Contributions.emplace_back(
-      &Section, SectionAddress,
-      alignTo(LayoutBuilder::prevSectionEnd(OutputSection->Contributions),
-              Alignment),
-      Size, Alignment, Name, InputOrdinal);
+
+  // Compute the offset of this section within the output section.
+  auto const Offset = alignTo(
+      LayoutBuilder::prevSectionEnd(OutputSection->Contributions), Alignment);
+  OutputSection->Contributions.emplace_back(&Section, SectionAddress,
+                                            OutputSection, Offset, Size,
+                                            Alignment, Name, InputOrdinal);
 
   llvmDebug(DebugType, Ctx_.IOMut, [&] {
     auto const &Entry = OutputSection->Contributions.back();
     llvm::dbgs() << "    Adding " << SKind << " section to " << SegmentK
                  << " segment (" << Entry << ")\n";
   });
+  return Offset;
 }
 
 // recover definitions from CU map
@@ -359,8 +334,8 @@ auto LayoutBuilder::recoverDefinitionsFromCUMap(const std::size_t Ordinal)
 
 // add symbol body
 // ~~~~~~~~~~~~~~~
-void LayoutBuilder::addSymbolBody(Symbol::Body const &Body, uint32_t Ordinal,
-                                  StringAddress const Name) {
+void LayoutBuilder::addSymbolBody(Symbol *const Sym, Symbol::Body const &Body,
+                                  uint32_t Ordinal, StringAddress const Name) {
   // Record this symbol's fragment if it was defined by this compilation.
   if (Body.inputOrdinal() != Ordinal) {
     return;
@@ -369,10 +344,11 @@ void LayoutBuilder::addSymbolBody(Symbol::Body const &Body, uint32_t Ordinal,
     llvm::dbgs() << "  " << loadStdString(Ctx_.Db, Name) << '\n';
   });
 
+  auto Value = uint64_t{0};
   for (pstore::repo::section_kind Section : *Body.fragment()) {
 #define X(a)                                                                   \
   case pstore::repo::section_kind::a:                                          \
-    this->addSectionToLayout<pstore::repo::section_kind::a>(                   \
+    Value = this->addSectionToLayout<pstore::repo::section_kind::a>(           \
         Body.fragment(), Body.fragmentAddress(), Name, Body.inputOrdinal());   \
     break;
 
@@ -382,6 +358,7 @@ void LayoutBuilder::addSymbolBody(Symbol::Body const &Body, uint32_t Ordinal,
       llvm_unreachable("Unknown fragment section kind");
     }
 #undef X
+    Sym->setValue(Value);
   }
 }
 
@@ -400,10 +377,8 @@ void LayoutBuilder::debugDumpLayout() const {
       makeOnce([&OS](SectionKind Scn) { OS << '\t' << Scn << '\n'; });
 
   pstore::shared_sstring_view Owner;
-  for (auto SegmentK = SegmentKind::phdr; SegmentK < SegmentKind::last;
-       ++SegmentK) {
-    for (auto SectionK = SectionKind::text; SectionK < SectionKind::last;
-         ++SectionK) {
+  forEachSegmentKind([&](SegmentKind SegmentK) {
+    forEachSectionKind([&](SectionKind SectionK) {
       if (OutputSection const *const Scn =
               Layout_->Segments[SegmentK].Sections[SectionK]) {
         for (Contribution const &C : Scn->Contributions) {
@@ -416,9 +391,9 @@ void LayoutBuilder::debugDumpLayout() const {
         }
       }
       EmitSection.reset();
-    }
+    });
     EmitSegment.reset();
-  }
+  });
 }
 
 // run
@@ -438,7 +413,7 @@ void LayoutBuilder::run() {
 
     for (auto const &Definition : recoverDefinitionsFromCUMap(Ordinal)) {
       StringAddress const Name = Definition.first;
-      Symbol const *const Sym = Definition.second;
+      Symbol *const Sym = Definition.second;
 
       llvmDebug(DebugType, Ctx_.IOMut, [&] {
         llvm::dbgs() << "Examining symbol:" << loadStdString(Ctx_.Db, Name)
@@ -454,14 +429,24 @@ void LayoutBuilder::run() {
       auto const &Bodies = *std::get<Symbol::DefinitionIndex>(SymDef);
       assert(Bodies.size() >= 1U &&
              "A defined symbol must have a least 1 body");
+
+#if 0
+{
+    auto const & Fragment = Bodies.front().fragment();
+    // TODO: make this a method of the fragment type.
+    auto const FirstSection = static_cast <pstore::repo::section_kind> (Fragment->members().get_indices().front());
+    assert (Fragment->has_section(FirstSection));
+//Sym->Value = Fragment->members().get_indices().front();
+}
+#endif
       if (Bodies.size() == 1U) {
         auto const &B = Bodies.front();
         if (B.inputOrdinal() == Ordinal) {
-          this->addSymbolBody(B, Ordinal, Name);
+          this->addSymbolBody(Sym, B, Ordinal, Name);
         }
       } else {
-        auto First = std::begin(Bodies);
-        auto Last = std::end(Bodies);
+        auto const First = std::begin(Bodies);
+        auto const Last = std::end(Bodies);
 
         assert(std::all_of(First, Last,
                            [](Symbol::Body const &B) {
@@ -475,7 +460,7 @@ void LayoutBuilder::run() {
               return A.inputOrdinal() < B;
             });
         assert(Pos != Last && Pos->inputOrdinal() == Ordinal);
-        this->addSymbolBody(*Pos, Ordinal, Name);
+        this->addSymbolBody(Sym, *Pos, Ordinal, Name);
       }
     }
   }
@@ -496,12 +481,12 @@ std::unique_ptr<Layout> LayoutBuilder::flattenSegments() {
 
     auto A = Seg.VirtualAddr;
     forEachSectionKind([&](SectionKind SectionK) {
-      if (OutputSection *const OScn = Seg.Sections[SectionK]) {
-Seg.HasOutputSections = true;
-        assert(OScn->VirtualAddr == 0);
-        A = alignTo(A, OScn->MaxAlign);
-        OScn->VirtualAddr = A;
-        A += OScn->VirtualSize;
+      if (OutputSection *const Scn = Seg.Sections[SectionK]) {
+        Seg.HasOutputSections = true;
+        assert(Scn->VirtualAddr == 0);
+        A = alignTo(A, Scn->MaxAlign);
+        Scn->VirtualAddr = A;
+        A += Scn->VirtualSize;
       }
     });
     assert(A == Base);

@@ -124,7 +124,7 @@ class Symbol : public llvm::ilist_node<Symbol> {
 public:
   class Body {
   public:
-    Body(pstore::repo::definition const *const Def,
+    Body(const pstore::repo::definition *const Def,
          const std::shared_ptr<const pstore::repo::fragment> &Fragment,
          const FragmentAddress FAddr, const uint32_t InputOrdinal)
         : InputOrdinal_{InputOrdinal}, Def_{Def}, Fragment_{Fragment},
@@ -190,6 +190,9 @@ public:
 
   /// \returns The name of the symbol.
   StringAddress name() const;
+
+  void setValue(uint64_t V) { Value = V; }
+  uint64_t value() const { return Value; }
 
   /// \param Db  The owning database.
   /// \param Def  The new definition.
@@ -326,6 +329,8 @@ private:
   /// The next field is a StringAddress, but optimized so that we don't need
   /// 8-bytes and 8-byte alignment.
   uint8_t Name_[NameElements_]; // StringAddress Name_;
+
+  uint64_t Value = 0;
 
   /// We allow an array of definitions so that append symbols can associate
   /// multiple definitions with a single name.

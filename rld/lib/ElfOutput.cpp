@@ -223,12 +223,14 @@ void flattenSegments(
 }
 
 void overlapPhdrAndRODataSegments(
-    Layout *const Lout, rld::SegmentIndexedArray<llvm::Optional<uint64_t>>
-                            *const SegmentFileOffsets) {
+    Layout *const Lout,
+    rld::SegmentIndexedArray<llvm::Optional<uint64_t>>
+        *const SegmentFileOffsets,
+    const uint64_t PhdrSegmentSize) {
   {
     Segment &phdr = Lout->Segments[SegmentKind::phdr];
-    phdr.FileSize = sizeof(Elf_Phdr) * NumSegments;
-    phdr.VirtualSize = sizeof(Elf_Phdr) * NumSegments;
+    phdr.FileSize = PhdrSegmentSize;
+    phdr.VirtualSize = PhdrSegmentSize;
     phdr.VirtualAddr += sizeof(Elf_Ehdr);
     phdr.MaxAlign = 1U;
   }
@@ -236,6 +238,10 @@ void overlapPhdrAndRODataSegments(
 
   // Now adjust the ROData segment so that it covers the ELF header and segment
   // table as well as its actual content.
+  static_assert(
+      static_cast<std::underlying_type_t<SegmentKind>>(SegmentKind::phdr) + 1 ==
+          static_cast<std::underlying_type_t<SegmentKind>>(SegmentKind::rodata),
+      "Expected the ROData segment to follow the PHDR segment");
   auto const RODataOffset =
       (*SegmentFileOffsets)[SegmentKind::rodata].getValueOr(0U);
   Lout->Segments[SegmentKind::rodata].VirtualSize += RODataOffset;
@@ -244,53 +250,58 @@ void overlapPhdrAndRODataSegments(
   (*SegmentFileOffsets)[SegmentKind::rodata] = 0;
 }
 
-#if 0
-void emitSymbolTable (Context &Ctxt, const GlobalSymbolsContainer &Globals) {
-    auto &OS = llvm::dbgs();
-    OS << "There are " << Globals.size() << " symbols\n";
-struct Elf64_Sym {
-        Elf64_Word st_name;
-        unsigned char st_info;
-        unsigned char st_other;
-        Elf64_Half st_shndx;
-        Elf64_Addr st_value;
-        Elf64_Xword st_size;
-};
-
-using namespace rld;
-    for (auto const &S : Globals) {
-Elf_Sym symbol;
-
-      // Note that requesting a symbol's definition returns an owned lock on the
-      // object. That means that we need to get the name first since accessing
-      // both will try to acquire the same lock.
-      StringAddress const Name = S.name();
-      std::tuple<Symbol::OptionalBodies const &, std::unique_lock<Symbol::Mutex>> const X = S.definition();
-      Symbol::OptionalBodies const &Def = std::get<Symbol::DefinitionIndex>(X);
-
-std::memset(&symbol, 0, sizeof(symbol));
-symbol.st_name = 0;///name offset; // how to compute?
-
-      bool const IsDefined = Def.hasValue();
-      pstore::shared_sstring_view Owner;
-      OS << "  " << stringViewAsRef(loadString(Ctxt.Db, Name, &Owner)) << ": defined: " << (IsDefined ? "yes" : "no");
-      if (IsDefined) {
-        assert (Def->size () > 0);
-#if 0
-        unsigned char st_info;
-        unsigned char st_other;
-        Elf64_Half st_shndx;
-        Elf64_Addr st_value;
-        Elf64_Xword st_size;
-#endif
-      } else {
-        // an undef symbol.
-      }
-
-      OS << "\n";
-    }
+// FIXME: there is an almost identical function in R2OSymbolTable.h
+static constexpr unsigned char sectionToSymbolType(const SectionKind T) {
+  using namespace pstore::repo;
+  switch (T) {
+  case SectionKind::text:
+    return llvm::ELF::STT_FUNC;
+  case SectionKind::bss:
+  case SectionKind::data:
+  case SectionKind::rel_ro:
+  case SectionKind::mergeable_1_byte_c_string:
+  case SectionKind::mergeable_2_byte_c_string:
+  case SectionKind::mergeable_4_byte_c_string:
+  case SectionKind::mergeable_const_4:
+  case SectionKind::mergeable_const_8:
+  case SectionKind::mergeable_const_16:
+  case SectionKind::mergeable_const_32:
+  case SectionKind::read_only:
+    return llvm::ELF::STT_OBJECT;
+  case SectionKind::thread_bss:
+  case SectionKind::thread_data:
+    return llvm::ELF::STT_TLS;
+  case SectionKind::debug_line:
+  case SectionKind::debug_ranges:
+  case SectionKind::debug_string:
+  case SectionKind::interp:
+    return llvm::ELF::STT_NOTYPE;
+  case SectionKind::linked_definitions:
+  case SectionKind::shstrtab:
+  case SectionKind::strtab:
+  case SectionKind::symtab:
+  case SectionKind::last:
+    break;
+  }
+  llvm_unreachable("invalid section type");
 }
-#endif
+
+// FIXME: this function was lifted from R2OSymbolTable.h
+static constexpr unsigned char
+linkageToELFBinding(const pstore::repo::linkage L) {
+  switch (L) {
+  case pstore::repo::linkage::internal_no_symbol:
+  case pstore::repo::linkage::internal:
+    return llvm::ELF::STB_LOCAL;
+  case pstore::repo::linkage::link_once_any:
+  case pstore::repo::linkage::link_once_odr:
+  case pstore::repo::linkage::weak_any:
+  case pstore::repo::linkage::weak_odr:
+    return llvm::ELF::STB_WEAK;
+  default:
+    return llvm::ELF::STB_GLOBAL;
+  }
+}
 
 llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
                            const GlobalSymbolsContainer &Globals,
@@ -339,7 +350,7 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
   rld::EnumIndexedArray<Region, Region::Last, rld::FileRegion> FileRegions;
   FileRegions[Region::FileHeader] = rld::FileRegion{0, sizeof(Elf_Ehdr)};
   FileRegions[Region::SegmentTable] = rld::FileRegion{
-      FileRegions[Region::FileHeader].end(), NumSegments * sizeof(Elf_Phdr)};
+      FileRegions[Region::FileHeader].end(), sizeof(Elf_Phdr) * NumSegments};
   FileRegions[Region::SectionData] = rld::FileRegion{
       alignTo(FileRegions[Region::SegmentTable].end(),
               NumSegments > 0U ? firstSegmentAlignment(*Lout) : 1U),
@@ -348,7 +359,8 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
       FileRegions[Region::SectionData].end(), NumSections * sizeof(Elf_Shdr)};
 
   flattenSegments(*Lout, FileRegions, &SegmentFileOffsets);
-  overlapPhdrAndRODataSegments(Lout, &SegmentFileOffsets);
+  overlapPhdrAndRODataSegments(Lout, &SegmentFileOffsets,
+                               FileRegions[Region::SegmentTable].size());
 
   uint64_t const TotalSize = FileRegions.back().end();
 
@@ -441,40 +453,31 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
     auto *SymbolOut = SymbolData;
 
     *(StringOut++) = '\0'; // The string table's initial null entry.
-                           //    auto NameOffset = Elf_Word{1};
     for (const Symbol &Sym : Globals) {
+      // Build a symbol.
       {
-        pstore::shared_sstring_view Owner;
-        printf("Copying: %s\n",
-               loadString(Ctxt.Db, Sym.name(), &Owner).to_string().c_str());
-
         std::tuple<const Symbol::OptionalBodies &,
                    std::unique_lock<Symbol::Mutex>>
             Def = Sym.definition();
         const Symbol::OptionalBodies &Bodies = std::get<0>(Def);
+        std::memset(SymbolOut, 0, sizeof(*SymbolOut));
+        SymbolOut->st_name = StringOut - StringData;
         if (!Bodies) {
           // this ia an undefined symbol.
-          SymbolOut->st_name =
-              StringOut - StringData; // Symbol name (index into string table)
-          SymbolOut->st_info = 0;
-          SymbolOut->st_shndx = llvm::ELF::SHN_UNDEF;
-          SymbolOut->st_other = 0;
-          SymbolOut->st_value = 0;
-          ++SymbolOut;
         } else {
-          assert(Bodies->size() == 1);
+          //          assert(Bodies->size() == 1);
 
-          for (Symbol::Body const &B : *Bodies) {
-            SymbolOut->st_name =
-                StringOut - StringData; // Symbol name (index into string table)
-            SymbolOut->st_info = 0;
-            SymbolOut->st_shndx = 0;
-            SymbolOut->st_other = 0;
-            SymbolOut->st_value = 0;
-            SymbolOut->setVisibility(elf::elfVisibility<ELFT>(B.visibility()));
-            ++SymbolOut;
-          }
+          const Symbol::Body &B = Bodies->front();
+          SymbolOut->st_value = Sym.value();
+          SymbolOut->st_shndx = llvm::ELF::SHN_UNDEF;
+          SymbolOut->st_size =
+              0; // FIXME: the sum of the sizes of all of the bodies.
+          SymbolOut->setVisibility(elf::elfVisibility<ELFT>(B.visibility()));
+          SymbolOut->setBindingAndType(
+              linkageToELFBinding(B.linkage()),
+              sectionToSymbolType(SectionKind::data /*FIXME*/));
         }
+        ++SymbolOut;
       }
       {
         // Copy a string.
@@ -490,8 +493,6 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
            static_cast<size_t>(StringOut - StringData) == StringTableSize);
 
     (void)SymbolTableSize;
-    printf("Actual:%ld Expected:%llu\n", SymbolOut - SymbolData,
-           SymbolTableSize);
     assert(SymbolOut >= SymbolData &&
            static_cast<size_t>(SymbolOut - SymbolData) == SymbolTableSize);
   });
