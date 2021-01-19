@@ -1,5 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+#
+# ===- wrap_tool.py - ----------------------------------------*- python -*--===#
+#
+# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#
+# ===-----------------------------------------------------------------------===#
 """
 Enables the use of tools which don't yet understand the Program Repository with
 repository ticket files.
