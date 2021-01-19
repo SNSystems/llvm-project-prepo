@@ -1,6 +1,6 @@
 # LLVM with Program Repository Support
 
-![Commit Tests](https://github.com/SNSystems/llvm-project-prepo/workflows/Commit%20Tests/badge.svg)
+[![Commit Tests](https://github.com/SNSystems/llvm-project-prepo/workflows/Commit%20Tests/badge.svg)](https://github.com/SNSystems/llvm-project-prepo/actions?query=workflow%3A%22Commit+Tests%22)
 
 This git repository contains a copy of LLVM (forked from [llvm/llvm-project@`7b556541`](https://github.com/llvm/llvm-project/commit/7b5565418f4d6e113ba805dad40d471d23bca6f6) with work-in-progress modifications to output to a Program Repository.
 
