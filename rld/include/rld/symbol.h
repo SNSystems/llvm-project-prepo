@@ -84,6 +84,8 @@ private:
   container list_;
 };
 
+struct Contribution;
+
 //*                _         _  *
 //*  ____  _ _ __ | |__  ___| | *
 //* (_-< || | '  \| '_ \/ _ \ | *
@@ -161,8 +163,12 @@ public:
   /// \returns The name of the symbol.
   StringAddress name() const;
 
-  void setValue(uint64_t V) { Value = V; }
-  uint64_t value() const { return Value; }
+  void setFirstContribution(Contribution *const C) {
+    if (Contribution_ == nullptr) {
+      Contribution_ = C;
+    }
+  }
+  Contribution *contribution() const { return Contribution_; }
 
   /// \param Db  The owning database.
   /// \param Def  The new definition.
@@ -300,7 +306,8 @@ private:
   /// 8-bytes and 8-byte alignment.
   uint8_t Name_[NameElements_]; // StringAddress Name_;
 
-  uint64_t Value = 0;
+  /// The output contribution produced by this symbol. Set during layout.
+  Contribution *Contribution_ = nullptr;
 
   /// We allow an array of definitions so that append symbols can associate
   /// multiple definitions with a single name.

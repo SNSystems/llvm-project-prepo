@@ -231,10 +231,10 @@ template <> struct HasFileData<pstore::repo::section_kind::last> {
 // add section to layout
 // ~~~~~~~~~~~~~~~~~~~~~
 template <pstore::repo::section_kind SKind>
-uint64_t LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
-                                           const FragmentAddress FAddr,
-                                           const StringAddress Name,
-                                           const unsigned InputOrdinal) {
+Contribution *LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
+                                                const FragmentAddress FAddr,
+                                                const StringAddress Name,
+                                                const unsigned InputOrdinal) {
   assert(F->has_section(SKind) &&
          "Layout can't contain a section that doesn't exist");
 
@@ -242,7 +242,7 @@ uint64_t LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
   if (SegmentK == SegmentKind::discard) {
     llvmDebug(DebugType, Ctx_.IOMut,
               [&] { llvm::dbgs() << "    Discarding " << SKind << '\n'; });
-    return 0;
+    return nullptr;
   }
 
   auto const & Section = F->at<SKind>();
@@ -286,7 +286,8 @@ uint64_t LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
     llvm::dbgs() << "    Adding " << SKind << " section to " << SegmentK
                  << " segment (" << Entry << ")\n";
   });
-  return Offset;
+
+  return &OutputSection->Contributions.back();
 }
 
 // recover definitions from CU map
@@ -314,11 +315,11 @@ void LayoutBuilder::addSymbolBody(Symbol *const Sym, Symbol::Body const &Body,
     llvm::dbgs() << "  " << loadStdString(Ctx_.Db, Name) << '\n';
   });
 
-  auto Value = uint64_t{0};
+  Contribution *C = nullptr;
   for (pstore::repo::section_kind Section : *Body.fragment()) {
 #define X(a)                                                                   \
   case pstore::repo::section_kind::a:                                          \
-    Value = this->addSectionToLayout<pstore::repo::section_kind::a>(           \
+    C = this->addSectionToLayout<pstore::repo::section_kind::a>(               \
         Body.fragment(), Body.fragmentAddress(), Name, Body.inputOrdinal());   \
     break;
 
@@ -328,7 +329,7 @@ void LayoutBuilder::addSymbolBody(Symbol *const Sym, Symbol::Body const &Body,
       llvm_unreachable("Unknown fragment section kind");
     }
 #undef X
-    Sym->setValue(Value);
+    Sym->setFirstContribution(C);
   }
 }
 

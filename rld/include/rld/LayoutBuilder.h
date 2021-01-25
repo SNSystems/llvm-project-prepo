@@ -120,17 +120,17 @@ struct OutputSection;
 struct Contribution {
 #if 1
   constexpr Contribution(pstore::repo::section_base const *S, UintptrAddress SA,
-                         OutputSection *Scn_, uint64_t Offset_, uint64_t Size_,
+                         OutputSection *OScn_, uint64_t Offset_, uint64_t Size_,
                          unsigned Align_, StringAddress Name_,
                          unsigned const InputOrdinal_)
-      : Section{S}, XfxShadow{SA}, Scn{Scn_}, Offset{Offset_}, Size{Size_},
+      : Section{S}, XfxShadow{SA}, OScn{OScn_}, Offset{Offset_}, Size{Size_},
         Align{Align_}, InputOrdinal{InputOrdinal_}, Name{Name_} {}
 #endif
 
   pstore::repo::section_base const *const Section;
   UintptrAddress const XfxShadow;
 
-  OutputSection *Scn;
+  OutputSection *OScn;
 
   /// The output offset from the first section of this type.
   uint64_t const Offset;
@@ -169,8 +169,8 @@ struct OutputSection {
 
   bool AlwaysEmit = false;
   // The section to which this section is linked. Used to set the
-  // section header's sh_link field. A value of 'last' corresponds to an sh_link
-  // value of 0.
+  // ELF section header's sh_link field. A value of 'last' corresponds to an
+  // sh_link value of 0 (i.e. no linked section).
   SectionKind Link = SectionKind::last;
 
   bool shouldEmit() const {
@@ -298,12 +298,16 @@ private:
   }
 
   /// \tparam SKind The section kind to be added. This must exist within
-  /// fragment \p F. \param F  The fragment which owns the section to be added.
+  ///   fragment \p F.
+  /// \param F  The fragment which owns the section to be added.
   /// \param FAddr The pstore address of fragment \p F.
-  /// \returns The offset of this section within the output section.
+  /// \param Name
+  /// \param InputOrdinal
+  /// \returns The contribution representing the newly added section data. This
+  /// is nullptr if the section is not copied to the output file.
   template <pstore::repo::section_kind SKind>
-  uint64_t addSectionToLayout(FragmentPtr const &F, FragmentAddress FAddr,
-                              StringAddress Name, unsigned InputOrdinal);
+  Contribution *addSectionToLayout(FragmentPtr const &F, FragmentAddress FAddr,
+                                   StringAddress Name, unsigned InputOrdinal);
 
   LocalSymbolsContainer recoverDefinitionsFromCUMap(std::size_t Ordinal);
   void addSymbolBody(Symbol *const Sym, Symbol::Body const &Body,

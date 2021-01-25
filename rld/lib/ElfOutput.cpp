@@ -469,8 +469,8 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
     for (const Symbol &Sym : Globals) {
       // Build a symbol.
       {
-        std::tuple<const Symbol::OptionalBodies &,
-                   std::unique_lock<Symbol::Mutex>>
+        const std::tuple<const Symbol::OptionalBodies &,
+                         std::unique_lock<Symbol::Mutex>>
             Def = Sym.definition();
         const Symbol::OptionalBodies &Bodies = std::get<0>(Def);
         std::memset(SymbolOut, 0, sizeof(*SymbolOut));
@@ -481,7 +481,10 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
           //          assert(Bodies->size() == 1);
 
           const Symbol::Body &B = Bodies->front();
-          SymbolOut->st_value = Sym.value();
+          const Contribution *const C = Sym.contribution();
+          assert(C != nullptr);
+
+          SymbolOut->st_value = C->OScn->VirtualAddr + C->Offset;
           SymbolOut->st_shndx = llvm::ELF::SHN_UNDEF;
           SymbolOut->st_size =
               0; // FIXME: the sum of the sizes of all of the bodies.
