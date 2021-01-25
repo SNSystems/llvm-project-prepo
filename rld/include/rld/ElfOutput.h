@@ -1,3 +1,16 @@
+//*  _____ _  __  ___        _               _    *
+//* | ____| |/ _|/ _ \ _   _| |_ _ __  _   _| |_  *
+//* |  _| | | |_| | | | | | | __| '_ \| | | | __| *
+//* | |___| |  _| |_| | |_| | |_| |_) | |_| | |_  *
+//* |_____|_|_|  \___/ \__,_|\__| .__/ \__,_|\__| *
+//*                             |_|               *
+//===- include/rld/ElfOutput.h --------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
 #ifndef RLD_ELF_OUTPUT_H
 #define RLD_ELF_OUTPUT_H
 
