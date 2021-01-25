@@ -30,10 +30,6 @@ add_llvm_tool (rld-gen
 target_link_libraries (rld-gen PRIVATE pstore-core pstore-mcrepo)
 target_link_libraries (rld-gen PRIVATE xxHash::xxhash)
 
-set_target_properties (rld-gen PROPERTIES
-    CXX_STANDARD 14
-    CXX_STANDARD_REQUIRED Yes
-)
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options (rld-gen PUBLIC
         -Wno-c++14-extensions
