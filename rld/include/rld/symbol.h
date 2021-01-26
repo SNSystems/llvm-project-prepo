@@ -170,66 +170,81 @@ public:
   }
   Contribution *contribution() const { return Contribution_; }
 
+  /// Process the definition of a symbol with append linkage that "collides"
+  /// with an existing definition.
+  ///
   /// \param Db  The owning database.
   /// \param Def  The new definition.
   /// \param Undefs  The collection of undefined symbols.
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
-  /// \returns this on success or nullptr if there was an existing non-append
+  /// \returns  this on success or nullptr if there was an existing non-append
   ///   definition of the symbol.
   Symbol *updateAppendSymbol(const pstore::database &Db,
                              const pstore::repo::definition &Def,
                              const NotNull<UndefsContainer *> Undefs,
                              uint32_t InputOrdinal);
 
+  /// Process the definition of a symbol with common linkage that "collides"
+  /// with an existing definition.
+  ///
   /// \param Db  The owning database.
   /// \param Def  The new definition.
   /// \param Undefs  The collection of undefined symbols.
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
-  /// \returns this on success or nullptr if there was an existing non-append
+  /// \returns  this on success or nullptr if there was an existing non-append
   ///   definition of the symbol.
   Symbol *updateCommonSymbol(const pstore::database &Db,
                              const pstore::repo::definition &Def,
                              const NotNull<UndefsContainer *> Undefs,
                              uint32_t InputOrdinal);
 
+  /// Process the definition of a symbol with external linkage that "collides"
+  /// with an existing definition.
+  ///
   /// \param Db  The owning database.
   /// \param Def  The new definition.
   /// \param Undefs  The collection of undefined symbols.
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
-  /// \returns this on success or nullptr if there was an existing incompatible
+  /// \returns  this on success or nullptr if there was an existing incompatible
   ///   definition of the symbol.
   Symbol *updateExternalSymbol(const pstore::database &Db,
                                const pstore::repo::definition &Def,
                                const NotNull<UndefsContainer *> Undefs,
                                uint32_t InputOrdinal);
 
+  /// Process the definition of a symbol with link-once linkage that "collides"
+  /// with an existing definition.
+  ///
   /// \param Db  The owning database.
   /// \param Def  The new definition.
   /// \param Undefs  The collection of undefined symbols.
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
-  /// \returns this on success or nullptr if there was an existing incompatible
-  /// definition of the symbol.
+  /// \returns  this on success or nullptr if there was an existing incompatible
+  ///   definition of the symbol.
   Symbol *updateLinkOnceSymbol(const pstore::database &Db,
                                const pstore::repo::definition &Def,
                                const NotNull<UndefsContainer *> Undefs,
                                uint32_t InputOrdinal);
 
+  /// Process the definition of a symbol with weak linkage that "collides" with
+  /// an existing definition.
+  ///
   /// \param Db  The owning database.
   /// \param Def  The new definition.
   /// \param Undefs  The collection of undefined symbols.
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
-  /// \returns this on success or nullptr if there was an existing incompatible
-  /// definition of the symbol.
+  /// \returns  this on success or nullptr if there was an existing incompatible
+  ///   definition of the symbol.
   Symbol *updateWeakSymbol(const pstore::database &Db,
                            const pstore::repo::definition &Def,
                            const NotNull<UndefsContainer *> Undefs,
@@ -491,6 +506,8 @@ private:
   Context &Context_;
 };
 
+// define symbols
+// ~~~~~~~~~~~~~~
 template <typename Function>
 llvm::Optional<LocalSymbolsContainer>
 SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
@@ -520,6 +537,8 @@ SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
   return {std::move(Locals)};
 }
 
+// reference symbol
+// ~~~~~~~~~~~~~~~~
 Symbol *referenceSymbol(Context &Ctx, StringAddress Name,
                         const LocalSymbolsContainer &Locals,
                         const NotNull<GlobalSymbolsContainer *> Globals,
