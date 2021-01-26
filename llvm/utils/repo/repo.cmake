@@ -7,18 +7,16 @@
 #
 #===----------------------------------------------------------------------===
 
-#this one not so much
 SET (CMAKE_SYSTEM_VERSION 1)
 SET (CMAKE_SYSTEM_PROCESSOR "x86_64")
 
 set (triple "x86_64-pc-linux-gnu-repo")
 
-# The user must specify CMAKE_C_COMPILER by giving '-DCMAKE_C_COMPILER:FILEPATH=/path/to/c/compiler' on the command line
 SET (CMAKE_C_COMPILER   "clang"  CACHE FILEPATH "Compiler")
-# The user must specify CMAKE_CXX_COMPILER by using '-DCMAKE_CXX_COMPILER:FILEPATH=/path/to/cxx/compiler' on the command line
 SET (CMAKE_CXX_COMPILER "clang++"  CACHE FILEPATH "Compiler")
 
-# The user must specify the utils_dir by giving '-Dutils_dir:STRING=/path/to/llvm/utils/repo' on the command line
+# The user must specify the utils_dir by giving
+# '-Dutils_dir:STRING=/path/to/llvm/utils/repo' on the command line
 if (utils_dir)
     # Environment variables are always preserved.
     set(ENV{_utils_dir} "${utils_dir}")
@@ -39,6 +37,7 @@ set (CMAKE_CXX_LINKER ${CMAKE_LINKER})
 
 set (CMAKE_C_LINK_EXECUTABLE "${utils_dir}/link.py <FLAGS> <CMAKE_C_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> <LINK_LIBRARIES>")
 set (CMAKE_CXX_LINK_EXECUTABLE "${utils_dir}/link.py <FLAGS> <CMAKE_CXX_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> <LINK_LIBRARIES>")
+
 
 set (CMAKE_C_CREATE_SHARED_LIBRARY   "${utils_dir}/link.py <FLAGS> <CMAKE_SHARED_LIBRARY_C_FLAGS> <LANGUAGE_COMPILE_FLAGS> <LINK_FLAGS> <CMAKE_SHARED_LIBRARY_CREATE_C_FLAGS> <SONAME_FLAG><TARGET_SONAME> -o <TARGET> <OBJECTS> <LINK_LIBRARIES>")
 set (CMAKE_CXX_CREATE_SHARED_LIBRARY "${utils_dir}/link.py <FLAGS> <CMAKE_SHARED_LIBRARY_CXX_FLAGS> <LANGUAGE_COMPILE_FLAGS> <LINK_FLAGS> <CMAKE_SHARED_LIBRARY_CREATE_CXX_FLAGS> <SONAME_FLAG><TARGET_SONAME> -o <TARGET> <OBJECTS> <LINK_LIBRARIES>")
