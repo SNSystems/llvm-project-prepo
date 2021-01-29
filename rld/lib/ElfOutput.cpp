@@ -27,10 +27,14 @@
 #include "rld/copy.h"
 #include "rld/elf.h"
 
+#include "pstore/core/hamt_set.hpp"
+
 using namespace rld;
 
 static constexpr auto NumImplicitSections = 1U; // The null section.
 
+// section name table writer
+// ~~~~~~~~~~~~~~~~~~~~~~~~~
 // Produce the section names string table.
 static void sectionNameTableWriter(Context &, const OutputSection &OScn,
                                    uint8_t *Data, const Layout &Lout) {
@@ -55,12 +59,14 @@ static void sectionNameTableWriter(Context &, const OutputSection &OScn,
              OScn.FileSize);
 }
 
-static EnumIndexedArray<SectionKind, SectionKind::last, uint64_t>
+// build section name string table
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+static SectionIndexedArray<uint64_t>
 buildSectionNameStringTable(Layout *const Lout) {
   OutputSection &ShStrTab = Lout->Sections[SectionKind::shstrtab];
   ShStrTab.AlwaysEmit = true;
 
-  EnumIndexedArray<SectionKind, SectionKind::last, uint64_t> NameOffsets;
+  SectionIndexedArray<uint64_t> NameOffsets{{uint64_t{0}}};
 
   auto SectionNameSize = uint64_t{1}; // Initial null.
   forEachSectionKind([&](SectionKind SectionK) {
@@ -75,23 +81,6 @@ buildSectionNameStringTable(Layout *const Lout) {
   ShStrTab.MaxAlign = 1U;
   ShStrTab.Writer = sectionNameTableWriter;
   return NameOffsets;
-}
-
-// section string table index
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~
-static unsigned sectionStringTableIndex(const Layout &Lout) {
-  auto Result = NumImplicitSections;
-  for (auto SectionK = rld::firstSectionKind();
-       SectionK != rld::SectionKind::last; ++SectionK) {
-    if (SectionK == SectionKind::shstrtab) {
-      return Result;
-    }
-    if (Lout.Sections[SectionK].shouldEmit()) {
-      ++Result;
-    }
-  }
-  llvm_unreachable("The shstrtab section was not found");
-  return 0U;
 }
 
 // prepare string table
@@ -143,6 +132,21 @@ static unsigned firstSegmentAlignment(const rld::Layout &Lout) {
   return FirstSegment->MaxAlign;
 }
 
+// build section to index table
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+static SectionIndexedArray<unsigned>
+buildSectionToIndexTable(const Layout &Lout) {
+  SectionIndexedArray<unsigned> SectionToIndex;
+  auto Index = NumImplicitSections;
+  forEachSectionKind([&Lout, &Index, &SectionToIndex](SectionKind SectionK) {
+    SectionToIndex[SectionK] =
+        Lout.Sections[SectionK].shouldEmit()
+            ? Index++
+            : static_cast<unsigned>(llvm::ELF::SHN_UNDEF);
+  });
+  return SectionToIndex;
+}
+
 // compute section file offsets
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // Compute the file offsets for the segments and the sections that they contain.
@@ -164,6 +168,8 @@ static uint64_t computeSectionFileOffsets(
 
     forEachSectionKind([&](SectionKind SectionK) {
       if (const OutputSection *const OutScn = Seg.Sections[SectionK]) {
+        assert(OutScn->SectionK == SectionK &&
+               "The output-section's SectionKind should match");
         if (OutScn->shouldEmit()) {
           assert(
               !OutScn->Contributions.empty() &&
@@ -210,6 +216,8 @@ using Elf_Ehdr = llvm::object::ELFFile<ELFT>::Elf_Ehdr;
 using Elf_Shdr = llvm::object::ELFFile<ELFT>::Elf_Shdr;
 using Elf_Phdr = llvm::object::ELFFile<ELFT>::Elf_Phdr;
 using Elf_Sym = llvm::object::ELFFile<ELFT>::Elf_Sym;
+using Elf_Addr = llvm::object::ELFFile<ELFT>::Elf_Addr;
+using Elf_Word = llvm::object::ELFFile<ELFT>::Elf_Word;
 
 // flatten segments
 // ~~~~~~~~~~~~~~~~
@@ -316,6 +324,41 @@ linkageToELFBinding(const pstore::repo::linkage L) {
   }
 }
 
+static Elf_Addr symbolValue(const Symbol &Sym) {
+  const Contribution *const C = Sym.contribution();
+  assert(C != nullptr);
+  return static_cast<Elf_Addr>(C->OScn->VirtualAddr + C->Offset);
+}
+
+static Elf_Addr defaultEntryPoint() {
+  // TODO: The first address of the executable segment seems like a reasonable
+  // choice.
+  return Elf_Addr{0x0000000000200000};
+}
+
+static Elf_Addr entryPoint(const Context &Ctxt, char const *Name) {
+  const auto NamesIndex =
+      pstore::index::get_index<pstore::trailer::indices::name>(Ctxt.Db, false);
+  if (!NamesIndex) {
+    return defaultEntryPoint();
+  }
+  const auto Start = pstore::make_sstring_view(Name);
+  const auto Pos =
+      NamesIndex->find(Ctxt.Db, pstore::indirect_string{Ctxt.Db, &Start});
+  if (Pos == NamesIndex->end(Ctxt.Db)) {
+    return defaultEntryPoint();
+  }
+
+  assert(Pos->is_in_store());
+  const std::atomic<const Symbol *> *const EntrySymbol = rld::shadowPointer(
+      Ctxt, pstore::typed_address<pstore::address>(Pos.get_address()));
+  assert(EntrySymbol != nullptr);
+  Symbol const *const Sym = *EntrySymbol;
+  // The shadow memory pointer may be null if the string is known, but isn't
+  // used as the name of a symbol.
+  return (Sym != nullptr) ? symbolValue(*Sym) : defaultEntryPoint();
+}
+
 llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
                            const GlobalSymbolsContainer &Globals,
                            llvm::ThreadPool &WorkPool, Layout *const Lout) {
@@ -324,12 +367,15 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
 
   const uint64_t StringTableSize = prepareStringTable(Ctxt, Lout, Globals);
   const uint64_t SymbolTableSize = prepareSymbolTable<ELFT>(Lout, Globals);
-  const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t> NameOffsets =
+  const SectionIndexedArray<uint64_t> NameOffsets =
       buildSectionNameStringTable(Lout);
 
   // After this point, don't do anything that might cause additional sections to
   // be emitted. Once we've decided which names are going into the section name
   // string table, it's too late to add any more!
+
+  const SectionIndexedArray<unsigned> SectionToIndex =
+      buildSectionToIndexTable(*Lout);
 
   Lout->Segments[SegmentKind::phdr].AlwaysEmit = true;
 
@@ -357,8 +403,6 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
       [](const unsigned Acc, const rld::Segment &Segment) {
         return Acc + static_cast<unsigned>(Segment.shouldEmit());
       });
-
-  // emitSymbolTable (Ctxt, Globals);
 
   rld::EnumIndexedArray<Region, Region::Last, rld::FileRegion> FileRegions;
   FileRegions[Region::FileHeader] = rld::FileRegion{0, sizeof(Elf_Ehdr)};
@@ -388,21 +432,20 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
 
   uint8_t *const BufferStart = (*Out)->getBufferStart();
 
-  WorkPool.async([BufferStart, FileRegions, NumSegments, NumSections, Lout]() {
+  WorkPool.async([&SectionToIndex, &Ctxt, BufferStart, FileRegions, NumSegments,
+                  NumSections]() {
     // Write the ELF file header.
     auto *const Ehdr = reinterpret_cast<Elf_Ehdr *>(
         BufferStart + FileRegions[Region::FileHeader].offset());
     *Ehdr = rld::elf::initELFHeader<ELFT>(llvm::ELF::EM_X86_64);
     Ehdr->e_type = llvm::ELF::ET_EXEC;
-    // FIXME: lookup symbol "_start" to get this value!
-    Ehdr->e_entry = 0x0000000000200000; // Address of the program entry point.
+    Ehdr->e_entry =
+        entryPoint(Ctxt, "_start"); // Address of the program entry point.
     Ehdr->e_phnum = NumSegments;
     Ehdr->e_phoff = FileRegions[Region::SegmentTable].offset();
     Ehdr->e_shnum = NumSections;
     Ehdr->e_shoff = FileRegions[Region::SectionTable].offset();
-    Ehdr->e_shstrndx = sectionStringTableIndex(
-        *Lout); // TODO: need a general version which can quickly convert kind
-                // to index for an section.
+    Ehdr->e_shstrndx = SectionToIndex[SectionKind::shstrtab];
   });
 
   WorkPool.async([&Ctxt, BufferStart, NumSegments, Lout, &FileRegions,
@@ -448,13 +491,27 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
         Ctxt, Lout->Sections[SectionKind::shstrtab], Data, *Lout);
   });
 
-  WorkPool.async([&Ctxt, &FileRegions, BufferStart, &Globals, StringTableSize,
-                  SymbolTableSize, &SectionFileOffsets]() {
+  WorkPool.async([&Ctxt, Lout, &FileRegions, BufferStart, &Globals,
+                  StringTableSize, SymbolTableSize, &SectionFileOffsets]() {
     // Produce the string table.
     assert(SectionFileOffsets[SectionKind::strtab].hasValue() &&
            "The strtab section should have been assigned an offset");
     assert(SectionFileOffsets[SectionKind::symtab].hasValue() &&
            "The symbol section should have been assigned an offset");
+
+    // TODO: if we have this table, we can probably remove
+    // sectionStringTableIndex() because that becomes just
+    // SectionToIndex[shstrtab].
+    SectionIndexedArray<unsigned> SectionToIndex;
+    {
+      auto Index = NumImplicitSections;
+      forEachSectionKind([Lout, &Index, &SectionToIndex](SectionKind SectionK) {
+        SectionToIndex[SectionK] =
+            Lout->Sections[SectionK].shouldEmit()
+                ? Index++
+                : static_cast<unsigned>(llvm::ELF::SHN_UNDEF);
+      });
+    }
 
     auto *const StringData = BufferStart +
                              FileRegions[Region::SectionData].offset() +
@@ -474,7 +531,8 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
             Def = Sym.definition();
         const Symbol::OptionalBodies &Bodies = std::get<0>(Def);
         std::memset(SymbolOut, 0, sizeof(*SymbolOut));
-        SymbolOut->st_name = StringOut - StringData;
+        assert(StringOut - StringData >= 0);
+        SymbolOut->st_name = static_cast<Elf_Word>(StringOut - StringData);
         if (!Bodies) {
           // this ia an undefined symbol.
         } else {
@@ -485,13 +543,12 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
           assert(C != nullptr);
 
           SymbolOut->st_value = C->OScn->VirtualAddr + C->Offset;
-          SymbolOut->st_shndx = llvm::ELF::SHN_UNDEF;
+          SymbolOut->st_shndx = SectionToIndex[C->OScn->SectionK];
           SymbolOut->st_size =
               0; // FIXME: the sum of the sizes of all of the bodies.
           SymbolOut->setVisibility(elf::elfVisibility<ELFT>(B.visibility()));
-          SymbolOut->setBindingAndType(
-              linkageToELFBinding(B.linkage()),
-              sectionToSymbolType(SectionKind::data /*FIXME*/));
+          SymbolOut->setBindingAndType(linkageToELFBinding(B.linkage()),
+                                       sectionToSymbolType(C->OScn->SectionK));
         }
         ++SymbolOut;
       }

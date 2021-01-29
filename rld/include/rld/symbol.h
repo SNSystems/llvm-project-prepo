@@ -383,6 +383,14 @@ inline std::atomic<Symbol *> *shadowPointer(Context &Ctx,
                                                    Addr.absolute());
 }
 
+template <typename T>
+inline const std::atomic<const Symbol *> *
+shadowPointer(const Context &Ctx, pstore::typed_address<T> Addr) {
+  assert(Addr.absolute() % alignof(std::atomic<Symbol *>) == 0);
+  return reinterpret_cast<const std::atomic<Symbol const *> *>(Ctx.shadow() +
+                                                               Addr.absolute());
+}
+
 // set symbol shadow
 // ~~~~~~~~~~~~~~~~~
 /// Shadow pointers are initially null, are set to "busy" whilst the pointee is

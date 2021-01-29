@@ -95,6 +95,7 @@ public:
   explicit Context(pstore::database &D);
 
   std::uint8_t *shadow() noexcept { return ShadowDb_.get(); }
+  const std::uint8_t *shadow() const noexcept { return ShadowDb_.get(); }
 
   auto mergeTriple(pstore::repo::compilation const &Compilation)
       -> llvm::ErrorOr<llvm::Triple>;

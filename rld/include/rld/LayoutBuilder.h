@@ -151,10 +151,15 @@ class Layout;
 
 //-MARK: OutputSection
 struct OutputSection {
+  explicit OutputSection(SectionKind Kind) : SectionK{Kind} {}
+
   using ContributionVector =
       pstore::chunked_vector<Contribution,
                              (32 * 1024 * 1024) / sizeof(Contribution)>;
+  SectionKind const SectionK;
+
   ContributionVector Contributions;
+
   /// For an output section containing data that is loaded on the target, the
   /// virtual address assigned to this section data. 0 otherwise.
   uint64_t VirtualAddr = 0;
@@ -206,6 +211,8 @@ using SegmentIndexedArray =
 //-MARK: Layout
 class Layout {
 public:
+  Layout();
+
   SectionIndexedArray<OutputSection> Sections;
   SegmentIndexedArray<Segment> Segments;
 
@@ -234,7 +241,9 @@ public:
                 uint32_t NumCompilations);
   // no copying or assignment.
   LayoutBuilder(LayoutBuilder const &) = delete;
+  LayoutBuilder(LayoutBuilder &&) noexcept = delete;
   LayoutBuilder &operator=(LayoutBuilder const &) = delete;
+  LayoutBuilder &operator=(LayoutBuilder &&) noexcept = delete;
 
   /// Call when a compilation scan has been completed.
   void visited(uint32_t Ordinal, LocalSymbolsContainer &&Locals);

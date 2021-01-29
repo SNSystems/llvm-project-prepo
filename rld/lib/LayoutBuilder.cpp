@@ -90,6 +90,14 @@ LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
     {SectionKind::symtab, SegmentKind::discard},   // TODO:An unnecessary entry?
 }};
 
+// (ctor)
+// ~~~~~~
+#define X(x) OutputSection{SectionKind::x},
+#define RLD_X(x) X(x)
+Layout::Layout() : Sections{{PSTORE_MCREPO_SECTION_KINDS RLD_SECTION_KINDS}} {}
+#undef RLD_X
+#undef X
+
 // check section to segment array
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 void LayoutBuilder::checkSectionToSegmentArray() {
