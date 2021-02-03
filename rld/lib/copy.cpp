@@ -15,6 +15,8 @@
 
 #include "rld/MathExtras.h"
 
+#include "llvm/BinaryFormat/ELF.h"
+#include "llvm/Support/Endian.h"
 #include "llvm/Support/ThreadPool.h"
 
 #include <cassert>
@@ -25,39 +27,82 @@ namespace {
 
 constexpr auto DebugType = "rld-copy";
 
+using ExternalFixup = pstore::repo::external_fixup;
+
+template <uint8_t Relocation>
+void apply(uint8_t *Out, Symbol const &Sym, const ExternalFixup &XFixup) {
+  assert(false && "Relocation is unsupported");
+}
+
+template <>
+inline void apply<llvm::ELF::R_X86_64_NONE>(uint8_t *, Symbol const &,
+                                            const ExternalFixup &) {}
+
+template <>
+inline void apply<llvm::ELF::R_X86_64_64>(uint8_t *const Out, Symbol const &Sym,
+                                          const ExternalFixup &XFixup) {
+  const uint64_t S = Sym.value();
+  const int64_t A = XFixup.addend;
+  // TODO: range check.
+  auto Value = S + A;
+  llvm::support::ulittle64_t::ref{Out} = Value;
+}
+
+template <>
+inline void apply<llvm::ELF::R_X86_64_32S>(uint8_t *const Out,
+                                           Symbol const &Sym,
+                                           const ExternalFixup &XFixup) {
+  const uint64_t S = Sym.value();
+  const int64_t A = XFixup.addend;
+  // TODO: range check.
+  const auto Value = S + A;
+  llvm::support::ulittle32_t::ref{Out} = Value;
+}
+
+template <>
+inline void apply<llvm::ELF::R_X86_64_PLT32>(uint8_t *const Out,
+                                             Symbol const &Sym,
+                                             const ExternalFixup &XFixup) {}
+
 } // end anonymous namespace
 
 template <pstore::repo::section_kind SKind,
           typename SType = typename pstore::repo::enum_to_section<SKind>::type>
 static void copySection(Context &Ctxt, Contribution const &Contribution,
-                        std::uint8_t *Dest) {
-  auto *const Section = reinterpret_cast<SType const *>(Contribution.Section);
-
+                        uint8_t *Dest) {
   llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
     llvm::dbgs() << "copy to "
                  << format_hex(reinterpret_cast<std::uintptr_t>(Dest)) << '\n';
   });
 
-  auto const d = Section->payload();
-  std::memcpy(Dest, d.begin(), d.size());
+  auto *const Section = reinterpret_cast<SType const *>(Contribution.Section);
+  auto const &D = Section->payload();
+  std::memcpy(Dest, D.begin(), D.size());
 
-  // auto * const shadow = Ctxt.shadow();
+  // The contribution's shadow memory contains an array of symbol pointers; one
+  // for each external fixup.
+  auto XfxSymbol = reinterpret_cast<const std::atomic<Symbol *> *>(
+      Ctxt.shadow() + Contribution.XfxShadow.absolute());
+  for (ExternalFixup const &XFixup : Section->xfixups()) {
+    Symbol const *const Sym = XfxSymbol->load();
+    assert(Sym != nullptr);
 
-#if 0
-  for (auto const &XFixup : Section->xfixups()) {
+    llvmDebug(DebugType, Ctxt.IOMut, [&]() {
+      llvm::dbgs() << "  xfx type:" << static_cast<unsigned>(XFixup.type)
+                   << " symbol: " << loadStdString(Ctxt.Db, Sym->name())
+                   << '\n';
+    });
 
-      switch (XFixup.type) {
-      // target-dependent relocations here...
-            typed_address<indirect_string> name;
-            relocation_type type;
-            std::uint8_t padding1 = 0;
-            std::uint16_t padding2 = 0;
-            std::uint32_t padding3 = 0;
-            std::uint64_t offset;
-            std::uint64_t addend;
+    switch (XFixup.type) {
+#define ELF_RELOC(Name, Value)                                                 \
+  case llvm::ELF::Name:                                                        \
+    apply<llvm::ELF::Name>(Dest + XFixup.offset, *Sym, XFixup);                \
+    break;
+#include "llvm/BinaryFormat/ELFRelocs/x86_64.def"
+#undef ELF_RELOC
     }
+    ++XfxSymbol;
   }
-#endif
 }
 
 template <>
@@ -85,16 +130,15 @@ namespace rld {
 
 void copyToOutput(
     Context &Ctxt, llvm::ThreadPool &Workers, uint8_t *const Data,
-    const Layout &L,
-    rld::SectionArray<llvm::Optional<uint64_t>> &SectionFileOffsets,
+    const Layout &Lout,
+    const rld::SectionArray<llvm::Optional<uint64_t>> &SectionFileOffsets,
     uint64_t TargetDataOffset) {
 
-  for (SectionKind SectionK = firstSectionKind(); SectionK != SectionKind::last;
-       ++SectionK) {
+  forEachSectionKind([&](const SectionKind SectionK) {
     const OutputSection::ContributionVector &Contributions =
-        L.Sections[SectionK].Contributions;
+        Lout.Sections[SectionK].Contributions;
     if (Contributions.empty()) {
-      continue;
+      return;
     }
     assert(SectionFileOffsets[SectionK].hasValue() &&
            "No layout position for a section with contributions");
@@ -106,15 +150,19 @@ void copyToOutput(
 
             auto *const Dest =
                 Data + alignTo(Contribution.Offset, Contribution.Align) + Start;
-            // FIXME: not all values of rld::SectionKind can be cast to
-            // repo::section_kind!
-            switch (static_cast<pstore::repo::section_kind>(SectionK)) {
+            switch (SectionK) {
 #define X(a)                                                                   \
-  case pstore::repo::section_kind::a:                                          \
+  case SectionKind::a:                                                         \
     copySection<pstore::repo::section_kind::a>(Ctxt, Contribution, Dest);      \
+    break;
+#define RLD_X(a)                                                               \
+  case SectionKind::a:                                                         \
     break;
 
               PSTORE_MCREPO_SECTION_KINDS
+              RLD_SECTION_KINDS
+
+#undef RLD_X
 #undef X
             default:
               llvm_unreachable("Bad section kind");
@@ -123,7 +171,7 @@ void copyToOutput(
           }
         },
         TargetDataOffset + *SectionFileOffsets[SectionK]);
-  }
+  });
 }
 
 } // end namespace rld

@@ -162,6 +162,8 @@ public:
 
   /// \returns The name of the symbol.
   StringAddress name() const;
+  /// \returns The value of the symbol. Available once layout is complete.
+  uint64_t value() const;
 
   void setFirstContribution(Contribution *const C) {
     if (Contribution_ == nullptr) {

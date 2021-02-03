@@ -183,8 +183,8 @@ private:
 
   struct Relocation {
     Relocation(typename SymbolTable<ELFT>::Value *Symbol_,
-               pstore::repo::relocation_type Type_, std::uint64_t Offset_,
-               std::uint64_t Addend_)
+               pstore::repo::relocation_type Type_, uint64_t Offset_,
+               int64_t Addend_)
         : Symbol{Symbol_}, Type{Type_}, Offset{Offset_}, Addend{Addend_} {
       assert(Symbol != nullptr);
     }
@@ -192,8 +192,8 @@ private:
     /// The symbol targeted by this relocation.
     typename SymbolTable<ELFT>::Value *Symbol;
     pstore::repo::relocation_type Type;
-    std::uint64_t Offset;
-    std::uint64_t Addend;
+    uint64_t Offset;
+    int64_t Addend;
   };
   std::vector<Relocation> Relocations_;
 

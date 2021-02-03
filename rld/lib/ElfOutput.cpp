@@ -491,27 +491,13 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
         Ctxt, Lout->Sections[SectionKind::shstrtab], Data, *Lout);
   });
 
-  WorkPool.async([&Ctxt, Lout, &FileRegions, BufferStart, &Globals,
+  WorkPool.async([&Ctxt, &SectionToIndex, &FileRegions, BufferStart, &Globals,
                   StringTableSize, SymbolTableSize, &SectionFileOffsets]() {
     // Produce the string table.
     assert(SectionFileOffsets[SectionKind::strtab].hasValue() &&
            "The strtab section should have been assigned an offset");
     assert(SectionFileOffsets[SectionKind::symtab].hasValue() &&
            "The symbol section should have been assigned an offset");
-
-    // TODO: if we have this table, we can probably remove
-    // sectionStringTableIndex() because that becomes just
-    // SectionToIndex[shstrtab].
-    SectionIndexedArray<unsigned> SectionToIndex;
-    {
-      auto Index = NumImplicitSections;
-      forEachSectionKind([Lout, &Index, &SectionToIndex](SectionKind SectionK) {
-        SectionToIndex[SectionK] =
-            Lout->Sections[SectionK].shouldEmit()
-                ? Index++
-                : static_cast<unsigned>(llvm::ELF::SHN_UNDEF);
-      });
-    }
 
     auto *const StringData = BufferStart +
                              FileRegions[Region::SectionData].offset() +
@@ -531,13 +517,23 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
             Def = Sym.definition();
         const Symbol::OptionalBodies &Bodies = std::get<0>(Def);
         std::memset(SymbolOut, 0, sizeof(*SymbolOut));
-        assert(StringOut - StringData >= 0);
-        SymbolOut->st_name = static_cast<Elf_Word>(StringOut - StringData);
+        const ptrdiff_t NameOffset = StringOut - StringData;
+        static_assert(std::is_unsigned<Elf_Word::value_type>::value,
+                      "Expected ELF_Word to be unsigned");
+        assert(NameOffset >= 0 &&
+               static_cast<std::make_unsigned_t<ptrdiff_t>>(
+                   NameOffset <=
+                   std::numeric_limits<Elf_Word::value_type>::max()) &&
+               "Need to be able to safely cast NameOffset to Elf_Word");
+        SymbolOut->st_name =
+            Elf_Word{static_cast<Elf_Word::value_type>(NameOffset)};
         if (!Bodies) {
-          // this ia an undefined symbol.
+          // this is an undefined symbol.
         } else {
           //          assert(Bodies->size() == 1);
 
+          // If there are multiple bodies associated with a symbol then the ELF
+          // symbol simply points to the first.
           const Symbol::Body &B = Bodies->front();
           const Contribution *const C = Sym.contribution();
           assert(C != nullptr);

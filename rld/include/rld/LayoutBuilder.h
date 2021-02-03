@@ -16,9 +16,9 @@
 
 #include "llvm/ADT/DenseMap.h"
 
-#include "pstore/adt/chunked_vector.hpp"
-
 #include "rld/AdvanceEnum.h"
+#include "rld/Contribution.h"
+#include "rld/OutputSection.h"
 #include "rld/SectionArray.h"
 #include "rld/SectionKind.h"
 #include "rld/symbol.h"
@@ -113,79 +113,6 @@ template <typename Function> inline void forEachSectionKind(Function F) {
     F(SectionK);
   }
 }
-
-struct OutputSection;
-
-//-MARK: Contribution
-struct Contribution {
-#if 1
-  constexpr Contribution(pstore::repo::section_base const *S, UintptrAddress SA,
-                         OutputSection *OScn_, uint64_t Offset_, uint64_t Size_,
-                         unsigned Align_, StringAddress Name_,
-                         unsigned const InputOrdinal_)
-      : Section{S}, XfxShadow{SA}, OScn{OScn_}, Offset{Offset_}, Size{Size_},
-        Align{Align_}, InputOrdinal{InputOrdinal_}, Name{Name_} {}
-#endif
-
-  pstore::repo::section_base const *const Section;
-  UintptrAddress const XfxShadow;
-
-  OutputSection *OScn;
-
-  /// The output offset from the first section of this type.
-  uint64_t const Offset;
-  /// The number of bytes occupied by this section.
-  uint64_t const Size; // TODO: we really don't need 64-bits for the size of an
-                       // individual section.
-  /// The required alignment for this section's data.
-  unsigned const Align;
-  /// The input-ordinal of the ticket file from which this section originates.
-  unsigned const InputOrdinal;
-
-  StringAddress const Name;
-};
-
-llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, Contribution const &SI);
-
-class Layout;
-
-//-MARK: OutputSection
-struct OutputSection {
-  explicit OutputSection(SectionKind Kind) : SectionK{Kind} {}
-
-  using ContributionVector =
-      pstore::chunked_vector<Contribution,
-                             (32 * 1024 * 1024) / sizeof(Contribution)>;
-  SectionKind const SectionK;
-
-  ContributionVector Contributions;
-
-  /// For an output section containing data that is loaded on the target, the
-  /// virtual address assigned to this section data. 0 otherwise.
-  uint64_t VirtualAddr = 0;
-  /// The total virtual memory size of the output section contents (which may
-  /// either come from contributions or metadata stored elsewhere).
-  uint64_t VirtualSize = 0;
-  /// The total file size of the output section contents (which may either come
-  /// from contributions or metadata stored elsewhere).
-  uint64_t FileSize = 0;
-  /// The alignment of the most aligned contribution.
-  unsigned MaxAlign = 0U;
-
-  bool AlwaysEmit = false;
-  // The section to which this section is linked. Used to set the
-  // ELF section header's sh_link field. A value of 'last' corresponds to an
-  // sh_link value of 0 (i.e. no linked section).
-  SectionKind Link = SectionKind::last;
-
-  bool shouldEmit() const {
-    return AlwaysEmit || VirtualSize > 0 || FileSize > 0;
-  }
-
-  typedef void (*WriterFn)(Context &Ctxt, const OutputSection &OScn,
-                           std::uint8_t *Data, const Layout &Lout);
-  WriterFn Writer = nullptr;
-};
 
 template <typename Value>
 using SectionIndexedArray =

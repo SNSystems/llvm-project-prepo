@@ -16,6 +16,9 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "rld/Contribution.h"
+#include "rld/OutputSection.h"
+
 #include <algorithm>
 #include <type_traits>
 
@@ -65,6 +68,13 @@ constexpr bool isAnyOf(Enum v) noexcept {
 } // end anonymous namespace
 
 namespace rld {
+
+// value
+// ~~~~~
+uint64_t Symbol::value() const {
+  assert(Contribution_ != nullptr && Contribution_->OScn != nullptr);
+  return Contribution_->OScn->VirtualAddr + Contribution_->Offset;
+}
 
 // replace if lower ordinal
 // ~~~~~~~~~~~~~~~~~~~~~~~~

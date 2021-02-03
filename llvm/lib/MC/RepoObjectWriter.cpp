@@ -277,7 +277,8 @@ void RepoObjectWriter::recordRelocation(MCAssembler &Asm,
   }
 
   Relocations[&FixupSection].emplace_back(FixupOffset, RenamedSymA, Type,
-                                          Addend, SymA, C, UsedSymbolName);
+                                          static_cast<std::int64_t>(Addend),
+                                          SymA, C, UsedSymbolName);
 }
 
 namespace {

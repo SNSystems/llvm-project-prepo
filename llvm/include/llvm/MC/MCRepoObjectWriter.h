@@ -27,16 +27,16 @@ struct RepoRelocationEntry {
   uint64_t Offset;            // Where is the relocation.
   const MCSymbolRepo *Symbol; // The symbol to relocate with.
   unsigned Type;              // The type of the relocation.
-  uint64_t Addend;            // The addend to use.
+  int64_t Addend;             // The addend to use.
   const MCSymbolRepo
       *OriginalSymbol;     // The original value of Symbol if we changed it.
-  uint64_t OriginalAddend; // The original value of addend.
+  int64_t OriginalAddend;  // The original value of addend.
   StringRef UsedSymbolName; // The Symbol name is used in the relocations.
 
   RepoRelocationEntry(uint64_t Offset, const MCSymbolRepo *Symbol,
-                      unsigned Type, uint64_t Addend,
+                      unsigned Type, int64_t Addend,
                       const MCSymbolRepo *OriginalSymbol,
-                      uint64_t OriginalAddend, const StringRef UsedSymbolName)
+                      int64_t OriginalAddend, const StringRef UsedSymbolName)
       : Offset(Offset), Symbol(Symbol), Type(Type), Addend(Addend),
         OriginalSymbol(OriginalSymbol), OriginalAddend(OriginalAddend),
         UsedSymbolName(UsedSymbolName) {}

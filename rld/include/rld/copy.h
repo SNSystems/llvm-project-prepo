@@ -35,7 +35,7 @@ namespace rld {
     void copyToOutput(
         Context &Ctxt, llvm::ThreadPool &Workers, uint8_t *const Data,
         const Layout &Lout,
-        rld::SectionArray<llvm::Optional<uint64_t>> &SectionFileOffsets,
+        const rld::SectionArray<llvm::Optional<uint64_t>> &SectionFileOffsets,
         uint64_t TargetDataOffset);
 
 } // end namespace rld
