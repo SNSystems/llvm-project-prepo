@@ -13,6 +13,7 @@
 #include "llvm/MC/MCRepoStreamer.h"
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MCObjectWriter.h"
+#include "llvm/MC/MCSymbolRepo.h"
 #include "llvm/Support/TargetRegistry.h"
 #include <iostream>
 
@@ -32,8 +33,11 @@ void MCRepoStreamer::changeSection(MCSection *Section,
   this->MCObjectStreamer::changeSection(Section, Subsection);
 }
 
-bool MCRepoStreamer::emitSymbolAttribute(MCSymbol *Symbol,
+bool MCRepoStreamer::emitSymbolAttribute(MCSymbol *Sym,
                                          MCSymbolAttr Attribute) {
+  MCSymbolRepo *Symbol = cast<MCSymbolRepo>(Sym);
+  if (Attribute == MCSA_Weak || Attribute == MCSA_WeakReference)
+    Symbol->setExternalWeak();
   return true; // success
 }
 

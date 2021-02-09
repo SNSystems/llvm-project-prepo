@@ -52,8 +52,10 @@ public:
 
   struct Value {
     Value() = default;
-    Value(std::uint64_t NameOffset_, llvm::Optional<SymbolTarget> Target_)
-        : NameOffset{NameOffset_}, Target{std::move(Target_)} {}
+    Value(std::uint64_t NameOffset_, bool IsWeak_,
+          llvm::Optional<SymbolTarget> Target_)
+        : NameOffset{NameOffset_}, IsWeak{IsWeak_}, Target{std::move(Target_)} {
+    }
 
     pstore::repo::linkage linkage() const {
       return Target ? Target.getValue().Linkage
@@ -68,6 +70,8 @@ public:
     bool IsTLS = false; // FIXME: two bools are unnessary because a symbol
                         // cannot be both TLS and common.
     bool IsCommon = false;
+
+    bool IsWeak = false;
 
     std::uint64_t Index = llvm::ELF::STN_UNDEF;
   };
@@ -103,10 +107,11 @@ public:
   ///
   /// \param Name  The symbol name.
   /// \param Type  The symbol relocation type.
+  /// \param IsWeak  true if symbol is weak, false otherwise.
   /// \returns A pointer to the newly created or pre-existing entry for this
   /// name in the symbol table.
   Value *insertSymbol(pstore::indirect_string const &Name,
-                      pstore::repo::relocation_type Type);
+                      pstore::repo::relocation_type Type, bool IsWeak);
 
   /// Writes the symbol table.
   /// \param OS The stream to which the symbol table is to be written.
@@ -154,7 +159,8 @@ private:
   static Elf_Half getTargetShndx(Value const &SV);
 
   Value *insertSymbol(pstore::indirect_string const &Name,
-                      llvm::Optional<SymbolTarget> const &Target);
+                      llvm::Optional<SymbolTarget> const &Target,
+                      bool IsWeak);
 
   std::unordered_map<pstore::indirect_string, Value> SymbolMap_;
   StringTable &Strings_;
@@ -280,7 +286,7 @@ auto SymbolTable<ELFT>::insertSymbol(pstore::indirect_string const &Name,
     -> Value * {
   auto SV =
       this->insertSymbol(Name, SymbolTarget(Section, Offset, Size, Linkage,
-                                            Alignment, Visibility));
+                                            Alignment, Visibility), false);
   if (Linkage == pstore::repo::linkage::common) {
     SV->IsCommon = true;
   } else {
@@ -291,22 +297,22 @@ auto SymbolTable<ELFT>::insertSymbol(pstore::indirect_string const &Name,
 
 template <typename ELFT>
 auto SymbolTable<ELFT>::insertSymbol(pstore::indirect_string const &Name,
-                                     pstore::repo::relocation_type Type)
-    -> Value * {
-  auto SV = this->insertSymbol(Name, llvm::None);
+                                     pstore::repo::relocation_type Type,
+                                     bool IsWeak) -> Value * {
+  auto SV = this->insertSymbol(Name, llvm::None, IsWeak);
   SV->IsTLS = isTLSRelocation(Type);
   return SV;
 }
 
 template <typename ELFT>
 auto SymbolTable<ELFT>::insertSymbol(pstore::indirect_string const &Name,
-                                     llvm::Optional<SymbolTarget> const &Target)
-    -> Value * {
+                                     llvm::Optional<SymbolTarget> const &Target,
+                                     bool IsWeak) -> Value * {
   typename decltype(SymbolMap_)::iterator Pos;
   bool DidInsert;
   std::tie(Pos, DidInsert) = SymbolMap_.emplace(Name, Value{});
   if (DidInsert) {
-    Pos->second = Value{Strings_.insert(Name), Target};
+    Pos->second = Value{Strings_.insert(Name), IsWeak, Target};
     return &Pos->second;
   }
 
@@ -318,6 +324,7 @@ auto SymbolTable<ELFT>::insertSymbol(pstore::indirect_string const &Name,
     // definition which wouldn't be right.
     V.Target = Target;
   }
+  V.IsWeak = V.IsWeak && IsWeak;
   return &Pos->second;
 }
 
@@ -373,7 +380,8 @@ SymbolTable<ELFT>::write(llvm::raw_ostream &OS,
       }
     } else {
       // There's no definition for this name.
-      Symbol.setBindingAndType(ELF::STB_GLOBAL, valueToSymbolType(*SV));
+      Symbol.setBindingAndType(SV->IsWeak ? ELF::STB_WEAK : ELF::STB_GLOBAL,
+                               valueToSymbolType(*SV));
       Symbol.st_shndx = getTargetShndx(*SV);
     }
 
