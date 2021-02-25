@@ -8,11 +8,18 @@
 #ifndef LLVM_MC_MCSYMBOLREPO_H
 #define LLVM_MC_MCSYMBOLREPO_H
 
+#include "llvm/IR/RepoDefinition.h"
+#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCSymbol.h"
 
 namespace llvm {
 
 class MCSymbolRepo : public MCSymbol {
+
+  enum SymbolFlags : uint16_t {
+    SF_ExternalWeak = 0x0001,
+  };
 
 public:
   MCSymbolRepo(const StringMapEntry<bool> *Name, bool isTemporary)
@@ -39,6 +46,14 @@ public:
     }
     return FullName;
   }
+
+  bool isExternalWeak() const {
+      return getFlags() & SF_ExternalWeak;
+  }
+  void setExternalWeak() const {
+      modifyFlags(SF_ExternalWeak, SF_ExternalWeak);
+  }
+
 };
 
 } // end namespace llvm

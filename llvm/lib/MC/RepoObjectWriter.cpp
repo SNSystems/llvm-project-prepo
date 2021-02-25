@@ -503,11 +503,21 @@ void RepoObjectWriter::writeSectionData(ContentsType &Fragments,
                                   pstore::repo::external_fixup::type)>::max());
 
     // Attach a suitable external fixup to this section.
+    bool IsWeak = Symbol->isExternalWeak();
     Content->xfixups.push_back(pstore::repo::external_fixup{
         pstore::typed_address<pstore::indirect_string>(
             pstore::address{NamePtr}),
-        static_cast<repo_relocation_type>(Relocation.Type), Relocation.Offset,
-        Relocation.Addend});
+        static_cast<repo_relocation_type>(Relocation.Type),
+        IsWeak ? pstore::repo::reference_strength::weak
+               : pstore::repo::reference_strength::strong,
+        Relocation.Offset, Relocation.Addend});
+
+    if (IsWeak) {
+      pstore::index::digest Digest{Section.hash().high(), Section.hash().low()};
+      LLVM_DEBUG(dbgs() << "fragment " << Digest.to_hex_string()
+                        << " has an xfixup to an external weak symbol '"
+                        << Symbol->getName() << "' \n");
+    }
   }
 
   LLVM_DEBUG(dbgs() << "section type '" << Content->kind << "' and alignment "

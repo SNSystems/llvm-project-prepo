@@ -159,7 +159,10 @@ if(LLVM_BUILD_EXAMPLES)
 endif()
 
 if(LLVM_TOOL_PSTORE_BUILD)
-  set(LLVM_TEST_DEPENDS ${LLVM_TEST_DEPENDS} pstore-dump)
+  set(LLVM_TEST_DEPENDS ${LLVM_TEST_DEPENDS}
+          pstore-dump
+          pstore-import
+        )
 endif()
 
 if(LLVM_TOOL_REPO2OBJ_BUILD)
