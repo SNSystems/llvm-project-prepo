@@ -120,6 +120,8 @@ using SectionIndexedArray =
 
 //-MARK: Segment
 struct Segment {
+  Segment() : Sections{{nullptr}} {}
+
   SectionIndexedArray<OutputSection *> Sections;
   uint64_t VirtualAddr = 0;
   uint64_t VirtualSize = 0;
