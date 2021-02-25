@@ -21,29 +21,28 @@
 #include "ErrorFn.h"
 
 using pstore::repo::linkage;
+using pstore::repo::reference_strength;
 using testing::_;
 using testing::UnorderedElementsAre;
-
-namespace {
 
 // create fragment with reference to
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 static pstore::index::fragment_index::value_type
 createFragmentWithReferenceTo(CompilationBuilder::Transaction &T,
-                              StringAdder &Strings,
-                              llvm::StringRef const &Name) {
+                              StringAdder &Strings, llvm::StringRef const &Name,
+                              reference_strength Strength) {
   using pstore::repo::fragment;
   using pstore::repo::generic_section_creation_dispatcher;
   using pstore::repo::section_content;
   using pstore::repo::section_kind;
 
   section_content DataSection{section_kind::read_only,
-                              uint8_t{1} /*alignment*/};
-  DataSection.data.emplace_back(uint8_t{0});
-  DataSection.xfixups.emplace_back(Strings.add(T, Name), // name
-                                   0,                    // relocation_type
-                                   0,                    // offset
-                                   0);                   // addend
+                              UINT8_C(1) /*alignment*/};
+  DataSection.data.emplace_back(UINT8_C(0));
+  DataSection.xfixups.emplace_back(Strings.add(T, Name),
+                                   pstore::repo::relocation_type{0}, Strength,
+                                   0U, // offset
+                                   0); // addend
 
   std::array<generic_section_creation_dispatcher, 1> Dispatchers{
       {{section_kind::read_only, &DataSection}}};
@@ -57,6 +56,8 @@ createFragmentWithReferenceTo(CompilationBuilder::Transaction &T,
               .first;
 }
 
+namespace {
+
 class XfxScannerTest : public testing::Test, public EmptyStore {
 public:
   XfxScannerTest() : Context_{this->Db()}, CompilationBuilder_{this->Db()} {}
@@ -64,10 +65,9 @@ public:
 protected:
   using CompilationPtr = std::shared_ptr<pstore::repo::compilation const>;
 
-  CompilationPtr
-  compileOneDefinitionWithReferenceTo(llvm::StringRef const &Name,
-                                      linkage Linkage,
-                                      llvm::StringRef const &RefTo);
+  CompilationPtr compileOneDefinitionWithReferenceTo(
+      llvm::StringRef const &Name, linkage Linkage,
+      llvm::StringRef const &RefTo, reference_strength Strength);
 
   llvm::Optional<rld::LocalSymbolsContainer>
   defineSymbols(CompilationPtr const &Compilation, uint32_t InputOrdinal);
@@ -82,13 +82,14 @@ protected:
 // compile one definition with reference to
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 auto XfxScannerTest::compileOneDefinitionWithReferenceTo(
-    llvm::StringRef const &Name, linkage Linkage, llvm::StringRef const &RefTo)
-    -> CompilationPtr {
+    llvm::StringRef const &Name, linkage Linkage, llvm::StringRef const &RefTo,
+    reference_strength Strength) -> CompilationPtr {
   std::array<CompilationBuilder::NameAndLinkagePair, 1> NL{{{std::string(Name), Linkage}}};
   return CompilationBuilder_.compile(
       std::begin(NL), std::end(NL),
-      [&RefTo](CompilationBuilder::Transaction &T, StringAdder &Strings) {
-        return createFragmentWithReferenceTo(T, Strings, RefTo);
+      [&RefTo, Strength](CompilationBuilder::Transaction &T,
+                         StringAdder &Strings) {
+        return createFragmentWithReferenceTo(T, Strings, RefTo, Strength);
       });
 }
 
@@ -112,19 +113,20 @@ TEST_F(XfxScannerTest, Empty) {
   constexpr auto InputOrdinal = uint32_t{0};
   bool Ok = resolveXfixups(Context_, Locals, &Globals_, &Undefs_, InputOrdinal);
   EXPECT_TRUE(Ok);
-  EXPECT_TRUE(Undefs_.empty());
+  EXPECT_TRUE(Undefs_.empty_());
+  EXPECT_EQ(Undefs_.strongUndefCount(), 0U);
   EXPECT_TRUE(Locals.empty());
   EXPECT_TRUE(Globals_.empty());
 }
 
-TEST_F(XfxScannerTest, RefToUndef) {
+TEST_F(XfxScannerTest, StrongRefToUndefined) {
   constexpr auto InputOrdinal = uint32_t{7};
 
   // Create a compilation containing a single symbol ("f") with external
-  // linkage. The sole fragment contains an external fixup referencing undefined
-  // symbol "x".
-  auto const Compilation =
-      this->compileOneDefinitionWithReferenceTo("f", linkage::external, "x");
+  // linkage. The sole fragment contains an external fixup with a strong
+  // reference to undefined symbol "x".
+  auto const Compilation = this->compileOneDefinitionWithReferenceTo(
+      "f", linkage::external, "x", reference_strength::strong);
 
   // Create an entry in the symbol table for the definition in our compilation.
   auto const Locals = this->defineSymbols(Compilation, InputOrdinal);
@@ -136,6 +138,8 @@ TEST_F(XfxScannerTest, RefToUndef) {
   EXPECT_TRUE(Ok);
 
   EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
+  EXPECT_EQ(Undefs_.strongUndefCount(), 1U)
+      << "There should be 1 strong-undefined symbol";
   EXPECT_EQ(Globals_.size(), 2U)
       << "Expected 2 globals: the definition and the undef";
   EXPECT_EQ(Locals->size(), 1U)
@@ -154,13 +158,14 @@ TEST_F(XfxScannerTest, RefToUndef) {
                   std::make_pair(CompilationBuilder_.storeString("x"), false)));
 }
 
-TEST_F(XfxScannerTest, RefToExternalDef) {
-  constexpr auto InputOrdinal = uint32_t{11};
+TEST_F(XfxScannerTest, WeakRefToUndefined) {
+  constexpr auto InputOrdinal = uint32_t{7};
 
   // Create a compilation containing a single symbol ("f") with external
-  // linkage. The sole fragment contains an external fixup referencing "f".
-  auto const Compilation =
-      this->compileOneDefinitionWithReferenceTo("f", linkage::external, "f");
+  // linkage. The sole fragment contains an external fixup with a weak reference
+  // to undefined symbol "x".
+  auto const Compilation = this->compileOneDefinitionWithReferenceTo(
+      "f", linkage::external, "x", reference_strength::weak);
 
   // Create an entry in the symbol table for the definition in our compilation.
   auto const Locals = this->defineSymbols(Compilation, InputOrdinal);
@@ -171,7 +176,99 @@ TEST_F(XfxScannerTest, RefToExternalDef) {
       resolveXfixups(Context_, *Locals, &Globals_, &Undefs_, InputOrdinal);
   EXPECT_TRUE(Ok);
 
-  EXPECT_TRUE(Undefs_.empty());
+  EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
+  EXPECT_EQ(Undefs_.strongUndefCount(), 0U)
+      << "There should be no strong-undefined symbols";
+  EXPECT_EQ(Globals_.size(), 2U)
+      << "Expected 2 globals: the definition and the undef";
+  EXPECT_EQ(Locals->size(), 1U)
+      << "The compilation should have a single definition";
+
+  // Build an intermediate vector with just the name and has-definition values.
+  // This avoids baking the order of the global symbol table into the test.
+  std::vector<std::pair<rld::StringAddress, bool>> G;
+  std::transform(std::begin(Globals_), std::end(Globals_),
+                 std::back_inserter(G), [](rld::Symbol const &Sym) {
+                   return std::make_pair(Sym.name(), Sym.hasDefinition());
+                 });
+  EXPECT_THAT(G,
+              UnorderedElementsAre(
+                  std::make_pair(CompilationBuilder_.storeString("f"), true),
+                  std::make_pair(CompilationBuilder_.storeString("x"), false)));
+}
+
+// Checks that a weakly referenced undef is promoted to a strongly-referenced
+// undef when a strong reference is encountered.
+TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
+  constexpr auto InputOrdinal1 = uint32_t{7};
+  constexpr auto InputOrdinal2 = InputOrdinal1 + 1U;
+  {
+    // Create a compilation containing a single symbol ("f") with external
+    // linkage. The sole fragment contains an external fixup with a weak
+    // reference to the undefined symbol "x".
+    auto const Compilation1 = this->compileOneDefinitionWithReferenceTo(
+        "f", linkage::external, "x", reference_strength::weak);
+    // Create an entry in the symbol table for the definition in our
+    // compilation.
+    auto const Locals1 = this->defineSymbols(Compilation1, InputOrdinal1);
+    ASSERT_TRUE(Locals1.hasValue()) << "Expected defineSymbols to succeed";
+    EXPECT_EQ(Locals1->size(), 1U);
+    // Resolve the external fixups in compilation #1.
+    bool Ok =
+        resolveXfixups(Context_, *Locals1, &Globals_, &Undefs_, InputOrdinal1);
+    EXPECT_TRUE(Ok);
+  }
+
+  // Check the state after the first compilation has been processed.
+  EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
+  EXPECT_EQ(Undefs_.strongUndefCount(), 0U)
+      << "There should be no strong-undefined symbols";
+  EXPECT_EQ(Globals_.size(), 2U)
+      << "Expected 2 globals: the definition (f) and the undef (x)";
+
+  {
+    // Create a compilation containing a single symbol ("g") with external
+    // linkage. The sole fragment contains an external fixup with a strong
+    // reference to the undefined symbol "x".
+    auto const Compilation2 = this->compileOneDefinitionWithReferenceTo(
+        "g", linkage::external, "x", reference_strength::strong);
+    // Create an entry in the symbol table for the definition in our
+    // compilation.
+    auto const Locals2 = this->defineSymbols(Compilation2, InputOrdinal2);
+    ASSERT_TRUE(Locals2.hasValue()) << "Expected defineSymbols to succeed";
+    EXPECT_EQ(Locals2->size(), 1U);
+    // Resolve the external fixups in compilation #2.
+    bool Ok =
+        resolveXfixups(Context_, *Locals2, &Globals_, &Undefs_, InputOrdinal2);
+    EXPECT_TRUE(Ok);
+  }
+
+  EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
+  EXPECT_EQ(Undefs_.strongUndefCount(), 1U)
+      << "There should be 1 strong-undefined symbol";
+  EXPECT_EQ(Globals_.size(), 3U)
+      << "Expected 3 globals: the two definitions (f,g) and the undef (x)";
+}
+
+TEST_F(XfxScannerTest, StrongRefToExternalDef) {
+  constexpr auto InputOrdinal = uint32_t{11};
+
+  // Create a compilation containing a single symbol ("f") with external
+  // linkage. The sole fragment contains an external fixup referencing "f".
+  auto const Compilation = this->compileOneDefinitionWithReferenceTo(
+      "f", linkage::external, "f", reference_strength::strong);
+
+  // Create an entry in the symbol table for the definition in our compilation.
+  auto const Locals = this->defineSymbols(Compilation, InputOrdinal);
+  ASSERT_TRUE(Locals.hasValue()) << "Expected defineSymbols to succeed";
+
+  // Resolve the external fixups in our compilation.
+  bool Ok =
+      resolveXfixups(Context_, *Locals, &Globals_, &Undefs_, InputOrdinal);
+  EXPECT_TRUE(Ok);
+
+  EXPECT_TRUE(Undefs_.empty_());
+  EXPECT_EQ(Undefs_.strongUndefCount(), 0U);
   EXPECT_EQ(Globals_.size(), 1U);
   EXPECT_EQ(Locals->size(), 1U)
       << "The compilation should have a single definition";
@@ -188,10 +285,10 @@ TEST_F(XfxScannerTest, RefToAppendDef) {
   // Create two compilations each containing a definition ("f") with append
   // linkage. Each contains a single fragment which contains an external fixup
   // referencing "f".
-  auto const C0 =
-      this->compileOneDefinitionWithReferenceTo("f", linkage::append, "f");
-  auto const C1 =
-      this->compileOneDefinitionWithReferenceTo("f", linkage::append, "f");
+  auto const C0 = this->compileOneDefinitionWithReferenceTo(
+      "f", linkage::append, "f", reference_strength::strong);
+  auto const C1 = this->compileOneDefinitionWithReferenceTo(
+      "f", linkage::append, "f", reference_strength::strong);
 
   auto const L0 = this->defineSymbols(C0, InputOrdinal0);
   ASSERT_TRUE(L0.hasValue()) << "Expected defineSymbols for C0 to succeed";
@@ -203,7 +300,8 @@ TEST_F(XfxScannerTest, RefToAppendDef) {
   EXPECT_TRUE(
       resolveXfixups(Context_, *L1, &Globals_, &Undefs_, InputOrdinal1));
 
-  EXPECT_TRUE(Undefs_.empty());
+  EXPECT_TRUE(Undefs_.empty_());
+  EXPECT_EQ(Undefs_.strongUndefCount(), 0U);
   EXPECT_EQ(Globals_.size(), 1U);
   EXPECT_EQ(L0->size(), 1U)
       << "Locals for Compilation 0 should have a single definition";

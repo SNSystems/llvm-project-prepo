@@ -29,9 +29,8 @@
 #include "pstore/mcrepo/generic_section.hpp"
 #include "pstore/mcrepo/section.hpp"
 
-#include "fibonacci.hpp"
-
-#include <bitset>
+#include "StringAdder.h"
+#include "fibonacci.h"
 
 constexpr auto MaxSection =
     static_cast<size_t>(pstore::repo::section_kind::last);
@@ -39,22 +38,26 @@ using SectionSet = std::bitset<MaxSection>;
 
 class FragmentCreator {
 public:
-  using Transaction = pstore::transaction<pstore::transaction_lock>;
   using FragmentIndexValueType = pstore::index::fragment_index::value_type;
 
-  explicit FragmentCreator(bool DataFibonacci, unsigned SectionSize,
-                           SectionSet const &Sections);
-  auto operator()(Transaction &T, size_t const Count) -> FragmentIndexValueType;
+  /// \param SectionSize  The number of 32-bit values to be added to each
+  /// section's payload.
+  /// \param XFixupSize  The number of external fixups to add to each section.
+  /// \param Sections  The set of sections to be added to the fragment.
+  FragmentCreator(bool DataFibonacci, unsigned SectionSize, unsigned XFixupSize,
+                  const SectionSet &Sections);
+  auto operator()(pstore::transaction_base &T, size_t Count,
+                  StringAdder const &Strings) -> FragmentIndexValueType;
 
 private:
   template <typename Generator>
-  auto create(Transaction &T, Generator &&G, size_t const Count)
-      -> FragmentIndexValueType;
+  auto create(pstore::transaction_base &T, Generator &&G, size_t Count,
+              const StringAdder &Strings) -> FragmentIndexValueType;
 
   template <typename Generator>
   pstore::repo::section_content
   generateDataSection(Generator &G, pstore::repo::section_kind Kind,
-                      size_t Count);
+                      size_t Count, const StringAdder &Strings);
 
   using DispatcherPtr =
       std::unique_ptr<pstore::repo::section_creation_dispatcher>;
@@ -68,12 +71,17 @@ private:
   template <pstore::repo::section_kind Kind>
   using KindToDispatcherType = typename pstore::repo::section_to_creation_dispatcher<typename pstore::repo::enum_to_section<Kind>::type>::type;
 
-  template <pstore::repo::section_kind Kind, typename DispatcherType = KindToDispatcherType<Kind>>
-  void setDispatcherContent(pstore::repo::section_creation_dispatcher *dispatcher, pstore::repo::section_content const *Content);
+  template <pstore::repo::section_kind Kind,
+            typename DispatcherType = KindToDispatcherType<Kind>>
+  void
+  setDispatcherContent(pstore::repo::section_creation_dispatcher *dispatcher,
+                       const pstore::repo::section_content *Content);
 
-  bool const DataFibonacci_;
-  unsigned const SectionSize_;
-  SectionSet const Sections_;
+  const bool DataFibonacci_;
+  const unsigned SectionSize_;
+  /// The number of external fixups to add to each section.
+  const unsigned XFixupSize_;
+  const SectionSet Sections_;
 
   fibonacci_generator<> Fib_;
   llvm::SmallVector<DispatcherPtr, MaxSection> Dispatchers_;

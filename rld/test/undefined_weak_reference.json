@@ -1,0 +1,39 @@
+// RUN: rm -rf %t && mkdir -p %t
+// RUN: pstore-import %t/db.db %s
+// RUN: repo-create-ticket --repo %t/db.db -o %t/t0.o 25f1ea3ef1413aa52b0ef9567647acd1
+// RUN: rld --repo=%t/db.db -o %t/rld.out %t/t0.o
+
+{
+    "version":1,
+    "id":"2D75D4DE-5B22-4618-8851-474C42FBF339",
+    "transactions":[
+        {
+            "names":[
+                "x86_64-pc-linux-gnu-repo", //0
+                "/path",                    //1
+                "f",                        //2
+                "g"                         //3
+            ],
+            "fragments":{
+                "9e30555726ae19d10a4dc6f1097a8def":{
+                    "text":{
+                        "align":16,
+                        "data":"VUiJ5bgrAAAAXcM=",
+                        "xfixups": [
+                            {"name":3,"type":4,"is_weak":true,"offset":5,"addend":-4} //"g"
+                        ]
+                    }
+                }
+            },
+            "compilations":{
+                "25f1ea3ef1413aa52b0ef9567647acd1":{
+                    "path":1, //"/path"
+                    "triple":0, //"x86_64-pc-linux-gnu-repo"
+                    "definitions":[
+                        {"digest":"9e30555726ae19d10a4dc6f1097a8def","name":2,"linkage":"external"} //"f"
+                    ]
+                }
+            }
+        }
+    ]
+}

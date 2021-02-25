@@ -63,34 +63,51 @@ class Symbol;
 //-MARK: UndefsContainer
 class UndefsContainer {
 public:
-  using container = llvm::simple_ilist<Symbol>;
+  using Container = llvm::simple_ilist<Symbol>;
 
-  bool empty() const {
-    std::unique_lock<std::mutex> const Lock{mut_};
-    return list_.empty();
+  bool empty_() const {
+    std::lock_guard<std::mutex> const Lock{Mut_};
+    return List_.empty();
   }
+  // The total number of undefined symbols. Note that this includes those
+  // symbols that are weakly referenced.
   size_t size() const {
-    std::unique_lock<std::mutex> const Lock{mut_};
-    return list_.size();
+    std::lock_guard<std::mutex> const Lock{Mut_};
+    return List_.size();
   }
-  void remove(Symbol *Sym);
-  void insert(Symbol *Sym);
+  // The number of undefined symbols not including those that are only
+  // weakly referenced.
+  size_t strongUndefCount() const {
+    std::lock_guard<std::mutex> const Lock{Mut_};
+    assert(StrongUndefCount_ <= List_.size());
+    return StrongUndefCount_;
+  }
+  void remove(Symbol *Sym, pstore::repo::reference_strength Strength);
+  Symbol *insert(Symbol *Sym, pstore::repo::reference_strength Strength);
 
-  container::const_iterator begin() const { return list_.begin(); }
-  container::const_iterator end() const { return list_.end(); }
+  void strongReference(Symbol *Sym) {
+    std::lock_guard<std::mutex> const Lock{Mut_};
+    // assert that Sym is in the list somewhere?
+    ++StrongUndefCount_;
+    assert(StrongUndefCount_ <= List_.size());
+  }
+
+  Container::const_iterator begin() const { return List_.begin(); }
+  Container::const_iterator end() const { return List_.end(); }
 
 private:
-  mutable std::mutex mut_;
-  container list_;
+  mutable std::mutex Mut_;
+  unsigned StrongUndefCount_ = 0U;
+  Container List_;
 };
 
 struct Contribution;
 
-//*                _         _  *
-//*  ____  _ _ __ | |__  ___| | *
-//* (_-< || | '  \| '_ \/ _ \ | *
-//* /__/\_, |_|_|_|_.__/\___/_| *
-//*     |__/                    *
+//*  ___            _         _  *
+//* / __|_  _ _ __ | |__  ___| | *
+//* \__ \ || | '  \| '_ \/ _ \ | *
+//* |___/\_, |_|_|_|_.__/\___/_| *
+//*      |__/                    *
 //-MARK: Symbol
 class Symbol : public llvm::ilist_node<Symbol> {
 public:
@@ -125,15 +142,24 @@ public:
     FragmentAddress FAddr_;
   };
 
-  explicit Symbol(StringAddress N) {
-    setName(N);
-    assert(name() == N);
+  /// Constructs an undefined symbol.
+  ///
+  /// \param N  The name of the symbol.
+  /// \param Strength  The strength of the reference (weak/strong) that caused
+  /// the creation of this symbol.
+  explicit Symbol(StringAddress N, pstore::repo::reference_strength Strength)
+      : Name_{N.absolute()},
+        WeakReference_{Strength == pstore::repo::reference_strength::weak},
+        Contribution_{nullptr} {
+    assert(name() == N &&
+           N.absolute() < (UINT64_C(1) << StringAddress::total_bits));
   }
 
   Symbol(StringAddress N, Body &&Definition)
-      : Definition_{llvm::SmallVector<Body, 1>{std::move(Definition)}} {
-    setName(N);
-    assert(name() == N);
+      : Name_{N.absolute()}, WeakReference_{false}, Contribution_{nullptr},
+        Definition_{llvm::SmallVector<Body, 1>{std::move(Definition)}} {
+    assert(name() == N &&
+           N.absolute() < (UINT64_C(1) << StringAddress::total_bits));
   }
 
   using Mutex = SpinLock;
@@ -166,11 +192,26 @@ public:
   uint64_t value() const;
 
   void setFirstContribution(Contribution *const C) {
-    if (Contribution_ == nullptr) {
-      Contribution_ = C;
-    }
+    Contribution *expected = nullptr;
+    Contribution_.compare_exchange_strong(expected, C);
   }
-  Contribution *contribution() const { return Contribution_; }
+  Contribution *contribution() const { return Contribution_.load(); }
+
+  /// Records a reference from an external fixup.
+  ///
+  /// \param Strength  The strength of the reference (weak/strong).
+  /// \returns True if the resulting symbol is strongly referenced and
+  /// undefined.
+  bool addReference(pstore::repo::reference_strength Strength) {
+    std::lock_guard<Mutex> Lock{Mut_};
+    WeakReference_ =
+        WeakReference_ && Strength == pstore::repo::reference_strength::weak;
+    return !WeakReference_ && !Definition_.hasValue();
+  }
+  bool allReferencesAreWeak() const {
+    std::lock_guard<Mutex> Lock{Mut_};
+    return WeakReference_;
+  }
 
   /// Process the definition of a symbol with append linkage that "collides"
   /// with an existing definition.
@@ -318,13 +359,13 @@ private:
   void setName(StringAddress N);
 
   mutable Mutex Mut_; // TODO: is this really better than std::mutex?
-  static constexpr size_t NameElements_ = (StringAddress::total_bits + 7U) / 8U;
-  /// The next field is a StringAddress, but optimized so that we don't need
-  /// 8-bytes and 8-byte alignment.
-  uint8_t Name_[NameElements_]; // StringAddress Name_;
+  /// The StringAddress representing the name of this symbol.
+  std::uint64_t Name_ : StringAddress::total_bits;
+  /// Was this symbol defined as the result of encountering a weak reference?
+  std::uint64_t WeakReference_ : 1;
 
   /// The output contribution produced by this symbol. Set during layout.
-  Contribution *Contribution_ = nullptr;
+  std::atomic<Contribution *> Contribution_;
 
   /// We allow an array of definitions so that append symbols can associate
   /// multiple definitions with a single name.
@@ -335,39 +376,45 @@ private:
 // ~~~~
 inline StringAddress Symbol::name() const {
   const std::lock_guard<decltype(Mut_)> Lock{Mut_};
-  static_assert(NameElements_ == 5U, "Expected the Name_ field to be 5 bytes");
-  return StringAddress::make(static_cast<uint64_t>(Name_[0]) |
-                             (static_cast<uint64_t>(Name_[1]) << 8) |
-                             (static_cast<uint64_t>(Name_[2]) << 16) |
-                             (static_cast<uint64_t>(Name_[3]) << 24) |
-                             (static_cast<uint64_t>(Name_[4]) << 32));
+  return StringAddress::make(Name_);
 }
 
 // set name
 // ~~~~~~~~
 inline void Symbol::setName(StringAddress N) {
   std::uint64_t const NAbs = N.absolute();
-  static_assert(NameElements_ == 5U, "Expected the Name_ field to be 5 bytes");
-  Name_[0] = static_cast<uint8_t>(NAbs & 0xFF);
-  Name_[1] = static_cast<uint8_t>((NAbs >> 8) & 0xFF);
-  Name_[2] = static_cast<uint8_t>((NAbs >> 16) & 0xFF);
-  Name_[3] = static_cast<uint8_t>((NAbs >> 24) & 0xFF);
-  Name_[4] = static_cast<uint8_t>((NAbs >> 32) & 0xFF);
+  assert(NAbs < (UINT64_C(1) << StringAddress::total_bits));
+  Name_ = NAbs;
 }
 
-//*               _      __                 _        _               *
-//*  _  _ _ _  __| |___ / _|___  __ ___ _ _| |_ __ _(_)_ _  ___ _ _  *
-//* | || | ' \/ _` / -_)  _(_-< / _/ _ \ ' \  _/ _` | | ' \/ -_) '_| *
-//*  \_,_|_||_\__,_\___|_| /__/ \__\___/_||_\__\__,_|_|_||_\___|_|   *
-//*                                                                  *
-inline void UndefsContainer::remove(Symbol *Sym) {
-  std::lock_guard<std::mutex> const Lock{mut_};
-  list_.remove(*Sym); // remove this symbol from the undef list.
+//*  _   _         _      __       ___         _        _               *
+//* | | | |_ _  __| |___ / _|___  / __|___ _ _| |_ __ _(_)_ _  ___ _ _  *
+//* | |_| | ' \/ _` / -_)  _(_-< | (__/ _ \ ' \  _/ _` | | ' \/ -_) '_| *
+//*  \___/|_||_\__,_\___|_| /__/  \___\___/_||_\__\__,_|_|_||_\___|_|   *
+//*                                                                     *
+//-MARK: UndefsContainer
+// remove
+// ~~~~~~
+inline void UndefsContainer::remove(Symbol *const Sym,
+                                    pstore::repo::reference_strength Strength) {
+  std::lock_guard<std::mutex> const Lock{Mut_};
+  List_.remove(*Sym); // remove this symbol from the undef list.
+  if (Strength != pstore::repo::reference_strength::weak) {
+    --StrongUndefCount_;
+  }
 }
 
-inline void UndefsContainer::insert(Symbol *Sym) {
-  std::lock_guard<std::mutex> const Lock{mut_};
-  list_.push_back(*Sym); // add this symbol to the undef list.
+// insert
+// ~~~~~~
+inline Symbol *
+UndefsContainer::insert(Symbol *const Sym,
+                        pstore::repo::reference_strength Strength) {
+  std::lock_guard<std::mutex> const Lock{Mut_};
+  if (Strength != pstore::repo::reference_strength::weak) {
+    ++StrongUndefCount_;
+  }
+  List_.push_back(*Sym); // add this symbol to the undef list.
+  return Sym;
 }
 
 //*  ___ _            _              ___     _     _               *
@@ -484,9 +531,9 @@ public:
   explicit SymbolResolver(Context &Ctx) : Context_{Ctx} {}
 
   /// \tparam Function A function with the signature void(StringAddress).
-  /// \param Undefs  The global collection of undefined symbols.
   /// \param Globals  A container which will hold new defined and undefined
   ///   symbols.
+  /// \param Undefs  The global collection of undefined symbols.
   /// \param Compilation  The database compilation record containing
   ///   the symbols to be defined and (via each fragment's xfixup vector)
   ///   referenced.
@@ -500,9 +547,32 @@ public:
                 const pstore::repo::compilation &Compilation,
                 uint32_t InputOrdinal, Function ErrorFn);
 
-  static Symbol *addUndefined(const NotNull<GlobalSymbolsContainer *> Globals,
-                              const NotNull<UndefsContainer *> Undefs,
-                              const StringAddress Name);
+  /// Creates a symbol table entry with no associated definition.
+  ///
+  /// \param Globals  The container which holds defined and undefined symbols.
+  /// \param Undefs  The global collection of undefined symbols.
+  /// \param Name  The name of the symbol being created.
+  /// \param Strength  Is this symbol table entry being created as the
+  ///   result of a weak reference?
+  /// \returns  The newly created symbol.
+  static Symbol *addUndefined(NotNull<GlobalSymbolsContainer *> Globals,
+                              NotNull<UndefsContainer *> Undefs,
+                              StringAddress Name,
+                              pstore::repo::reference_strength Strength);
+
+  /// Records a reference to a symbol.
+  ///
+  /// \param Symbol  The referenced symbol.
+  /// \param Globals  The container which holds defined and undefined symbols.
+  /// \param Undefs  The global collection of undefined symbols.
+  /// \param Name  The name of the symbol being referenced.
+  /// \param Strength  Is this a weak or strong reference to the symbol?
+  /// \returns  The referenced symbol.
+  static Symbol *addReference(NotNull<Symbol *> Sym,
+                              NotNull<GlobalSymbolsContainer *> Globals,
+                              NotNull<UndefsContainer *> Undefs,
+                              StringAddress Name,
+                              pstore::repo::reference_strength Strength);
 
 private:
   Symbol *defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
@@ -549,10 +619,22 @@ SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
 
 // reference symbol
 // ~~~~~~~~~~~~~~~~
-Symbol *referenceSymbol(Context &Ctx, StringAddress Name,
-                        const LocalSymbolsContainer &Locals,
-                        const NotNull<GlobalSymbolsContainer *> Globals,
-                        const NotNull<UndefsContainer *> Undefs);
+/// Called when a symbol is referenced by an external fixup.
+///
+/// \param Ctxt  The global linking context.
+/// \param Locals  The collection of symbols defined by the compilation being
+/// processed.
+/// \param Globals  The container which holds defined and undefined
+/// symbols.
+/// \param Undefs  The global collection of undefined symbols.
+/// \param Name  The name of the symbol being created.
+/// \param Strength  The strength of the reference (weak/strong) that caused
+/// the creation of this symbol.
+Symbol *referenceSymbol(Context &Ctxt, LocalSymbolsContainer const &Locals,
+                        NotNull<GlobalSymbolsContainer *> const Globals,
+                        NotNull<UndefsContainer *> const Undefs,
+                        StringAddress Name,
+                        pstore::repo::reference_strength Strength);
 
 } // end namespace rld
 #endif // RLD_SYMBOL_H

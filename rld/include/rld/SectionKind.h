@@ -39,7 +39,8 @@ enum class SectionKind {
 
 #define X(x)                                                                   \
   case SectionKind::x:                                                         \
-    return OS << #x;
+    OS << #x;                                                                  \
+    return OS;
 #define RLD_X(x) X(x)
 
 template <typename OStream> OStream &operator<<(OStream &OS, SectionKind Kind) {
@@ -54,6 +55,28 @@ template <typename OStream> OStream &operator<<(OStream &OS, SectionKind Kind) {
 #undef RLD_X
 #undef X
 
+// section kind name
+// ~~~~~~~~~~~~~~~~~
+#define X(x)                                                                   \
+  case SectionKind::x:                                                         \
+    return #x;
+#define RLD_X(x) X(x)
+
+inline constexpr auto sectionKindName(SectionKind Kind) noexcept {
+  switch (Kind) {
+    PSTORE_MCREPO_SECTION_KINDS
+    RLD_SECTION_KINDS
+  case SectionKind::last:
+    break;
+  }
+  llvm_unreachable("unknown SectionKind");
+}
+
+#undef RLD_X
+#undef X
+
+// first section kind
+// ~~~~~~~~~~~~~~~~~~
 constexpr auto firstSectionKind() noexcept -> SectionKind {
   using utype = std::underlying_type<SectionKind>::type;
   constexpr auto result = SectionKind::text;

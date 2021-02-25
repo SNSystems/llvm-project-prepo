@@ -56,8 +56,8 @@ void resolve(State &S, FragmentAddress FAddr,
     });
     std::atomic<Symbol *> *const Shadow = shadowPointer(S.Ctxt, ShadowXfx++);
     assert(Shadow != nullptr && *Shadow == nullptr);
-    Symbol *const R =
-        referenceSymbol(S.Ctxt, Xfx.name, S.Locals, S.Globals, S.Undefs);
+    Symbol *const R = referenceSymbol(S.Ctxt, S.Locals, S.Globals, S.Undefs,
+                                      Xfx.name, Xfx.strength());
     Shadow->store(R); // TODO: get the ordering right for this atomic write.
   }
 }
@@ -100,8 +100,8 @@ bool rld::resolveXfixups(Context &Context, LocalSymbolsContainer const &Locals,
 
     for (Symbol::Body const &Def : *Bodies) {
       // If this symbol body came from a different compilation then skip it.
-      // TODO: restructure this code so that only definitions from this
-      // compilation get this far.
+      // TODO: the bodies are ordered so we can find the one that we should be
+      // processing with a search.
       if (Def.inputOrdinal() != InputOrdinal) {
         continue;
       }

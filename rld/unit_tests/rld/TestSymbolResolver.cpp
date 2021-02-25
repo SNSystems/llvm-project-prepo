@@ -139,7 +139,8 @@ TEST_P(SingleSymbol, SingleSymbol) {
                               InputOrdinal, std::cref(ErrorCallback));
 
   ASSERT_TRUE(C0Locals.hasValue());
-  EXPECT_TRUE(Undefs.empty());
+  EXPECT_TRUE(Undefs.empty_());
+  EXPECT_EQ(Undefs.strongUndefCount(), 0U);
 
   {
     ASSERT_EQ(Globals.size(), 1U);
@@ -336,7 +337,8 @@ TEST_P(LowestOrdinal, LowerOrdinalFirst) {
   // Check that the resolver did the right thing. First that the global symbol
   // table is as expected.
   ASSERT_EQ(Globals.size(), 1U);
-  EXPECT_TRUE(Undefs.empty());
+  EXPECT_TRUE(Undefs.empty_());
+  EXPECT_EQ(Undefs.strongUndefCount(), 0U);
 
   {
     SCOPED_TRACE("LowestOrdinal, LowerOrdinalFirst");
@@ -366,7 +368,8 @@ TEST_P(LowestOrdinal, LowerOrdinalSecond) {
   // Check that the resolver did the right thing. First that the global symbol
   // table is as expected.
   ASSERT_EQ(Globals.size(), 1U);
-  EXPECT_TRUE(Undefs.empty());
+  EXPECT_TRUE(Undefs.empty_());
+  EXPECT_EQ(Undefs.strongUndefCount(), 0U);
 
   {
     SCOPED_TRACE("LowestOrdinal, LowerOrdinalSecond");
@@ -424,7 +427,8 @@ TEST_P(Replaces, Replaces) {
   // Check that the resolver did the right thing. First that the global symbol
   // table is as expected.
   ASSERT_EQ(Globals.size(), 1U);
-  EXPECT_TRUE(Undefs.empty());
+  EXPECT_TRUE(Undefs.empty_());
+  EXPECT_EQ(Undefs.strongUndefCount(), 0U);
 
   rld::Symbol const &Symbol0 = this->getSymbol(Globals, 0U);
   {
@@ -474,7 +478,8 @@ TEST_P(Ignored, Ignored) {
   // Check that the resolver did the right thing. First that the global symbol
   // table is as expected.
   ASSERT_EQ(Globals.size(), 1U);
-  EXPECT_TRUE(Undefs.empty());
+  EXPECT_TRUE(Undefs.empty_());
+  EXPECT_EQ(Undefs.strongUndefCount(), 0U);
 
   rld::Symbol const &Symbol0 = this->getSymbol(Globals, 0U);
   {
@@ -528,7 +533,8 @@ TEST_P(Collision, OtherHits) {
   // Check that the resolver did the right thing. First that the global symbol
   // table is as expected.
   ASSERT_EQ(Globals.size(), 1U);
-  EXPECT_TRUE(Undefs.empty());
+  EXPECT_TRUE(Undefs.empty_());
+  EXPECT_EQ(Undefs.strongUndefCount(), 0U);
 
   rld::Symbol const &Symbol0 = this->getSymbol(Globals, 0U);
   {
@@ -679,7 +685,9 @@ TEST_F(Append, LowerOrdinalFirst) {
   ASSERT_TRUE(C1);
 
   ASSERT_EQ(Globals.size(), 1U) << "A single symbol table entry is expected";
-  EXPECT_TRUE(Undefs.empty()) << "There should be no undefined symbols";
+  EXPECT_TRUE(Undefs.empty_()) << "There should be no undefined symbols";
+  EXPECT_EQ(Undefs.strongUndefCount(), 0U)
+      << "There should be no strongly-referenced undefined symbols";
   rld::Symbol const &Symbol = this->getSymbol(Globals, 0U);
   checkSymbolTableEntry(Symbol);
   checkLocalSymbolView(C0, C1, Symbol);
@@ -702,7 +710,9 @@ TEST_F(Append, LowerOrdinalSecond) {
   ASSERT_TRUE(C0);
 
   ASSERT_EQ(Globals.size(), 1U) << "A single symbol table entry is expected";
-  EXPECT_TRUE(Undefs.empty()) << "There should be no undefined symbols";
+  EXPECT_TRUE(Undefs.empty_()) << "There should be no undefined symbols";
+  EXPECT_EQ(Undefs.strongUndefCount(), 0U)
+      << "There should be no strongly-referenced undefined symbols";
   rld::Symbol const &Symbol = this->getSymbol(Globals, 0U);
   checkSymbolTableEntry(Symbol);
   checkLocalSymbolView(C0, C1, Symbol);
@@ -784,7 +794,9 @@ TEST_F(Largest, ALtB) {
   ReturnType CB = Resolver_.defineSymbols(&Globals, &Undefs, *CompilationB,
                                           OrdinalB_, std::cref(ErrorCallback));
 
-  EXPECT_TRUE(Undefs.empty());
+  EXPECT_TRUE(Undefs.empty_()) << "There should be no undefined symbols";
+  EXPECT_EQ(Undefs.strongUndefCount(), 0U)
+      << "There should be no strongly-referenced undefined symbols";
   ASSERT_TRUE(CB.hasValue())
       << "Symbol resolution for OrdinalB_ produced an error";
   ASSERT_EQ(CB->size(), 1U) << "The global symbol table should hold 1 entry";
@@ -812,7 +824,8 @@ TEST_F(Largest, AGtB) {
   ReturnType CB = Resolver_.defineSymbols(&Globals, &Undefs, *CompilationB,
                                           OrdinalB_, std::cref(ErrorCallback));
 
-  EXPECT_TRUE(Undefs.empty());
+  EXPECT_TRUE(Undefs.empty_());
+  EXPECT_EQ(Undefs.strongUndefCount(), 0U);
   ASSERT_TRUE(CB.hasValue());
   // Check that we have a single entry in the symbol table.
   ASSERT_EQ(Globals.size(), 1U) << "Expected a single global symbol";
@@ -837,7 +850,8 @@ TEST_F(Largest, AEqBLowestOrdinalFirst) {
   ReturnType CB = Resolver_.defineSymbols(&Globals, &Undefs, *CompilationB,
                                           OrdinalB_, std::cref(ErrorCallback));
 
-  EXPECT_TRUE(Undefs.empty());
+  EXPECT_TRUE(Undefs.empty_());
+  EXPECT_EQ(Undefs.strongUndefCount(), 0U);
   ASSERT_TRUE(CB.hasValue());
 
   // Check that we have a single entry in the symbol table.
@@ -864,7 +878,8 @@ TEST_F(Largest, AEqBHighestOrdinalFirst) {
   ReturnType CA = Resolver_.defineSymbols(&Globals, &Undefs, *CompilationB,
                                           OrdinalA_, std::cref(ErrorCallback));
 
-  EXPECT_TRUE(Undefs.empty());
+  EXPECT_TRUE(Undefs.empty_());
+  EXPECT_EQ(Undefs.strongUndefCount(), 0U);
   ASSERT_TRUE(CA.hasValue());
 
   // Check that we have a single entry in the symbol table.
@@ -886,6 +901,8 @@ class RefBeforeDef : public TwoSymbols,
 
 } // end anonymous namespace
 
+using pstore::repo::reference_strength;
+
 TEST_P(RefBeforeDef, DefinitionReplacesReference) {
   linkage const Linkage = this->GetParam();
   static constexpr auto Name = "f";
@@ -897,8 +914,9 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
   rld::UndefsContainer Undefs;
   rld::GlobalSymbolsContainer Globals;
   rld::LocalSymbolsContainer S0;
-  rld::referenceSymbol(Ctx_, CompilationBuilder_.storeString(Name), S0,
-                       &Globals, &Undefs);
+  rld::referenceSymbol(Ctx_, S0, &Globals, &Undefs,
+                       CompilationBuilder_.storeString(Name),
+                       reference_strength::strong);
   EXPECT_EQ(S0.size(), 0U);
   ASSERT_EQ(Globals.size(), 1U);
   EXPECT_FALSE(this->getSymbol(Globals, 0U).hasDefinition());
@@ -919,7 +937,8 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
   ASSERT_TRUE(S1.hasValue());
 
   // Check that the undef list is now empty again.
-  ASSERT_TRUE(Undefs.empty());
+  ASSERT_TRUE(Undefs.empty_());
+  EXPECT_EQ(Undefs.strongUndefCount(), 0U);
 
   // Make sure that we kept the definition from C1.
   {
@@ -930,8 +949,9 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
       this->checkSymbol(Symbol0, InputNo, Linkage, 0U);
       this->checkCompilationLocalView(*S1, Symbol0);
     }
-    EXPECT_EQ(rld::referenceSymbol(Ctx_, getStringAddress(this->Db(), Name),
-                                   *S1, &Globals, &Undefs),
+    EXPECT_EQ(rld::referenceSymbol(Ctx_, *S1, &Globals, &Undefs,
+                                   getStringAddress(this->Db(), Name),
+                                   reference_strength::strong),
               &Symbol0);
   }
 }
@@ -981,7 +1001,8 @@ TEST_P(InternalCollision, InternalAfter) {
   ASSERT_TRUE(C1.hasValue());
 
   ASSERT_EQ(Globals.size(), 2U);
-  EXPECT_TRUE(Undefs.empty());
+  EXPECT_TRUE(Undefs.empty_());
+  EXPECT_EQ(Undefs.strongUndefCount(), 0U);
   rld::Symbol const &Symbol0 = this->getSymbol(Globals, 0U);
   rld::Symbol const &Symbol1 = this->getSymbol(Globals, 1U);
   {
@@ -991,13 +1012,16 @@ TEST_P(InternalCollision, InternalAfter) {
     this->checkCompilationLocalView(*C0, Symbol0);
     this->checkCompilationLocalView(*C1, Symbol1);
   }
-  EXPECT_EQ(rld::referenceSymbol(Ctx_, getStringAddress(this->Db(), Name_), *C0,
-                                 &Globals, &Undefs),
+  EXPECT_EQ(rld::referenceSymbol(Ctx_, *C0, &Globals, &Undefs,
+                                 getStringAddress(this->Db(), Name_),
+                                 reference_strength::strong),
             &Symbol0);
-  EXPECT_EQ(rld::referenceSymbol(Ctx_, getStringAddress(this->Db(), Name_), *C1,
-                                 &Globals, &Undefs),
+  EXPECT_EQ(rld::referenceSymbol(Ctx_, *C1, &Globals, &Undefs,
+                                 getStringAddress(this->Db(), Name_),
+                                 reference_strength::strong),
             &Symbol1);
-  EXPECT_TRUE(Undefs.empty());
+  EXPECT_TRUE(Undefs.empty_());
+  EXPECT_EQ(Undefs.strongUndefCount(), 0U);
 }
 
 // Defines the same name in two different CUs: one internal and one OtherLinkage
@@ -1022,7 +1046,8 @@ TEST_P(InternalCollision, InternalBefore) {
 
   // Check that the resolver did the right thing. First that the symbol table is
   // as expected.
-  EXPECT_TRUE(Undefs.empty());
+  EXPECT_TRUE(Undefs.empty_());
+  EXPECT_EQ(Undefs.strongUndefCount(), 0U);
   rld::Symbol const &Symbol0 = this->getSymbol(Globals, 0U);
   rld::Symbol const &Symbol1 = this->getSymbol(Globals, 1U);
   {
@@ -1032,11 +1057,13 @@ TEST_P(InternalCollision, InternalBefore) {
     this->checkCompilationLocalView(*C0, Symbol0);
     this->checkCompilationLocalView(*C1, Symbol1);
   }
-  EXPECT_EQ(rld::referenceSymbol(Ctx_, getStringAddress(this->Db(), Name_), *C0,
-                                 &Globals, &Undefs),
+  EXPECT_EQ(rld::referenceSymbol(Ctx_, *C0, &Globals, &Undefs,
+                                 getStringAddress(this->Db(), Name_),
+                                 reference_strength::strong),
             &Symbol0);
-  EXPECT_EQ(rld::referenceSymbol(Ctx_, getStringAddress(this->Db(), Name_), *C1,
-                                 &Globals, &Undefs),
+  EXPECT_EQ(rld::referenceSymbol(Ctx_, *C1, &Globals, &Undefs,
+                                 getStringAddress(this->Db(), Name_),
+                                 reference_strength::strong),
             &Symbol1);
 }
 

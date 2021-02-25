@@ -12,18 +12,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Support/CommandLine.h"
-
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/MC/MCRepoTicketFile.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/EndianStream.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 
 #include "pstore/core/hamt_map.hpp"
 #include "pstore/core/hamt_set.hpp"
-#include "pstore/core/index_types.hpp"
 #include "pstore/core/sstring_view_archive.hpp"
 #include "pstore/core/transaction.hpp"
 #include "pstore/mcrepo/compilation.hpp"
@@ -40,7 +38,8 @@
 #include <vector>
 
 #include "FragmentCreator.h"
-#include "fibonacci.hpp"
+#include "StringAdder.h"
+#include "fibonacci.h"
 #include "hash.h"
 
 using namespace std::string_literals;
@@ -76,10 +75,14 @@ llvm::cl::alias
     OutputDirOptAlias("O", llvm::cl::desc("Alias for --output-directory"),
                       llvm::cl::aliasopt(OutputDirOpt));
 
-llvm::cl::opt<unsigned> SectionSize(
+llvm::cl::opt<unsigned> SectionSize{
     "section-size",
-    llvm::cl::desc("Number of 32-bit values in the generated sections"),
-    llvm::cl::init(16U));
+    llvm::cl::desc{"Number of 32-bit values in the generated sections"},
+    llvm::cl::init(16U)};
+
+llvm::cl::opt<unsigned> XFixupSize{
+    "xfixup-size", llvm::cl::desc{"Number of external fixups in a section"},
+    llvm::cl::init(0U)};
 
 llvm::cl::opt<std::string>
     Triple("triple",
@@ -99,54 +102,7 @@ llvm::cl::opt<bool>
 llvm::cl::alias ProgressAlias("p", llvm::cl::desc("Alias for --output"),
                               llvm::cl::aliasopt(Progress));
 
-using IStringAddress = pstore::typed_address<pstore::indirect_string>;
 
-class StringAdder {
-public:
-  StringAdder(size_t ExpectedStrings,
-              std::shared_ptr<pstore::index::name_index> const &NamesIndex)
-      : NamesIndex_{NamesIndex}, Adder_{ExpectedStrings} {
-    Strings_.reserve(ExpectedStrings);
-  }
-
-  template <typename Lock>
-  IStringAddress add(pstore::transaction<Lock> &Transaction,
-                     const llvm::StringRef &Str) {
-    return addIndirect(Transaction, append(Str));
-  }
-
-  template <typename Lock> void flush(pstore::transaction<Lock> &transaction) {
-    Adder_.flush(transaction);
-  }
-
-private:
-  template <typename Lock>
-  auto addIndirect(pstore::transaction<Lock> &Transaction,
-                   pstore::raw_sstring_view &View) -> IStringAddress {
-    auto const add_res = Adder_.add(Transaction, NamesIndex_, &View);
-    if (!add_res.second) {
-      // Already there! Delete the last entry
-      assert(false);
-    }
-    return IStringAddress::make(add_res.first.get_address());
-  }
-
-  template <typename StringType>
-  pstore::raw_sstring_view &append(StringType &&Str) {
-    assert(Strings_.size() + 1 <= Strings_.capacity());
-    Strings_.emplace_back(std::forward<StringType>(Str),
-                          pstore::raw_sstring_view{});
-    auto &back = Strings_.back();
-    back.second =
-        pstore::raw_sstring_view{back.first.data(), back.first.size()};
-    return back.second;
-  }
-
-  std::shared_ptr<pstore::index::name_index> NamesIndex_;
-  pstore::indirect_string_adder Adder_;
-
-  std::vector<std::pair<std::string, pstore::raw_sstring_view>> Strings_;
-};
 
 } // end anonymous namespace
 
@@ -186,9 +142,10 @@ public:
   createFragments(pstore::transaction<pstore::transaction_lock> &Transaction,
                   FragmentCreator &Creator, StringAdder &Strings) {
     for (auto Ctr = 0U; Ctr < Count_; ++Ctr) {
-      auto Name = NamePrefix_ + std::to_string(Ctr);
-      Fragments_.emplace_back(Creator(Transaction, Ctr),
-                              Strings.add(Transaction, std::move(Name)));
+      Fragments_.emplace_back(Creator(Transaction, Ctr, Strings),
+                              Strings.add(Transaction,
+                                          NamePrefix_ + std::to_string(Ctr),
+                                          true /*IsDefinition*/));
       FragmentIndex_->insert(Transaction, std::get<0>(Fragments_.back()));
     }
     return Count_;
@@ -206,13 +163,14 @@ public:
 };
 
 struct Indices {
-  Indices(pstore::database &Db)
+  explicit Indices(pstore::database &Db)
       : Fragments{pstore::index::get_index<pstore::trailer::indices::fragment>(
             Db)},
         Compilations{
             pstore::index::get_index<pstore::trailer::indices::compilation>(
                 Db)},
         Names{pstore::index::get_index<pstore::trailer::indices::name>(Db)} {}
+
   std::shared_ptr<pstore::index::fragment_index> Fragments;
   std::shared_ptr<pstore::index::compilation_index> Compilations;
   std::shared_ptr<pstore::index::name_index> Names;
@@ -314,15 +272,17 @@ int main(int argc, char *argv[]) {
   ExitOnErr(makeAbsolute(OutputDir));
   ExitOnErr(writeConfigFile(OutputDir));
 
-  IStringAddress TicketPath = Strings.add(Transaction, OutputDir);
-  IStringAddress TripleName = Strings.add(Transaction, Triple);
+  IStringAddress TicketPath =
+      Strings.add(Transaction, OutputDir, false /*IsDefinition*/);
+  IStringAddress TripleName = Strings.add(Transaction, Triple, false);
 
   // Create names for the append symbols.
   std::vector<IStringAddress> AppendNames;
   AppendNames.reserve(AppendPerModule);
   for (auto Ctr = 0U; Ctr < AppendPerModule; ++Ctr) {
-    AppendNames.emplace_back(Strings.add(
-        Transaction, std::move(AppendPrefix + std::to_string(Ctr))));
+    AppendNames.emplace_back(
+        Strings.add(Transaction, std::move(AppendPrefix + std::to_string(Ctr)),
+                    true /*IsDefinition*/));
   }
 
   auto const SymbolsPerModule =
@@ -331,18 +291,21 @@ int main(int argc, char *argv[]) {
   auto ExternalCount = 0U;
 
   FragmentCreator BssCreator{
-      DataFibonacci, SectionSize,
+      DataFibonacci, SectionSize, 0U,
       SectionSet{
           (1ULL << static_cast<unsigned>(pstore::repo::section_kind::bss))}};
 
   for (auto ModuleCtr = 0U; ModuleCtr < Modules; ++ModuleCtr) {
     FragmentCreator FCreator{
-        DataFibonacci, SectionSize,
+        DataFibonacci, SectionSize, XFixupSize,
         SectionSet{
             (1ULL << static_cast<unsigned>(pstore::repo::section_kind::text)) |
             (1ULL << static_cast<unsigned>(
                  pstore::repo::section_kind::read_only))}};
 
+    // Create the fragments that are referenced by the link-once and BSS
+    // definitions. These are shared by the individual compilations so are only
+    // created on the first pass throug this loop.
     if (ModuleCtr == 0) {
       FragmentCount +=
           LinkOnceInfo.createFragments(Transaction, FCreator, Strings);
@@ -353,17 +316,27 @@ int main(int argc, char *argv[]) {
     std::vector<pstore::repo::definition> Definitions;
     Definitions.reserve(SymbolsPerModule);
 
+    // Create the per-compilation external definitions along with their (unique)
+    // fragments.
+
     for (auto ExternalCtr = 0U; ExternalCtr < ExternalPerModule;
          ++ExternalCtr) {
-      auto const DigestExtentPair = FCreator(Transaction, FragmentCount++);
+      auto const DigestExtentPair =
+          FCreator(Transaction, FragmentCount++, Strings);
       Definitions.emplace_back(
           DigestExtentPair.first, DigestExtentPair.second,
           Strings.add(Transaction,
-                      ExternalPrefix + std::to_string(ExternalCount++)),
+                      ExternalPrefix + std::to_string(ExternalCount++),
+                      true /*IsDefinition*/),
           pstore::repo::linkage::external);
     }
+
+    // Create the per-compilation 'append' defintions along with their
+    // fragments.
+
     for (auto AppendCtr = 0U; AppendCtr < AppendPerModule; ++AppendCtr) {
-      auto const DigestExtentPair = FCreator(Transaction, FragmentCount++);
+      auto const DigestExtentPair =
+          FCreator(Transaction, FragmentCount++, Strings);
       Definitions.emplace_back(DigestExtentPair.first, DigestExtentPair.second,
                                AppendNames[AppendCtr],
                                pstore::repo::linkage::append);

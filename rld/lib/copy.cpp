@@ -18,8 +18,10 @@
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/ThreadPool.h"
+#include "llvm/Support/Timer.h"
 
 #include <cassert>
+#include <sstream>
 
 using namespace rld;
 
@@ -30,18 +32,20 @@ constexpr auto DebugType = "rld-copy";
 using ExternalFixup = pstore::repo::external_fixup;
 
 template <uint8_t Relocation>
-void apply(uint8_t *Out, Symbol const &Sym, const ExternalFixup &XFixup) {
+void apply(uint8_t * /*Out*/, const Symbol *const /*Sym*/,
+           const ExternalFixup & /*XFixup*/) {
   assert(false && "Relocation is unsupported");
 }
 
 template <>
-inline void apply<llvm::ELF::R_X86_64_NONE>(uint8_t *, Symbol const &,
+inline void apply<llvm::ELF::R_X86_64_NONE>(uint8_t *, const Symbol *,
                                             const ExternalFixup &) {}
 
 template <>
-inline void apply<llvm::ELF::R_X86_64_64>(uint8_t *const Out, Symbol const &Sym,
+inline void apply<llvm::ELF::R_X86_64_64>(uint8_t *const Out,
+                                          const Symbol *const Sym,
                                           const ExternalFixup &XFixup) {
-  const uint64_t S = Sym.value();
+  const auto S = Sym != nullptr ? Sym->value() : UINT64_C(0);
   const int64_t A = XFixup.addend;
   // TODO: range check.
   auto Value = S + A;
@@ -50,9 +54,9 @@ inline void apply<llvm::ELF::R_X86_64_64>(uint8_t *const Out, Symbol const &Sym,
 
 template <>
 inline void apply<llvm::ELF::R_X86_64_32S>(uint8_t *const Out,
-                                           Symbol const &Sym,
+                                           const Symbol *const Sym,
                                            const ExternalFixup &XFixup) {
-  const uint64_t S = Sym.value();
+  const auto S = Sym != nullptr ? Sym->value() : UINT64_C(0);
   const int64_t A = XFixup.addend;
   // TODO: range check.
   const auto Value = S + A;
@@ -61,7 +65,7 @@ inline void apply<llvm::ELF::R_X86_64_32S>(uint8_t *const Out,
 
 template <>
 inline void apply<llvm::ELF::R_X86_64_PLT32>(uint8_t *const Out,
-                                             Symbol const &Sym,
+                                             const Symbol *const Sym,
                                              const ExternalFixup &XFixup) {}
 
 } // end anonymous namespace
@@ -85,7 +89,9 @@ static void copySection(Context &Ctxt, Contribution const &Contribution,
       Ctxt.shadow() + Contribution.XfxShadow.absolute());
   for (ExternalFixup const &XFixup : Section->xfixups()) {
     Symbol const *const Sym = XfxSymbol->load();
-    assert(Sym != nullptr);
+    assert((Sym != nullptr ||
+            XFixup.strength() == pstore::repo::reference_strength::weak) &&
+           "An xfixup symbol may only be unresolved if the reference is weak");
 
     llvmDebug(DebugType, Ctxt.IOMut, [&]() {
       llvm::dbgs() << "  xfx type:" << static_cast<unsigned>(XFixup.type)
@@ -96,7 +102,7 @@ static void copySection(Context &Ctxt, Contribution const &Contribution,
     switch (XFixup.type) {
 #define ELF_RELOC(Name, Value)                                                 \
   case llvm::ELF::Name:                                                        \
-    apply<llvm::ELF::Name>(Dest + XFixup.offset, *Sym, XFixup);                \
+    apply<llvm::ELF::Name>(Dest + XFixup.offset, Sym, XFixup);                 \
     break;
 #include "llvm/BinaryFormat/ELFRelocs/x86_64.def"
 #undef ELF_RELOC
@@ -144,6 +150,13 @@ void copyToOutput(
            "No layout position for a section with contributions");
     Workers.async(
         [SectionK, &Ctxt, Data, &Contributions](uint64_t Start) {
+          std::ostringstream NameOS;
+          NameOS << SectionK; // TODO: just need an array of names!
+
+          llvm::NamedRegionTimer CopyTimer("Copy", NameOS.str(),
+                                           rld::TimerGroupName,
+                                           rld::TimerGroupDescription);
+
           for (Contribution const &Contribution : Contributions) {
             llvmDebug(DebugType, Ctxt.IOMut,
                       [SectionK]() { llvm::dbgs() << SectionK << ": "; });

@@ -43,7 +43,7 @@ public:
   constexpr IntegerType operator*() const { return Constant_; }
   constexpr ConstGenerator &operator++() { return *this; }
   constexpr ConstGenerator operator++(int) {
-    ConstGenerator old = *this;
+    const ConstGenerator old = *this;
     ++(*this);
     return old;
   }
@@ -63,18 +63,30 @@ static void addSectionToHash(HashFunction *const Hash,
   hashNumber(*Hash, Section.data.size());
   Hash->update(llvm::makeArrayRef(Section.data.data(), Section.data.size()));
   hashNumber(*Hash, Section.ifixups.size());
-  // FIXME: hash the fixups (once we generate them).
-  // Hash.update (section.ifixups);
+  for (const auto &Ifx : Section.ifixups) {
+    hashNumber(*Hash, Ifx.section);
+    hashNumber(*Hash, Ifx.type);
+    hashNumber(*Hash, Ifx.offset);
+    hashNumber(*Hash, Ifx.addend);
+  }
   hashNumber(*Hash, Section.xfixups.size());
-  // Hash.update (section.xfixups);
+  for (const auto &Xfx : Section.xfixups) {
+    hashNumber(*Hash, Xfx.name.absolute());
+    hashNumber(*Hash, Xfx.type);
+    hashNumber(*Hash, Xfx.is_weak);
+    hashNumber(*Hash, Xfx.offset);
+    hashNumber(*Hash, Xfx.addend);
+  }
 }
 
 // ctor
 // ~~~~
 FragmentCreator::FragmentCreator(bool DataFibonacci, unsigned SectionSize,
+                                 unsigned XFixupSize,
                                  SectionSet const &Sections)
     : DataFibonacci_{DataFibonacci}, SectionSize_{SectionSize},
-      Sections_{Sections}, Dispatchers_{createDispatchers(Sections)} {}
+      XFixupSize_{XFixupSize}, Sections_{Sections},
+      Dispatchers_{createDispatchers(Sections)} {}
 
 // create dispatcher [static]
 // ~~~~~~~~~~~~~~~~~
@@ -149,20 +161,21 @@ auto FragmentCreator::createDispatchers(const SectionSet &Sections)
 
 // operator ()
 // ~~~~~~~~~~~
-auto FragmentCreator::operator()(Transaction &T, size_t const Count)
+auto FragmentCreator::operator()(pstore::transaction_base &T,
+                                 const size_t Count, const StringAdder &Strings)
     -> FragmentIndexValueType {
   if (DataFibonacci_) {
-    return create(T, Fib_, Count);
+    return create(T, Fib_, Count, Strings);
   }
-  return create(T, ConstGenerator<size_t>{Count}, Count);
+  return create(T, ConstGenerator<size_t>{Count}, Count, Strings);
 }
 
 // create
 // ~~~~~~
 template <typename Generator>
-auto FragmentCreator::create(Transaction &T, Generator &&G, size_t const Count)
+auto FragmentCreator::create(pstore::transaction_base &T, Generator &&G,
+                             const size_t Count, const StringAdder &Strings)
     -> FragmentIndexValueType {
-
   HashFunction FragmentHash;
   hashNumber(FragmentHash, Count);
   hashNumber(FragmentHash, Sections_.size());
@@ -175,7 +188,7 @@ auto FragmentCreator::create(Transaction &T, Generator &&G, size_t const Count)
       assert(Dispatchers_[Index] != nullptr);
       auto const Kind = static_cast<pstore::repo::section_kind>(Bit);
 
-      Contents.emplace_back(generateDataSection(G, Kind, Count));
+      Contents.emplace_back(generateDataSection(G, Kind, Count, Strings));
       auto const &Content = Contents.back();
 
 #define X(x)                                                                   \
@@ -197,16 +210,19 @@ auto FragmentCreator::create(Transaction &T, Generator &&G, size_t const Count)
     }
   }
 
-  auto const First = pstore::make_pointee_adaptor(Dispatchers_.begin());
-  auto const Last = pstore::make_pointee_adaptor(Dispatchers_.end());
-  return std::make_pair(FragmentHash.finalize(), pstore::repo::fragment::alloc(T, First, Last));
+  return std::make_pair(FragmentHash.finalize(),
+                        pstore::repo::fragment::alloc(
+                            T,
+                            pstore::make_pointee_adaptor(Dispatchers_.begin()),
+                            pstore::make_pointee_adaptor(Dispatchers_.end())));
 }
 
 // generate data section
 // ~~~~~~~~~~~~~~~~~~~~~
 template <typename Generator>
 pstore::repo::section_content FragmentCreator::generateDataSection(
-    Generator &G, const pstore::repo::section_kind Kind, const size_t Count) {
+    Generator &G, const pstore::repo::section_kind Kind, const size_t Count,
+    const StringAdder &Strings) {
   pstore::repo::section_content DataSection{Kind,
                                             std::uint8_t{8} /*alignment*/};
   if (Kind == pstore::repo::section_kind::bss) {
@@ -216,13 +232,22 @@ pstore::repo::section_content FragmentCreator::generateDataSection(
 
   DataSection.data.reserve(SectionSize_ * 4U);
   for (auto Ctr = 0U; Ctr < SectionSize_; ++Ctr) {
-    auto V = *G;
+    const auto V = *G;
     ++G;
-
     DataSection.data.emplace_back((V >> 24) & 0xFF);
     DataSection.data.emplace_back((V >> 16) & 0xFF);
     DataSection.data.emplace_back((V >> 8) & 0xFF);
     DataSection.data.emplace_back((V >> 0) & 0xFF);
+  }
+
+  for (auto Ctr = 0U; Ctr < XFixupSize_; ++Ctr) {
+    DataSection.xfixups.emplace_back(
+        Strings.pick(*G), pstore::repo::relocation_type{1}, // TODO: R_X86_64_64
+        pstore::repo::reference_strength::strong,
+        UINT64_C(0), // offset
+        INT64_C(0)   // addend
+    );
+    ++G;
   }
   return DataSection;
 }

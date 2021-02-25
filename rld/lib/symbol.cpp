@@ -68,12 +68,18 @@ constexpr bool isAnyOf(Enum v) noexcept {
 } // end anonymous namespace
 
 namespace rld {
-
+//*  ___            _         _  *
+//* / __|_  _ _ __ | |__  ___| | *
+//* \__ \ || | '  \| '_ \/ _ \ | *
+//* |___/\_, |_|_|_|_.__/\___/_| *
+//*      |__/                    *
+//-MARK: Symbol
 // value
 // ~~~~~
 uint64_t Symbol::value() const {
-  assert(Contribution_ != nullptr && Contribution_->OScn != nullptr);
-  return Contribution_->OScn->VirtualAddr + Contribution_->Offset;
+  const Contribution *const C = Contribution_.load();
+  assert(C != nullptr && C->OScn != nullptr);
+  return C->OScn->VirtualAddr + C->Offset;
 }
 
 // replace if lower ordinal
@@ -110,7 +116,10 @@ inline auto Symbol::defineImpl(const std::lock_guard<SpinLock> & /*Lock*/,
   Definition_.emplace(llvm::SmallVector<Body, 1>{
       {Body{&Def, pstore::repo::fragment::load(Db, Def.fext), Def.fext.addr,
             InputOrdinal}}});
-  Undefs->remove(this); // remove this symbol from the undef list.
+  // Remove this symbol from the undef list.
+  Undefs->remove(this, WeakReference_
+                           ? pstore::repo::reference_strength::weak
+                           : pstore::repo::reference_strength::strong);
   return this;
 }
 
@@ -370,20 +379,20 @@ void debugDumpSymbols(Context const &Ctx,
 //* | (_ | / _ \ '_ \/ _` | (_-<__ \  _/ _ \ '_/ _` / _` / -_) *
 //*  \___|_\___/_.__/\__,_|_/__/___/\__\___/_| \__,_\__, \___| *
 //*                                                 |___/      *
-
+//-MARK: GlobalsStorage
 // get thread symbols
 // ~~~~~~~~~~~~~~~~~~
 NotNull<GlobalSymbolsContainer *> GlobalsStorage::getThreadSymbols() {
   static thread_local char tls = 0;
   auto *const ptr = &tls;
-  std::unique_lock<std::mutex> const _{Mut_};
+  std::lock_guard<std::mutex> const _{Mut_};
   return &SymbolMemory_.try_emplace(ptr).first->second;
 }
 
 // all
 // ~~~
 rld::GlobalSymbolsContainer GlobalsStorage::all() {
-  std::unique_lock<std::mutex> const _{Mut_};
+  std::lock_guard<std::mutex> const _{Mut_};
   rld::GlobalSymbolsContainer Result;
   for (auto &&CM : SymbolMemory_) {
     Result.splice(std::move(CM.second));
@@ -397,23 +406,36 @@ rld::GlobalSymbolsContainer GlobalsStorage::all() {
 //* \__ \ || | '  \| '_ \/ _ \ | |   / -_|_-</ _ \ \ V / -_) '_| *
 //* |___/\_, |_|_|_|_.__/\___/_| |_|_\___/__/\___/_|\_/\___|_|   *
 //*      |__/                                                    *
-
-// add undefined
+//-MARK: SymbolResolver
+// add undefined [static]
 // ~~~~~~~~~~~~~
-auto SymbolResolver::addUndefined(
-    NotNull<GlobalSymbolsContainer *> const Globals,
-    NotNull<UndefsContainer *> const Undefs, StringAddress const Name)
-    -> Symbol * {
-  Symbol *const Sym = &Globals->emplace_back(Name);
-  Undefs->insert(Sym);
+Symbol *
+SymbolResolver::addUndefined(NotNull<GlobalSymbolsContainer *> const Globals,
+                             NotNull<UndefsContainer *> const Undefs,
+                             StringAddress const Name,
+                             pstore::repo::reference_strength Strength) {
+  Symbol *const Sym = &Globals->emplace_back(Name, Strength);
+  Undefs->insert(Sym, Strength);
+  return Sym;
+}
+
+// add reference [static]
+// ~~~~~~~~~~~~~
+Symbol *SymbolResolver::addReference(
+    NotNull<Symbol *> Sym, NotNull<GlobalSymbolsContainer *> Globals,
+    NotNull<UndefsContainer *> Undefs, StringAddress Name,
+    pstore::repo::reference_strength Strength) {
+  if (Sym->addReference(Strength)) {
+    Undefs->strongReference(Sym);
+  }
   return Sym;
 }
 
 // add
 // ~~~
-auto SymbolResolver::add(NotNull<GlobalSymbolsContainer *> const Globals,
-                         pstore::repo::definition const &Def,
-                         uint32_t InputOrdinal) -> Symbol * {
+Symbol *SymbolResolver::add(NotNull<GlobalSymbolsContainer *> const Globals,
+                            pstore::repo::definition const &Def,
+                            uint32_t InputOrdinal) {
   return &Globals->emplace_back(
       Def.name,
       Symbol::Body(&Def, pstore::repo::fragment::load(Context_.Db, Def.fext),
@@ -484,10 +506,11 @@ SymbolResolver::defineSymbol(NotNull<GlobalSymbolsContainer *> const Globals,
 
 // reference symbol
 // ~~~~~~~~~~~~~~~~
-Symbol *referenceSymbol(Context &Ctx, StringAddress Name,
-                        LocalSymbolsContainer const &Locals,
+Symbol *referenceSymbol(Context &Ctxt, LocalSymbolsContainer const &Locals,
                         NotNull<GlobalSymbolsContainer *> const Globals,
-                        NotNull<UndefsContainer *> const Undefs) {
+                        NotNull<UndefsContainer *> const Undefs,
+                        StringAddress Name,
+                        pstore::repo::reference_strength Strength) {
 
   // Do we have a local definition for this symbol?
   auto const NamePos = Locals.find(Name);
@@ -497,14 +520,16 @@ Symbol *referenceSymbol(Context &Ctx, StringAddress Name,
   }
 
   return setSymbolShadow(
-      shadowPointer(Ctx, Name),
+      shadowPointer(Ctxt, Name),
       [&]() {
         // Called for a reference to a (thus far) undefined symbol.
-        return SymbolResolver::addUndefined(Globals, Undefs, Name);
+        return SymbolResolver::addUndefined(Globals, Undefs, Name, Strength);
       },
-      [](Symbol *const Sym) {
-        // Called if we see a reference to a fully defined symbol. Use it.
-        return Sym;
+      [&](Symbol *const Sym) {
+        // Called if we see a reference to a symbol already in the symbol table.
+        // Use it.
+        return SymbolResolver::addReference(Sym, Globals, Undefs, Name,
+                                            Strength);
       });
 }
 

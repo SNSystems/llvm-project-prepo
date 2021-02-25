@@ -329,6 +329,7 @@ int main(int Argc, char *Argv[]) {
     auto const NumCompilations = InputPaths.size();
 #endif
     if (NumCompilations > std::numeric_limits<uint32_t>::max()) {
+      std::lock_guard<decltype(Ctxt.IOMut)> Lock{Ctxt.IOMut};
       llvm::errs() << "Error: Too many input files\n";
       std::exit(EXIT_FAILURE);
     }
@@ -360,8 +361,25 @@ int main(int Argc, char *Argv[]) {
 
       WorkPool.wait();
 
+      if (Undefs.strongUndefCount() > 0U) {
+        // TODO: show the user some useful output!
+        std::lock_guard<decltype(Ctxt.IOMut)> Lock{Ctxt.IOMut};
+        for (auto const &U : Undefs) {
+          assert(!U.hasDefinition());
+          if (!U.allReferencesAreWeak()) {
+            pstore::shared_sstring_view Owner;
+            llvm::errs() << "Undefined symbol: "
+                         << stringViewAsRef(
+                                loadString(Ctxt.Db, U.name(), &Owner))
+                         << '\n';
+          }
+        }
+        return EXIT_FAILURE;
+      }
+
       Triple = Ctxt.triple();
       if (!Triple) {
+        std::lock_guard<decltype(Ctxt.IOMut)> Lock{Ctxt.IOMut};
         llvm::errs() << "Error: The output triple could not be determined.\n";
         return EXIT_FAILURE;
       }
@@ -369,6 +387,7 @@ int main(int Argc, char *Argv[]) {
       auto const FixedCompilationExtent =
           generateFixedContent(Ctxt.Db, *Triple);
       if (!FixedCompilationExtent) {
+        std::lock_guard<decltype(Ctxt.IOMut)> Lock{Ctxt.IOMut};
         llvm::errs() << "Error: " << FixedCompilationExtent.getError().message()
                      << '\n';
         return EXIT_FAILURE;

@@ -23,9 +23,9 @@ set(LLVM_LINK_COMPONENTS
 
 add_llvm_tool (rld-gen
   gen.cpp
-  fibonacci.hpp
   hash.h
   FragmentCreator.cpp
+  StringAdder.cpp
 )
 target_link_libraries (rld-gen PRIVATE pstore-core pstore-mcrepo)
 target_link_libraries (rld-gen PRIVATE xxHash::xxhash)
