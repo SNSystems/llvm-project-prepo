@@ -280,7 +280,6 @@ static llvm::ErrorOr<std::unique_ptr<pstore::database>> openRepository() {
 
 using namespace rld;
 
-
 int main(int Argc, char *Argv[]) {
   llvm::cl::ParseCommandLineOptions(Argc, Argv);
 

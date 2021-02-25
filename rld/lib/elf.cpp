@@ -187,6 +187,13 @@ auto rld::elf::emitProgramHeaders(
       return;
     }
 
+    uint64_t SegmentDataOffset = SegmentDataOffsets[Kind].getValueOr(0U);
+    if (Segment.HasOutputSections) {
+        SegmentDataOffset += TargetDataRegion.offset(); // FIXME: we can't do this here. Some segments lie outside of the file's "data" region.
+        assert(SegmentDataOffset >= TargetDataRegion.offset() &&
+            SegmentDataOffset + Segment.FileSize < TargetDataRegion.end());
+    }
+
     Phdr->p_type = elfSegmentKind<ELFT>(Kind);
     Phdr->p_flags = elfSegmentFlags<ELFT>(Kind);
     Phdr->p_vaddr = hasPhysicalAddress(Kind) ? Segment.VirtualAddr : 0;
