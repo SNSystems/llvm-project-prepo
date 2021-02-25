@@ -54,7 +54,7 @@ public:
     Value() = default;
     Value(std::uint64_t NameOffset_, bool IsWeak_,
           llvm::Optional<SymbolTarget> Target_)
-        : NameOffset{NameOffset_}, IsWeak{IsWeak_}, Target{std::move(Target_)} {
+        : NameOffset{NameOffset_}, Target{std::move(Target_)}, IsWeak{IsWeak_} {
     }
 
     pstore::repo::linkage linkage() const {
@@ -69,8 +69,9 @@ public:
     /// True if this symbol type is ELF::STT_TLS, otherwise is false.
     bool IsTLS = false; // FIXME: two bools are unnessary because a symbol
                         // cannot be both TLS and common.
+    /// True if this is a 'common' symbol.
     bool IsCommon = false;
-
+    /// True if this symbol has weak binding.
     bool IsWeak = false;
 
     std::uint64_t Index = llvm::ELF::STN_UNDEF;
