@@ -55,49 +55,49 @@ private:
 
 class Symbol;
 
-//*               _      __                 _        _               *
-//*  _  _ _ _  __| |___ / _|___  __ ___ _ _| |_ __ _(_)_ _  ___ _ _  *
-//* | || | ' \/ _` / -_)  _(_-< / _/ _ \ ' \  _/ _` | | ' \/ -_) '_| *
-//*  \_,_|_||_\__,_\___|_| /__/ \__\___/_||_\__\__,_|_|_||_\___|_|   *
-//*                                                                  *
+//*  _   _         _      __       ___         _        _               *
+//* | | | |_ _  __| |___ / _|___  / __|___ _ _| |_ __ _(_)_ _  ___ _ _  *
+//* | |_| | ' \/ _` / -_)  _(_-< | (__/ _ \ ' \  _/ _` | | ' \/ -_) '_| *
+//*  \___/|_||_\__,_\___|_| /__/  \___\___/_||_\__\__,_|_|_||_\___|_|   *
+//*                                                                     *
 //-MARK: UndefsContainer
 class UndefsContainer {
 public:
+  UndefsContainer() : StrongUndefCount_{0U} {}
+
   using Container = llvm::simple_ilist<Symbol>;
 
-  bool empty_() const {
+  bool empty() const {
     std::lock_guard<std::mutex> const Lock{Mut_};
     return List_.empty();
   }
-  // The total number of undefined symbols. Note that this includes those
-  // symbols that are weakly referenced.
+  // \returns The total number of undefined symbols. Note that this includes
+  //   those symbols that are weakly referenced.
   size_t size() const {
     std::lock_guard<std::mutex> const Lock{Mut_};
     return List_.size();
   }
-  // The number of undefined symbols not including those that are only
-  // weakly referenced.
-  size_t strongUndefCount() const {
-    std::lock_guard<std::mutex> const Lock{Mut_};
-    assert(StrongUndefCount_ <= List_.size());
-    return StrongUndefCount_;
-  }
-  void remove(Symbol *Sym, pstore::repo::reference_strength Strength);
-  Symbol *insert(Symbol *Sym, pstore::repo::reference_strength Strength);
+  /// \returns  The number of undefined symbols not including those that are
+  ///   only weakly referenced.
+  size_t strongUndefCount() const { return StrongUndefCount_.load(); }
+  /// Call when we encounter a strong reference to an existing undefined symbol
+  /// that was previously weakly referenced.
+  void addStrongUndef() { ++StrongUndefCount_; }
 
-  void strongReference(Symbol *Sym) {
-    std::lock_guard<std::mutex> const Lock{Mut_};
-    // assert that Sym is in the list somewhere?
-    ++StrongUndefCount_;
-    assert(StrongUndefCount_ <= List_.size());
-  }
+  void remove(Symbol *Sym, pstore::repo::reference_strength Strength);
+  Symbol *insert(Symbol *Sym);
 
   Container::const_iterator begin() const { return List_.begin(); }
   Container::const_iterator end() const { return List_.end(); }
 
+  /// A debugging aid which returns true if the cached count of strongly
+  /// undefined symbols agrees with the contents of the undefined symbols list.
+  bool strongUndefCountIsCorrect() const;
+
 private:
+  std::atomic<size_t> StrongUndefCount_;
+
   mutable std::mutex Mut_;
-  unsigned StrongUndefCount_ = 0U;
   Container List_;
 };
 
@@ -149,14 +149,14 @@ public:
   /// the creation of this symbol.
   explicit Symbol(StringAddress N, pstore::repo::reference_strength Strength)
       : Name_{N.absolute()},
-        WeakReference_{Strength == pstore::repo::reference_strength::weak},
+        WeakUndefined_{Strength == pstore::repo::reference_strength::weak},
         Contribution_{nullptr} {
     assert(name() == N &&
            N.absolute() < (UINT64_C(1) << StringAddress::total_bits));
   }
 
   Symbol(StringAddress N, Body &&Definition)
-      : Name_{N.absolute()}, WeakReference_{false}, Contribution_{nullptr},
+      : Name_{N.absolute()}, WeakUndefined_{false}, Contribution_{nullptr},
         Definition_{llvm::SmallVector<Body, 1>{std::move(Definition)}} {
     assert(name() == N &&
            N.absolute() < (UINT64_C(1) << StringAddress::total_bits));
@@ -200,17 +200,18 @@ public:
   /// Records a reference from an external fixup.
   ///
   /// \param Strength  The strength of the reference (weak/strong).
-  /// \returns True if the resulting symbol is strongly referenced and
-  /// undefined.
-  bool addReference(pstore::repo::reference_strength Strength) {
-    std::lock_guard<Mutex> Lock{Mut_};
-    WeakReference_ =
-        WeakReference_ && Strength == pstore::repo::reference_strength::weak;
-    return !WeakReference_ && !Definition_.hasValue();
-  }
+  /// \returns True if the resulting symbol was previously only weakly
+  ///   referenced, is now strongly referenced and undefined.
+  bool addReference(pstore::repo::reference_strength Strength);
+
+  /// \returns True if the symbol is undefined and all references to it are
+  /// weak.
   bool allReferencesAreWeak() const {
     std::lock_guard<Mutex> Lock{Mut_};
-    return WeakReference_;
+    assert(!WeakUndefined_ ||
+           !Definition_.hasValue() &&
+               "A weakly undefined symbol must not have a definition");
+    return WeakUndefined_;
   }
 
   /// Process the definition of a symbol with append linkage that "collides"
@@ -305,7 +306,7 @@ private:
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
   /// \returns this.
-  Symbol *replaceIfLowerOrdinal(const std::lock_guard<Mutex> &Lock,
+  Symbol *replaceIfLowerOrdinal(const std::unique_lock<Mutex> &Lock,
                                 const pstore::database &Db,
                                 const pstore::repo::definition &Def,
                                 uint32_t InputOrdinal);
@@ -320,8 +321,7 @@ private:
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
   /// \returns this.
-  Symbol *defineImpl(const std::lock_guard<Mutex> &Lock,
-                     const pstore::database &Db,
+  Symbol *defineImpl(std::unique_lock<Mutex> &&Lock, const pstore::database &Db,
                      const pstore::repo::definition &Def,
                      const NotNull<UndefsContainer *> Undefs,
                      uint32_t InputOrdinal);
@@ -332,10 +332,10 @@ private:
   /// \param Db  The containing database.
   /// \param Def  The new definition.
   /// \param InputOrdinal  The command-line index of the defining ticket file.
-  /// Used to impose an order on the symbol definitions that is not related to
-  /// the order in which the files are scanned.
+  ///   Used to impose an order on the symbol definitions that is not related to
+  ///   the order in which the files are scanned.
   /// \returns this.
-  Symbol *replaceImpl(const std::lock_guard<Mutex> &Lock,
+  Symbol *replaceImpl(const std::unique_lock<Mutex> &Lock,
                       const pstore::database &Db,
                       const pstore::repo::definition &Def,
                       uint32_t InputOrdinal);
@@ -346,12 +346,12 @@ private:
   /// \param Db  The containing database.
   /// \param Def  The new definition.
   /// \param InputOrdinal  The command-line index of the defining ticket file.
-  /// Used to impose an order on the symbol definitions that is not related to
-  /// the order in which the files are scanned.
+  ///   Used to impose an order on the symbol definitions that is not related to
+  ///   the order in which the files are scanned.
   /// \param Fragment  The symbol's fragment. This is the data that is
-  /// associated with the symbol.
+  ///   associated with the symbol.
   /// \returns this.
-  Symbol *replaceImpl(const std::lock_guard<Mutex> &Lock,
+  Symbol *replaceImpl(const std::unique_lock<Mutex> &Lock,
                       const pstore::database &Db,
                       const pstore::repo::definition &Def,
                       uint32_t InputOrdinal, const FragmentPtr &Fragment);
@@ -361,8 +361,9 @@ private:
   mutable Mutex Mut_; // TODO: is this really better than std::mutex?
   /// The StringAddress representing the name of this symbol.
   std::uint64_t Name_ : StringAddress::total_bits;
-  /// Was this symbol defined as the result of encountering a weak reference?
-  std::uint64_t WeakReference_ : 1;
+  /// Was this symbol instance created as the result of encountering a weak
+  /// reference? This will always be false if the symbol is defined.
+  std::uint64_t WeakUndefined_ : 1;
 
   /// The output contribution produced by this symbol. Set during layout.
   std::atomic<Contribution *> Contribution_;
@@ -387,6 +388,20 @@ inline void Symbol::setName(StringAddress N) {
   Name_ = NAbs;
 }
 
+// add reference
+// ~~~~~~~~~~~~~
+inline bool Symbol::addReference(pstore::repo::reference_strength Strength) {
+  std::lock_guard<Mutex> Lock{Mut_};
+  const bool WasWeak = WeakUndefined_;
+  // If the symbol is weakly undefined, we must not have a definition.
+  assert(!WasWeak ||
+         !Definition_.hasValue() &&
+             "A weakly undefined symbol must not have a definition");
+  WeakUndefined_ =
+      WasWeak && Strength == pstore::repo::reference_strength::weak;
+  return WasWeak && !WeakUndefined_;
+}
+
 //*  _   _         _      __       ___         _        _               *
 //* | | | |_ _  __| |___ / _|___  / __|___ _ _| |_ __ _(_)_ _  ___ _ _  *
 //* | |_| | ' \/ _` / -_)  _(_-< | (__/ _ \ ' \  _/ _` | | ' \/ -_) '_| *
@@ -397,20 +412,19 @@ inline void Symbol::setName(StringAddress N) {
 // ~~~~~~
 inline void UndefsContainer::remove(Symbol *const Sym,
                                     pstore::repo::reference_strength Strength) {
-  std::lock_guard<std::mutex> const Lock{Mut_};
-  List_.remove(*Sym); // remove this symbol from the undef list.
   if (Strength != pstore::repo::reference_strength::weak) {
+    assert(StrongUndefCount_ > 0U);
     --StrongUndefCount_;
   }
+  std::lock_guard<std::mutex> const Lock{Mut_};
+  List_.remove(*Sym); // remove this symbol from the undef list.
 }
 
 // insert
 // ~~~~~~
-inline Symbol *
-UndefsContainer::insert(Symbol *const Sym,
-                        pstore::repo::reference_strength Strength) {
+inline Symbol *UndefsContainer::insert(Symbol *const Sym) {
   std::lock_guard<std::mutex> const Lock{Mut_};
-  if (Strength != pstore::repo::reference_strength::weak) {
+  if (!Sym->allReferencesAreWeak()) {
     ++StrongUndefCount_;
   }
   List_.push_back(*Sym); // add this symbol to the undef list.

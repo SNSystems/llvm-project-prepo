@@ -113,8 +113,9 @@ TEST_F(XfxScannerTest, Empty) {
   constexpr auto InputOrdinal = uint32_t{0};
   bool Ok = resolveXfixups(Context_, Locals, &Globals_, &Undefs_, InputOrdinal);
   EXPECT_TRUE(Ok);
-  EXPECT_TRUE(Undefs_.empty_());
+  EXPECT_TRUE(Undefs_.empty());
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U);
+  EXPECT_TRUE(Undefs_.strongUndefCountIsCorrect());
   EXPECT_TRUE(Locals.empty());
   EXPECT_TRUE(Globals_.empty());
 }
@@ -140,6 +141,7 @@ TEST_F(XfxScannerTest, StrongRefToUndefined) {
   EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
   EXPECT_EQ(Undefs_.strongUndefCount(), 1U)
       << "There should be 1 strong-undefined symbol";
+  EXPECT_TRUE(Undefs_.strongUndefCountIsCorrect());
   EXPECT_EQ(Globals_.size(), 2U)
       << "Expected 2 globals: the definition and the undef";
   EXPECT_EQ(Locals->size(), 1U)
@@ -179,6 +181,7 @@ TEST_F(XfxScannerTest, WeakRefToUndefined) {
   EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U)
       << "There should be no strong-undefined symbols";
+  EXPECT_TRUE(Undefs_.strongUndefCountIsCorrect());
   EXPECT_EQ(Globals_.size(), 2U)
       << "Expected 2 globals: the definition and the undef";
   EXPECT_EQ(Locals->size(), 1U)
@@ -223,6 +226,7 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
   EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U)
       << "There should be no strong-undefined symbols";
+  EXPECT_TRUE(Undefs_.strongUndefCountIsCorrect());
   EXPECT_EQ(Globals_.size(), 2U)
       << "Expected 2 globals: the definition (f) and the undef (x)";
 
@@ -246,6 +250,7 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
   EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
   EXPECT_EQ(Undefs_.strongUndefCount(), 1U)
       << "There should be 1 strong-undefined symbol";
+  EXPECT_TRUE(Undefs_.strongUndefCountIsCorrect());
   EXPECT_EQ(Globals_.size(), 3U)
       << "Expected 3 globals: the two definitions (f,g) and the undef (x)";
 }
@@ -267,8 +272,9 @@ TEST_F(XfxScannerTest, StrongRefToExternalDef) {
       resolveXfixups(Context_, *Locals, &Globals_, &Undefs_, InputOrdinal);
   EXPECT_TRUE(Ok);
 
-  EXPECT_TRUE(Undefs_.empty_());
+  EXPECT_TRUE(Undefs_.empty());
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U);
+  EXPECT_TRUE(Undefs_.strongUndefCountIsCorrect());
   EXPECT_EQ(Globals_.size(), 1U);
   EXPECT_EQ(Locals->size(), 1U)
       << "The compilation should have a single definition";
@@ -300,8 +306,9 @@ TEST_F(XfxScannerTest, RefToAppendDef) {
   EXPECT_TRUE(
       resolveXfixups(Context_, *L1, &Globals_, &Undefs_, InputOrdinal1));
 
-  EXPECT_TRUE(Undefs_.empty_());
+  EXPECT_TRUE(Undefs_.empty());
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U);
+  EXPECT_TRUE(Undefs_.strongUndefCountIsCorrect());
   EXPECT_EQ(Globals_.size(), 1U);
   EXPECT_EQ(L0->size(), 1U)
       << "Locals for Compilation 0 should have a single definition";

@@ -84,11 +84,11 @@ uint64_t Symbol::value() const {
 
 // replace if lower ordinal
 // ~~~~~~~~~~~~~~~~~~~~~~~~
-inline auto
-Symbol::replaceIfLowerOrdinal(const std::lock_guard<SpinLock> & /*Lock*/,
-                              const pstore::database &Db,
-                              const pstore::repo::definition &Def,
-                              const uint32_t InputOrdinal) -> Symbol * {
+inline Symbol *Symbol::replaceIfLowerOrdinal(
+    const std::unique_lock<SpinLock> &Lock, const pstore::database &Db,
+    const pstore::repo::definition &Def, const uint32_t InputOrdinal) {
+  (void)Lock;
+  assert(Lock.owns_lock());
   assert(Definition_ && Definition_->size() == 1U &&
          Definition_->front().inputOrdinal() != InputOrdinal);
   if (InputOrdinal < Definition_->front().inputOrdinal()) {
@@ -106,18 +106,27 @@ Symbol::replaceIfLowerOrdinal(const std::lock_guard<SpinLock> & /*Lock*/,
 
 // define impl
 // ~~~~~~~~~~~
-inline auto Symbol::defineImpl(const std::lock_guard<SpinLock> & /*Lock*/,
+inline auto Symbol::defineImpl(std::unique_lock<SpinLock> &&Lock,
                                const pstore::database &Db,
                                const pstore::repo::definition &Def,
                                const NotNull<UndefsContainer *> Undefs,
                                const uint32_t InputOrdinal) -> Symbol * {
+  (void)Lock;
+  assert(Lock.owns_lock());
   assert(!Definition_ &&
          "defineImpl was called for a symbol which is already defined");
   Definition_.emplace(llvm::SmallVector<Body, 1>{
       {Body{&Def, pstore::repo::fragment::load(Db, Def.fext), Def.fext.addr,
             InputOrdinal}}});
+
+  const bool WasWeakUndefined = WeakUndefined_;
+  // A weakly undefined sybol must not have a definition so here we ensure that
+  // this symbol is not tagged as weakly undefined.
+  WeakUndefined_ = false;
+  Lock.unlock();
+
   // Remove this symbol from the undef list.
-  Undefs->remove(this, WeakReference_
+  Undefs->remove(this, WasWeakUndefined
                            ? pstore::repo::reference_strength::weak
                            : pstore::repo::reference_strength::strong);
   return this;
@@ -125,11 +134,13 @@ inline auto Symbol::defineImpl(const std::lock_guard<SpinLock> & /*Lock*/,
 
 // replace impl
 // ~~~~~~~~~~~~
-inline auto Symbol::replaceImpl(const std::lock_guard<SpinLock> & /*Lock*/,
+inline auto Symbol::replaceImpl(const std::unique_lock<SpinLock> &Lock,
                                 const pstore::database &Db,
                                 const pstore::repo::definition &Def,
                                 const uint32_t InputOrdinal,
                                 const FragmentPtr &Fragment) -> Symbol * {
+  (void)Lock;
+  assert(Lock.owns_lock());
   assert(Definition_ &&
          "If we're replacing a definition, then we must already have one.");
   Definition_.emplace(llvm::SmallVector<Body, 1>{
@@ -137,7 +148,7 @@ inline auto Symbol::replaceImpl(const std::lock_guard<SpinLock> & /*Lock*/,
   return this;
 }
 
-inline auto Symbol::replaceImpl(const std::lock_guard<SpinLock> &Lock,
+inline auto Symbol::replaceImpl(const std::unique_lock<SpinLock> &Lock,
                                 const pstore::database &Db,
                                 const pstore::repo::definition &Def,
                                 const uint32_t InputOrdinal) -> Symbol * {
@@ -153,10 +164,10 @@ auto Symbol::updateAppendSymbol(const pstore::database &Db,
                                 const uint32_t InputOrdinal) -> Symbol * {
   assert(Def.linkage() == linkage::append);
 
-  std::lock_guard<decltype(Mut_)> const Lock{Mut_};
+  std::unique_lock<decltype(Mut_)> Lock{Mut_};
   // If we don't have a definition, create one.
   if (!Definition_) {
-    return this->defineImpl(Lock, Db, Def, Undefs, InputOrdinal);
+    return this->defineImpl(std::move(Lock), Db, Def, Undefs, InputOrdinal);
   }
 
   // Add this symbol to the existing sorted vector for this symbol.
@@ -210,11 +221,11 @@ auto Symbol::updateExternalSymbol(const pstore::database &Db,
                                   const uint32_t InputOrdinal) -> Symbol * {
   assert(Def.linkage() == linkage::external);
 
-  std::lock_guard<decltype(Mut_)> const Lock{Mut_};
+  std::unique_lock<decltype(Mut_)> Lock{Mut_};
 
   // Do we have a definition of the symbol? If not make one.
   if (!Definition_) {
-    return this->defineImpl(Lock, Db, Def, Undefs, InputOrdinal);
+    return this->defineImpl(std::move(Lock), Db, Def, Undefs, InputOrdinal);
   }
 
   // We've already got a definition for this symbol and we're not
@@ -236,9 +247,9 @@ auto Symbol::updateCommonSymbol(pstore::database const &Db,
                                 uint32_t InputOrdinal) -> Symbol * {
   assert(Def.linkage() == linkage::common);
 
-  std::lock_guard<decltype(Mut_)> const Lock{Mut_};
+  std::unique_lock<decltype(Mut_)> Lock{Mut_};
   if (!Definition_) {
-    return this->defineImpl(Lock, Db, Def, Undefs, InputOrdinal);
+    return this->defineImpl(std::move(Lock), Db, Def, Undefs, InputOrdinal);
   }
   // If we have already have an external definition of this symbol, we
   // just use it,
@@ -287,9 +298,9 @@ auto Symbol::updateLinkOnceSymbol(pstore::database const &Db,
   assert(Def.linkage() == linkage::link_once_any ||
          Def.linkage() == linkage::link_once_odr);
 
-  std::lock_guard<decltype(Mut_)> const Lock{Mut_};
+  std::unique_lock<decltype(Mut_)> Lock{Mut_};
   if (!Definition_) {
-    return this->defineImpl(Lock, Db, Def, Undefs, InputOrdinal);
+    return this->defineImpl(std::move(Lock), Db, Def, Undefs, InputOrdinal);
   }
   assert(Definition_->size() == 1);
   // Link-once may collide with link-once, but nothing else.
@@ -314,9 +325,9 @@ auto Symbol::updateWeakSymbol(pstore::database const &Db,
   assert(Def.linkage() == linkage::weak_any ||
          Def.linkage() == linkage::weak_odr);
 
-  std::lock_guard<decltype(Mut_)> const Lock{Mut_};
+  std::unique_lock<decltype(Mut_)> Lock{Mut_};
   if (!Definition_) {
-    return this->defineImpl(Lock, Db, Def, Undefs, InputOrdinal);
+    return this->defineImpl(std::move(Lock), Db, Def, Undefs, InputOrdinal);
   }
   assert(Definition_->size() == 1U &&
          "The should be exactly 1 weak symbol definition");
@@ -401,6 +412,20 @@ rld::GlobalSymbolsContainer GlobalsStorage::all() {
   return Result;
 }
 
+//*  _   _         _      __       ___         _        _               *
+//* | | | |_ _  __| |___ / _|___  / __|___ _ _| |_ __ _(_)_ _  ___ _ _  *
+//* | |_| | ' \/ _` / -_)  _(_-< | (__/ _ \ ' \  _/ _` | | ' \/ -_) '_| *
+//*  \___/|_||_\__,_\___|_| /__/  \___\___/_||_\__\__,_|_|_||_\___|_|   *
+//*                                                                     *
+//-MARK: UndefsContainer
+bool UndefsContainer::strongUndefCountIsCorrect() const {
+  return std::accumulate(std::begin(List_), std::end(List_), 0UL,
+                         [](const unsigned long Acc, const Symbol &S) {
+                           return Acc + static_cast<unsigned long>(
+                                            !S.allReferencesAreWeak());
+                         }) == StrongUndefCount_;
+}
+
 //*  ___            _         _   ___             _              *
 //* / __|_  _ _ __ | |__  ___| | | _ \___ ___ ___| |_ _____ _ _  *
 //* \__ \ || | '  \| '_ \/ _ \ | |   / -_|_-</ _ \ \ V / -_) '_| *
@@ -415,7 +440,7 @@ SymbolResolver::addUndefined(NotNull<GlobalSymbolsContainer *> const Globals,
                              StringAddress const Name,
                              pstore::repo::reference_strength Strength) {
   Symbol *const Sym = &Globals->emplace_back(Name, Strength);
-  Undefs->insert(Sym, Strength);
+  Undefs->insert(Sym);
   return Sym;
 }
 
@@ -425,8 +450,9 @@ Symbol *SymbolResolver::addReference(
     NotNull<Symbol *> Sym, NotNull<GlobalSymbolsContainer *> Globals,
     NotNull<UndefsContainer *> Undefs, StringAddress Name,
     pstore::repo::reference_strength Strength) {
+
   if (Sym->addReference(Strength)) {
-    Undefs->strongReference(Sym);
+    Undefs->addStrongUndef();
   }
   return Sym;
 }
@@ -527,7 +553,6 @@ Symbol *referenceSymbol(Context &Ctxt, LocalSymbolsContainer const &Locals,
       },
       [&](Symbol *const Sym) {
         // Called if we see a reference to a symbol already in the symbol table.
-        // Use it.
         return SymbolResolver::addReference(Sym, Globals, Undefs, Name,
                                             Strength);
       });
