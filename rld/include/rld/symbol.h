@@ -82,7 +82,11 @@ public:
   size_t strongUndefCount() const { return StrongUndefCount_.load(); }
   /// Call when we encounter a strong reference to an existing undefined symbol
   /// that was previously weakly referenced.
-  void addStrongUndef() { ++StrongUndefCount_; }
+  void addStrongUndef() {
+    auto const Prev = StrongUndefCount_++;
+    (void)Prev;
+    assert(Prev < std::numeric_limits<decltype(Prev)>::max());
+  }
 
   void remove(Symbol *Sym, pstore::repo::reference_strength Strength);
   Symbol *insert(Symbol *Sym);
@@ -413,8 +417,9 @@ inline bool Symbol::addReference(pstore::repo::reference_strength Strength) {
 inline void UndefsContainer::remove(Symbol *const Sym,
                                     pstore::repo::reference_strength Strength) {
   if (Strength != pstore::repo::reference_strength::weak) {
-    assert(StrongUndefCount_ > 0U);
-    --StrongUndefCount_;
+    auto const Prev = StrongUndefCount_--;
+    (void)Prev;
+    assert(Prev > 0U);
   }
   std::lock_guard<std::mutex> const Lock{Mut_};
   List_.remove(*Sym); // remove this symbol from the undef list.
@@ -425,7 +430,7 @@ inline void UndefsContainer::remove(Symbol *const Sym,
 inline Symbol *UndefsContainer::insert(Symbol *const Sym) {
   std::lock_guard<std::mutex> const Lock{Mut_};
   if (!Sym->allReferencesAreWeak()) {
-    ++StrongUndefCount_;
+    this->addStrongUndef();
   }
   List_.push_back(*Sym); // add this symbol to the undef list.
   return Sym;
