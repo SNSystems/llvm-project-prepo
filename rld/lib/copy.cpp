@@ -25,16 +25,14 @@
 
 using namespace rld;
 
-namespace {
-
-constexpr auto DebugType = "rld-copy";
+static constexpr auto DebugType = "rld-copy";
 
 using ExternalFixup = pstore::repo::external_fixup;
 
 template <uint8_t Relocation>
-void apply(uint8_t * /*Out*/, const Symbol *const /*Sym*/,
-           const ExternalFixup & /*XFixup*/) {
-  assert(false && "Relocation is unsupported");
+static void apply(uint8_t * /*Out*/, const Symbol *const /*Sym*/,
+                  const ExternalFixup & /*XFixup*/) {
+  llvm_unreachable("Relocation type is unsupported");
 }
 
 template <>
@@ -68,7 +66,6 @@ inline void apply<llvm::ELF::R_X86_64_PLT32>(uint8_t *const Out,
                                              const Symbol *const Sym,
                                              const ExternalFixup &XFixup) {}
 
-} // end anonymous namespace
 
 template <pstore::repo::section_kind SKind,
           typename SType = typename pstore::repo::enum_to_section<SKind>::type>
@@ -132,6 +129,23 @@ void copySection<pstore::repo::section_kind::linked_definitions>(
   // discard
 }
 
+#define X(K)                                                                   \
+  case SectionKind::K:                                                         \
+    return "Copy " #K;
+#define RLD_X(a) X(a)
+static constexpr char const *jobName(const SectionKind SectionK) {
+  switch (SectionK) {
+    PSTORE_MCREPO_SECTION_KINDS
+    RLD_SECTION_KINDS
+  default:
+    llvm_unreachable("Unknown section kind");
+    break;
+  }
+  return nullptr;
+}
+#undef RLD_X
+#undef X
+
 namespace rld {
 
 void copyToOutput(
@@ -149,14 +163,10 @@ void copyToOutput(
     assert(SectionFileOffsets[SectionK].hasValue() &&
            "No layout position for a section with contributions");
     Workers.async(
-        [SectionK, &Ctxt, Data, &Contributions](uint64_t Start) {
-          std::ostringstream NameOS;
-          NameOS << SectionK; // TODO: just need an array of names!
-
-          llvm::NamedRegionTimer CopyTimer("Copy", NameOS.str(),
+        [SectionK, &Ctxt, Data, &Contributions](const uint64_t Start) {
+          llvm::NamedRegionTimer CopyTimer(jobName(SectionK), "Copy section",
                                            rld::TimerGroupName,
                                            rld::TimerGroupDescription);
-
           for (Contribution const &Contribution : Contributions) {
             llvmDebug(DebugType, Ctxt.IOMut,
                       [SectionK]() { llvm::dbgs() << SectionK << ": "; });
