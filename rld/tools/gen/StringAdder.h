@@ -1,3 +1,17 @@
+//===- tools/gen/StringAdder.h ----------------------------*- mode: C++ -*-===//
+//*  ____  _        _                  _       _     _            *
+//* / ___|| |_ _ __(_)_ __   __ _     / \   __| | __| | ___ _ __  *
+//* \___ \| __| '__| | '_ \ / _` |   / _ \ / _` |/ _` |/ _ \ '__| *
+//*  ___) | |_| |  | | | | | (_| |  / ___ \ (_| | (_| |  __/ |    *
+//* |____/ \__|_|  |_|_| |_|\__, | /_/   \_\__,_|\__,_|\___|_|    *
+//*                         |___/                                 *
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
 #ifndef RLD_GEN_STRING_ADDER_H
 #define RLD_GEN_STRING_ADDER_H
 

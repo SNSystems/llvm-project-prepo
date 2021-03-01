@@ -1,10 +1,11 @@
+//===- include/rld/elf.h ----------------------------------*- mode: C++ -*-===//
 //*       _  __  *
 //*   ___| |/ _| *
 //*  / _ \ | |_  *
 //* |  __/ |  _| *
 //*  \___|_|_|   *
 //*              *
-//===- include/rld/elf.h --------------------------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.

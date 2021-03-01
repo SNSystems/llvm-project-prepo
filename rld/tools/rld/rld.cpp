@@ -1,10 +1,11 @@
+//===- tools/rld/rld.cpp --------------------------------------------------===//
 //*       _     _  *
 //*  _ __| | __| | *
 //* | '__| |/ _` | *
 //* | |  | | (_| | *
 //* |_|  |_|\__,_| *
 //*                *
-//===- tools/rld/rld.cpp --------------------------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
