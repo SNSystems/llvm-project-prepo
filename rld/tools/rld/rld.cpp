@@ -281,6 +281,14 @@ static llvm::ErrorOr<std::unique_ptr<pstore::database>> openRepository() {
 
 using namespace rld;
 
+llvm::raw_ostream &
+operator<<(llvm::raw_ostream &OS,
+           std::pair<pstore::database const &, StringAddress> const &SA) {
+  pstore::shared_sstring_view Owner;
+  return OS << stringViewAsRef(
+             loadString(std::get<0>(SA), std::get<1>(SA), &Owner));
+}
+
 int main(int Argc, char *Argv[]) {
   llvm::cl::ParseCommandLineOptions(Argc, Argv);
 
@@ -338,6 +346,7 @@ int main(int Argc, char *Argv[]) {
     std::thread LayoutThread{&rld::LayoutBuilder::run, &Layout};
 
     llvm::Optional<llvm::Triple> Triple;
+    int ExitCode = EXIT_SUCCESS;
 
     {
       llvm::NamedRegionTimer ScanTimer("Scan", "Input file scanning",
@@ -362,45 +371,54 @@ int main(int Argc, char *Argv[]) {
       WorkPool.wait();
 
       if (Undefs.strongUndefCount() > 0U) {
-        // TODO: show the user some useful output!
         std::lock_guard<decltype(Ctxt.IOMut)> Lock{Ctxt.IOMut};
         for (auto const &U : Undefs) {
           assert(!U.hasDefinition());
           if (!U.allReferencesAreWeak()) {
-            pstore::shared_sstring_view Owner;
+            // TODO: also need to show where the reference is made.
             llvm::errs() << "Undefined symbol: "
-                         << stringViewAsRef(
-                                loadString(Ctxt.Db, U.name(), &Owner))
+                         << std::make_pair(std::cref(Ctxt.Db), U.name())
                          << '\n';
           }
         }
-        return EXIT_FAILURE;
+        // FIXME: need a means of cancelling the layout thread.
+        ExitCode = EXIT_FAILURE;
       }
 
-      Triple = Ctxt.triple();
-      if (!Triple) {
-        std::lock_guard<decltype(Ctxt.IOMut)> Lock{Ctxt.IOMut};
-        llvm::errs() << "Error: The output triple could not be determined.\n";
-        return EXIT_FAILURE;
+      if (ExitCode == EXIT_SUCCESS) {
+        Triple = Ctxt.triple();
+        if (!Triple) {
+          std::lock_guard<decltype(Ctxt.IOMut)> Lock{Ctxt.IOMut};
+          llvm::errs() << "Error: The output triple could not be determined.\n";
+          // FIXME: need a means of cancelling the layout thread.
+          ExitCode = EXIT_FAILURE;
+        }
       }
+
 #if ADD_IDENT_SEGMENT
-      auto const FixedCompilationExtent =
-          generateFixedContent(Ctxt.Db, *Triple);
-      if (!FixedCompilationExtent) {
-        std::lock_guard<decltype(Ctxt.IOMut)> Lock{Ctxt.IOMut};
-        llvm::errs() << "Error: " << FixedCompilationExtent.getError().message()
-                     << '\n';
-        return EXIT_FAILURE;
+      if (ExitCode == EXIT_SUCCESS) {
+        auto const FixedCompilationExtent =
+            generateFixedContent(Ctxt.Db, *Triple);
+        if (!FixedCompilationExtent) {
+          std::lock_guard<decltype(Ctxt.IOMut)> Lock{Ctxt.IOMut};
+          llvm::errs() << "Error: "
+                       << FixedCompilationExtent.getError().message() << '\n';
+          return EXIT_FAILURE;
+        }
+        Scan.run("/ident/", // path
+                 GlobalSymbs->getThreadSymbols(),
+                 *FixedCompilationExtent,        // compilation extent
+                 Identified->Compilations.size() // input ordinal
+        );
       }
-      Scan.run("/ident/", // path
-               GlobalSymbs->getThreadSymbols(),
-               *FixedCompilationExtent,        // compilation extent
-               Identified->Compilations.size() // input ordinal
-      );
 #endif
     }
     LayoutThread.join();
     LO = Layout.flattenSegments();
+
+    if (ExitCode != EXIT_SUCCESS) {
+      return ExitCode;
+    }
   }
 
   rld::llvmDebug(DebugType, Ctxt.IOMut, [&Ctxt] {
