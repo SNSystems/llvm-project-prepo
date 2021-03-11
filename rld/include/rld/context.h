@@ -93,10 +93,12 @@ class SymbolTable;
 
 class Context {
 public:
-  explicit Context(pstore::database &D);
+  explicit Context(pstore::database &D, llvm::StringRef EntryPoint);
 
   std::uint8_t *shadow() noexcept { return ShadowDb_.get(); }
   const std::uint8_t *shadow() const noexcept { return ShadowDb_.get(); }
+
+  const llvm::StringRef entryPoint() const { return EntryPoint_; }
 
   auto mergeTriple(pstore::repo::compilation const &Compilation)
       -> llvm::ErrorOr<llvm::Triple>;
@@ -120,6 +122,7 @@ private:
   using ShadowPtr = std::unique_ptr<std::uint8_t, MmapDeleter>;
   ShadowPtr createShadowMemory(std::size_t Size);
 
+  const llvm::StringRef EntryPoint_;
   ShadowPtr ShadowDb_;
 
   mutable std::mutex TripleMut_;

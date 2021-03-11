@@ -33,6 +33,8 @@
 #include "StringAdder.h"
 #include "fibonacci.h"
 
+#include <bitset>
+
 constexpr auto MaxSection =
     static_cast<size_t>(pstore::repo::section_kind::last);
 using SectionSet = std::bitset<MaxSection>;

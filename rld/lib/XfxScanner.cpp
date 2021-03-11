@@ -55,11 +55,14 @@ void resolve(State &S, FragmentAddress FAddr,
     llvmDebug(DebugType, S.Ctxt.IOMut, [&]() {
       llvm::dbgs() << "-> " << loadStdString(S.Ctxt.Db, Xfx.name) << '\n';
     });
-    std::atomic<Symbol *> *const Shadow = shadowPointer(S.Ctxt, ShadowXfx++);
-    assert(Shadow != nullptr && *Shadow == nullptr);
-    Symbol *const R = referenceSymbol(S.Ctxt, S.Locals, S.Globals, S.Undefs,
-                                      Xfx.name, Xfx.strength());
-    Shadow->store(R); // TODO: get the ordering right for this atomic write.
+    std::atomic<Symbol *> *const Shadow = symbolShadow(S.Ctxt, ShadowXfx++);
+    assert(Shadow != nullptr && "No shadow memory for an xfixup!");
+    assert(Shadow->load(std::memory_order_acquire) == nullptr &&
+           "An xfixup has already been resolved");
+    // TODO: get the ordering right for this atomic write.
+    Shadow->store(referenceSymbol(S.Ctxt, S.Locals, S.Globals, S.Undefs,
+                                  Xfx.name, Xfx.strength()),
+                  std::memory_order_release);
   }
 }
 
@@ -90,25 +93,53 @@ bool rld::resolveXfixups(Context &Context, LocalSymbolsContainer const &Locals,
     });
 
     auto BodiesAndLock = Sym->definition();
-    llvm::Optional<Symbol::BodyContainer> const &Bodies =
+    llvm::Optional<Symbol::BodyContainer> const &OptionalBodies =
         std::get<Symbol::DefinitionIndex>(BodiesAndLock);
 
-    assert(Bodies.hasValue() && "All local symbol definition must have a body");
-    assert((Bodies->size() == 1U ||
-            (Bodies->size() >= 1U &&
-             Bodies->front().linkage() == pstore::repo::linkage::append)) &&
+    assert(OptionalBodies.hasValue() &&
+           "All local symbol definition must have a body");
+    auto const &Bodies = OptionalBodies.getValue();
+    assert((Bodies.size() == 1U ||
+            (Bodies.size() >= 1U &&
+             Bodies.front().linkage() == pstore::repo::linkage::append)) &&
            "A symbol must have 1 body unless it has append linkage");
 
-    for (Symbol::Body const &Def : *Bodies) {
-      // If this symbol body came from a different compilation then skip it.
-      // TODO: the bodies are ordered so we can find the one that we should be
-      // processing with a search.
-      if (Def.inputOrdinal() != InputOrdinal) {
-        continue;
-      }
-      const std::shared_ptr<const pstore::repo::fragment> &Fragment =
-          Def.fragment();
-      for (pstore::repo::section_kind Kind : *Fragment) {
+    const auto BodiesEnd = std::end(Bodies);
+
+    assert(std::is_sorted(std::begin(Bodies), BodiesEnd,
+                          [](Symbol::Body const &A, Symbol::Body const &B) {
+                            return A.inputOrdinal() < B.inputOrdinal();
+                          }) &&
+           "Symbol bodies must be sorted by input ordinal");
+    assert(std::adjacent_find(std::begin(Bodies), BodiesEnd,
+                              [](Symbol::Body const &A, Symbol::Body const &B) {
+                                return A.inputOrdinal() == B.inputOrdinal();
+                              }) == BodiesEnd &&
+           "Symbol body input ordinals must be unique");
+
+    // Find the symbol body that is associated with this compilation.
+    const auto Pos =
+        std::lower_bound(std::begin(Bodies), BodiesEnd, InputOrdinal,
+                         [](Symbol::Body const &A, uint32_t Ord) {
+                           return A.inputOrdinal() < Ord;
+                         });
+    if (Pos == BodiesEnd) {
+      return true;
+    }
+
+    Symbol::Body const &Def = *Pos;
+    assert(Def.inputOrdinal() == InputOrdinal);
+
+    const std::shared_ptr<const pstore::repo::fragment> &Fragment =
+        Def.fragment();
+    auto *const IsDone = reinterpret_cast<std::atomic<bool> *>(
+        S.Ctxt.shadow() + Def.fragmentAddress().absolute());
+    bool Expected = false;
+    if (!IsDone->compare_exchange_strong(Expected, true)) {
+      return true;
+    }
+
+    for (const pstore::repo::section_kind Kind : *Fragment) {
 #define X(a)                                                                   \
   case pstore::repo::section_kind::a:                                          \
     resolve<pstore::repo::section_kind::a>(S, Def.fragmentAddress(),           \
@@ -122,7 +153,6 @@ bool rld::resolveXfixups(Context &Context, LocalSymbolsContainer const &Locals,
           break;
         }
 #undef X
-      }
     }
   }
 

@@ -61,7 +61,8 @@ namespace {
 
 class XfxScannerTest : public testing::Test, public EmptyStore {
 public:
-  XfxScannerTest() : Context_{this->Db()}, CompilationBuilder_{this->Db()} {}
+  XfxScannerTest()
+      : Context_{this->Db(), "_start"}, CompilationBuilder_{this->Db()} {}
 
 protected:
   using CompilationPtr = std::shared_ptr<pstore::repo::compilation const>;

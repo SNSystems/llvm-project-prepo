@@ -63,24 +63,7 @@
                     "mergeable_1_byte_c_string":{
                         "data":"SGVsbG8sIHdvcmxkLgoA"
                     }
-                }
-            },
-            "compilations":{
-                "008fecf0ccab0c7a71a5672579eaca1e":{
-                    "path":6, //"/path"
-                    "triple":0, //"x86_64-pc-linux-gnu-repo"
-                    "definitions":[
-                        {"digest":"f9bb578a7abfc702dc7fa54f7b4af05f","name":5,"linkage":"external"}, //"ultimate_answer"
-                        {"digest":"96ded9543181a34d8d1427698348ad1d","name":1,"linkage":"external"}, //"main"
-                        {"digest":"d86ded26b9f6811fe38f8a5812db1dc9","name":4,"linkage":"internal_no_symbol"}, //".str"
-                        {"digest":"1ce0ffb3c3f3440bbdcfd26e4d66dc24","name":3,"linkage":"internal_no_symbol"} //".str.1"
-                    ]
-                }
-            }
-        },
-        {
-            // generation 2
-            "fragments":{
+                },
                 "024badfa2effcb85e10be56851688097":{
                     "text":{
                         "align":16,
@@ -102,6 +85,16 @@
                 }
             },
             "compilations":{
+                "008fecf0ccab0c7a71a5672579eaca1e":{
+                    "path":6, //"/path"
+                    "triple":0, //"x86_64-pc-linux-gnu-repo"
+                    "definitions":[
+                        {"digest":"f9bb578a7abfc702dc7fa54f7b4af05f","name":5,"linkage":"external"}, //"ultimate_answer"
+                        {"digest":"96ded9543181a34d8d1427698348ad1d","name":1,"linkage":"external"}, //"main"
+                        {"digest":"d86ded26b9f6811fe38f8a5812db1dc9","name":4,"linkage":"internal_no_symbol"}, //".str"
+                        {"digest":"1ce0ffb3c3f3440bbdcfd26e4d66dc24","name":3,"linkage":"internal_no_symbol"} //".str.1"
+                    ]
+                },
                 "6c951506a8c75884774cd5d4507740cd":{
                     "path":6, //"/path"
                     "triple":0, //"x86_64-pc-linux-gnu-repo"

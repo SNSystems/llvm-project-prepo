@@ -213,9 +213,8 @@ public:
   /// weak.
   bool allReferencesAreWeak() const {
     std::lock_guard<Mutex> Lock{Mut_};
-    assert(!WeakUndefined_ ||
-           !Definition_.hasValue() &&
-               "A weakly undefined symbol must not have a definition");
+    assert((!WeakUndefined_ || !Definition_.hasValue()) &&
+           "A weakly undefined symbol must not have a definition");
     return WeakUndefined_;
   }
 
@@ -399,9 +398,8 @@ inline bool Symbol::addReference(pstore::repo::reference_strength Strength) {
   std::lock_guard<Mutex> Lock{Mut_};
   const bool WasWeak = WeakUndefined_;
   // If the symbol is weakly undefined, we must not have a definition.
-  assert(!WasWeak ||
-         !Definition_.hasValue() &&
-             "A weakly undefined symbol must not have a definition");
+  assert((!WasWeak || !Definition_.hasValue()) &&
+         "A weakly undefined symbol must not have a definition");
   WeakUndefined_ =
       WasWeak && Strength == pstore::repo::reference_strength::weak;
   return WasWeak && !WeakUndefined_;
@@ -442,11 +440,11 @@ inline Symbol *UndefsContainer::insert(Symbol *const Sym) {
 //* \__ \ ' \/ _` / _` / _ \ V  V / |  _/ _ \ | ' \  _/ -_) '_(_-< *
 //* |___/_||_\__,_\__,_\___/\_/\_/  |_| \___/_|_||_\__\___|_| /__/ *
 //*                                                                *
-// shadow pointer
-// ~~~~~~~~~~~~~~
+// symbol shadow
+// ~~~~~~~~~~~~~
 template <typename T>
-inline std::atomic<Symbol *> *shadowPointer(Context &Ctx,
-                                            pstore::typed_address<T> Addr) {
+inline std::atomic<Symbol *> *symbolShadow(Context &Ctx,
+                                           pstore::typed_address<T> Addr) {
   assert(Addr.absolute() % alignof(std::atomic<Symbol *>) == 0);
   return reinterpret_cast<std::atomic<Symbol *> *>(Ctx.shadow() +
                                                    Addr.absolute());
@@ -454,7 +452,7 @@ inline std::atomic<Symbol *> *shadowPointer(Context &Ctx,
 
 template <typename T>
 inline const std::atomic<const Symbol *> *
-shadowPointer(const Context &Ctx, pstore::typed_address<T> Addr) {
+symbolShadow(const Context &Ctx, pstore::typed_address<T> Addr) {
   assert(Addr.absolute() % alignof(std::atomic<Symbol *>) == 0);
   return reinterpret_cast<const std::atomic<Symbol const *> *>(Ctx.shadow() +
                                                                Addr.absolute());
@@ -575,10 +573,10 @@ public:
   /// \param Strength  Is this symbol table entry being created as the
   ///   result of a weak reference?
   /// \returns  The newly created symbol.
-  static Symbol *addUndefined(NotNull<GlobalSymbolsContainer *> Globals,
-                              NotNull<UndefsContainer *> Undefs,
-                              StringAddress Name,
-                              pstore::repo::reference_strength Strength);
+  static NotNull<Symbol *>
+  addUndefined(NotNull<GlobalSymbolsContainer *> Globals,
+               NotNull<UndefsContainer *> Undefs, StringAddress Name,
+               pstore::repo::reference_strength Strength);
 
   /// Records a reference to a symbol.
   ///
@@ -588,11 +586,10 @@ public:
   /// \param Name  The name of the symbol being referenced.
   /// \param Strength  Is this a weak or strong reference to the symbol?
   /// \returns  The referenced symbol.
-  static Symbol *addReference(NotNull<Symbol *> Sym,
-                              NotNull<GlobalSymbolsContainer *> Globals,
-                              NotNull<UndefsContainer *> Undefs,
-                              StringAddress Name,
-                              pstore::repo::reference_strength Strength);
+  static NotNull<Symbol *>
+  addReference(NotNull<Symbol *> Sym, NotNull<GlobalSymbolsContainer *> Globals,
+               NotNull<UndefsContainer *> Undefs, StringAddress Name,
+               pstore::repo::reference_strength Strength);
 
 private:
   Symbol *defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
@@ -643,18 +640,19 @@ SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
 ///
 /// \param Ctxt  The global linking context.
 /// \param Locals  The collection of symbols defined by the compilation being
-/// processed.
+///   processed.
 /// \param Globals  The container which holds defined and undefined
-/// symbols.
+///   symbols.
 /// \param Undefs  The global collection of undefined symbols.
 /// \param Name  The name of the symbol being created.
 /// \param Strength  The strength of the reference (weak/strong) that caused
-/// the creation of this symbol.
-Symbol *referenceSymbol(Context &Ctxt, LocalSymbolsContainer const &Locals,
-                        NotNull<GlobalSymbolsContainer *> const Globals,
-                        NotNull<UndefsContainer *> const Undefs,
-                        StringAddress Name,
-                        pstore::repo::reference_strength Strength);
+///   the creation of this symbol.
+/// \return  A pointer to the referenced symbol.
+NotNull<Symbol *>
+referenceSymbol(Context &Ctxt, LocalSymbolsContainer const &Locals,
+                NotNull<GlobalSymbolsContainer *> const Globals,
+                NotNull<UndefsContainer *> const Undefs, StringAddress Name,
+                pstore::repo::reference_strength Strength);
 
 } // end namespace rld
 #endif // RLD_SYMBOL_H

@@ -435,7 +435,7 @@ bool UndefsContainer::strongUndefCountIsCorrect() const {
 //-MARK: SymbolResolver
 // add undefined [static]
 // ~~~~~~~~~~~~~
-Symbol *
+NotNull<Symbol *>
 SymbolResolver::addUndefined(NotNull<GlobalSymbolsContainer *> const Globals,
                              NotNull<UndefsContainer *> const Undefs,
                              StringAddress const Name,
@@ -447,7 +447,7 @@ SymbolResolver::addUndefined(NotNull<GlobalSymbolsContainer *> const Globals,
 
 // add reference [static]
 // ~~~~~~~~~~~~~
-Symbol *SymbolResolver::addReference(
+NotNull<Symbol *> SymbolResolver::addReference(
     NotNull<Symbol *> Sym, NotNull<GlobalSymbolsContainer *> Globals,
     NotNull<UndefsContainer *> Undefs, StringAddress Name,
     pstore::repo::reference_strength Strength) {
@@ -484,26 +484,26 @@ SymbolResolver::defineSymbol(NotNull<GlobalSymbolsContainer *> const Globals,
                  << '\n';
   });
 
-  // Defines a symbol whose body is the supplied fragment.
+  // Create a new symbol with definition 'Def'.
   auto AddSymbol = [&]() { return this->add(Globals, Def, InputOrdinal); };
 
   switch (Def.linkage()) {
   case linkage::append:
-    return setSymbolShadow(shadowPointer(Context_, Def.name), AddSymbol,
+    return setSymbolShadow(symbolShadow(Context_, Def.name), AddSymbol,
                            [&](Symbol *const Sym) {
                              return Sym->updateAppendSymbol(
                                  Context_.Db, Def, Undefs, InputOrdinal);
                            });
 
   case linkage::common:
-    return setSymbolShadow(shadowPointer(Context_, Def.name), AddSymbol,
+    return setSymbolShadow(symbolShadow(Context_, Def.name), AddSymbol,
                            [&](Symbol *const Sym) {
                              return Sym->updateCommonSymbol(
                                  Context_.Db, Def, Undefs, InputOrdinal);
                            });
 
   case linkage::external:
-    return setSymbolShadow(shadowPointer(Context_, Def.name), AddSymbol,
+    return setSymbolShadow(symbolShadow(Context_, Def.name), AddSymbol,
                            [&](Symbol *const Sym) {
                              return Sym->updateExternalSymbol(
                                  Context_.Db, Def, Undefs, InputOrdinal);
@@ -515,7 +515,7 @@ SymbolResolver::defineSymbol(NotNull<GlobalSymbolsContainer *> const Globals,
 
   case linkage::link_once_any:
   case linkage::link_once_odr:
-    return setSymbolShadow(shadowPointer(Context_, Def.name), AddSymbol,
+    return setSymbolShadow(symbolShadow(Context_, Def.name), AddSymbol,
                            [&](Symbol *const Sym) {
                              return Sym->updateLinkOnceSymbol(
                                  Context_.Db, Def, Undefs, InputOrdinal);
@@ -524,7 +524,7 @@ SymbolResolver::defineSymbol(NotNull<GlobalSymbolsContainer *> const Globals,
   case linkage::weak_any:
   case linkage::weak_odr:
     return setSymbolShadow(
-        shadowPointer(Context_, Def.name), AddSymbol, [&](Symbol *const Sym) {
+        symbolShadow(Context_, Def.name), AddSymbol, [&](Symbol *const Sym) {
           return Sym->updateWeakSymbol(Context_.Db, Def, Undefs, InputOrdinal);
         });
   }
@@ -533,11 +533,11 @@ SymbolResolver::defineSymbol(NotNull<GlobalSymbolsContainer *> const Globals,
 
 // reference symbol
 // ~~~~~~~~~~~~~~~~
-Symbol *referenceSymbol(Context &Ctxt, LocalSymbolsContainer const &Locals,
-                        NotNull<GlobalSymbolsContainer *> const Globals,
-                        NotNull<UndefsContainer *> const Undefs,
-                        StringAddress Name,
-                        pstore::repo::reference_strength Strength) {
+NotNull<Symbol *>
+referenceSymbol(Context &Ctxt, LocalSymbolsContainer const &Locals,
+                NotNull<GlobalSymbolsContainer *> const Globals,
+                NotNull<UndefsContainer *> const Undefs, StringAddress Name,
+                pstore::repo::reference_strength Strength) {
 
   // Do we have a local definition for this symbol?
   auto const NamePos = Locals.find(Name);
@@ -547,7 +547,7 @@ Symbol *referenceSymbol(Context &Ctxt, LocalSymbolsContainer const &Locals,
   }
 
   return setSymbolShadow(
-      shadowPointer(Ctxt, Name),
+      symbolShadow(Ctxt, Name),
       [&]() {
         // Called for a reference to a (thus far) undefined symbol.
         return SymbolResolver::addUndefined(Globals, Undefs, Name, Strength);

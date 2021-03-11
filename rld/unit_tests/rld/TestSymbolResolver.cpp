@@ -111,7 +111,7 @@ void SymbolScanner::checkFragmentContents(
 class SingleSymbol : public SymbolScanner,
                      public testing::WithParamInterface<linkage> {
 public:
-  SingleSymbol() : Ctx_{this->Db()}, Resolver_{Ctx_} {}
+  SingleSymbol() : Ctx_{this->Db(), "_start"}, Resolver_{Ctx_} {}
 
 protected:
   rld::Context Ctx_;
@@ -190,7 +190,7 @@ namespace {
 
 class TwoSymbols : public SymbolScanner {
 public:
-  TwoSymbols() : Ctx_{this->Db()}, Resolver_{Ctx_} {}
+  TwoSymbols() : Ctx_{this->Db(), "_start"}, Resolver_{Ctx_} {}
 
 protected:
   using ReturnType = llvm::Optional<rld::LocalSymbolsContainer>;

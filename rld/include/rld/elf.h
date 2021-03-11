@@ -379,17 +379,16 @@ elfSectionNameAndLength(rld::SectionKind SKind) {
 #undef X
 
 template <typename ELFT>
-auto emitProgramHeaders(typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr,
-                        Context &Ctxt, const rld::FileRegion &TargetDataRegion,
-                        const rld::Layout &Lout,
-                        const rld::SegmentIndexedArray<llvm::Optional<uint64_t>>
-                            &SegmentDataOffsets) ->
-    typename llvm::object::ELFFile<ELFT>::Elf_Phdr *;
+auto emitProgramHeaders(
+    typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr, Context &Ctxt,
+    const rld::FileRegion &TargetDataRegion, const rld::Layout &Lout,
+    const rld::SegmentIndexedArray<llvm::Optional<int64_t>> &SegmentDataOffsets)
+    -> typename llvm::object::ELFFile<ELFT>::Elf_Phdr *;
 
 template <typename ELFT>
 auto emitSectionHeaders(
     typename llvm::object::ELFFile<ELFT>::Elf_Shdr *Shdr, const Layout &Lout,
-    const SectionArray<llvm::Optional<uint64_t>> &SectionFileOffsets,
+    const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t>
         &NameOffsets,
     uint64_t TargetDataOffset) ->

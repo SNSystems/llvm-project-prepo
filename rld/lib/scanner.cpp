@@ -83,7 +83,6 @@ void Scanner::run(
   bool Error = !Locals.hasValue();
   if (!Error) {
     assert(Locals->size() == Compilation.size());
-    //    XfxScanner FixupScanner{Context_, Undefs_};
     Error =
         resolveXfixups(Context_, *Locals, GlobalSymbols, Undefs_, InputOrdinal);
   }

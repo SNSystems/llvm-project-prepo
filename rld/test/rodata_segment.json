@@ -1,0 +1,58 @@
+// The 'read_only' section sorts after the 'mergeable_1_byte_c_string' section even though
+// they both contribute to the RODATA segment. This test uses a 16 byte aligned contribution to the
+// read-only section to verify that we correctly compute the size of the RODATA segment after
+// allowing for the necesssary 15 bytes of padding between the contributions.
+
+// RUN: rm -rf %t && mkdir -p %t
+// RUN: pstore-import %t/db.db %s
+// RUN: repo-create-ticket --repo %t/db.db -o %t/ta.o b24bcc617ea04e1ebb049c7d9474b207
+// RUN: repo-create-ticket --repo %t/db.db -o %t/tb.o 179954423c360b6469069364ba86e7af
+// RUN: rld --repo=%t/db.db --workers=1 -o %t/rld.out %t/ta.o %t/tb.o
+// RUN: llvm-readelf --program-headers %t/rld.out | FileCheck %s
+
+// Note that the size of the RODATA segment shown here is bloated because the code does not yet
+// understand that it should allow for the ELF header/PHDRS rather than placing data on a new
+// VM page.
+
+// CHECK:      Program Headers:
+// CHECK-NEXT: Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
+// CHECK-NEXT: PHDR           0x000040 0x0000000000200040 0x0000000000200040 0x0000a8 0x0000a8 R   0x1
+// CHECK-NEXT: LOAD           0x000000 0x0000000000200000 0x0000000000200000 0x001012 0x001012 R   0x1000
+
+{
+  "version":1,
+  "id":"43777a3d-88d0-40ec-928f-f7abbfdbacdb",
+  "transactions":[
+    {
+      "names":[ "/path", "x86_64-pc-linux-gnu-repo", "a", "b" ],
+
+      "fragments":{
+        // Used by ta.o
+        "55d19e2f6f02436a930780ab3ca1149e":{"read_only":{"align":16,"data":"QQo="}},
+
+        // Used by tb.o
+        "833d8e4e88bf4f39b5ea6766ce29bdfb":{"mergeable_1_byte_c_string":{"data":"Qgo="}}
+      },
+
+      "compilations":{
+        // Will be ta.o
+        "b24bcc617ea04e1ebb049c7d9474b207":{
+          "path":0,   //"/path"
+          "triple":1, //"x86_64-pc-linux-gnu-repo"
+          "definitions":[
+            {"digest":"55d19e2f6f02436a930780ab3ca1149e","name":2,"linkage":"external"} //"a"
+          ]
+        },
+
+        // Will be tb.o
+        "179954423c360b6469069364ba86e7af":{
+          "path":0,   //"/path"
+          "triple":1, //"x86_64-pc-linux-gnu-repo"
+          "definitions":[
+            {"digest":"833d8e4e88bf4f39b5ea6766ce29bdfb","name":3,"linkage":"external"}  //"b"
+          ]
+        }
+      } // compilatons
+    } // transaction
+  ] // transactions
+}

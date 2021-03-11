@@ -300,7 +300,7 @@ int main(int Argc, char *Argv[]) {
     return EXIT_FAILURE;
   }
 
-  rld::Context Ctxt{*Db.get()};
+  rld::Context Ctxt{*Db.get(), EntryPoint};
 
   auto CompilationIndex =
       pstore::index::get_index<pstore::trailer::indices::compilation>(Ctxt.Db);
@@ -370,6 +370,9 @@ int main(int Argc, char *Argv[]) {
 
       WorkPool.wait();
 
+      assert(
+          Undefs.strongUndefCountIsCorrect() &&
+          "The strong undef count must match the entries in the undefs list");
       if (Undefs.strongUndefCount() > 0U) {
         std::lock_guard<decltype(Ctxt.IOMut)> Lock{Ctxt.IOMut};
         for (auto const &U : Undefs) {
@@ -429,6 +432,8 @@ int main(int Argc, char *Argv[]) {
   llvmDebug(DebugType, Ctxt.IOMut, [&] { debugDumpSymbols(Ctxt, AllSymbols); });
 
   // Now we set about emitting an ELF executable...
+  rld::llvmDebug(DebugType, Ctxt.IOMut,
+                 [] { llvm::dbgs() << "Beginning output\n"; });
   ExitOnErr(
       rld::elfOutput(OutputFileName, Ctxt, AllSymbols, WorkPool, LO.get()));
 

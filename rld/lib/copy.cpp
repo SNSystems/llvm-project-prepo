@@ -114,8 +114,8 @@ void copySection<pstore::repo::section_kind::bss>(Context &Ctxt,
                                                   Contribution const &S,
                                                   std::uint8_t *Dest) {
   llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
-    llvm::dbgs() << "BSS fill " << reinterpret_cast<std::uintptr_t>(Dest)
-                 << '\n';
+    llvm::dbgs() << "BSS fill "
+                 << format_hex(reinterpret_cast<std::uintptr_t>(Dest)) << '\n';
   });
   static_assert(
       std::is_same<
@@ -152,7 +152,7 @@ namespace rld {
 void copyToOutput(
     Context &Ctxt, llvm::ThreadPool &Workers, uint8_t *const Data,
     const Layout &Lout,
-    const rld::SectionArray<llvm::Optional<uint64_t>> &SectionFileOffsets,
+    const rld::SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     uint64_t TargetDataOffset) {
 
   forEachSectionKind([&](const SectionKind SectionK) {

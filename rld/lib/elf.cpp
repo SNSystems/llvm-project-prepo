@@ -176,9 +176,8 @@ template <typename ELFT>
 auto rld::elf::emitProgramHeaders(
     typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr, rld::Context &Ctxt,
     const rld::FileRegion &TargetDataRegion, const rld::Layout &Lout,
-    const rld::SegmentIndexedArray<llvm::Optional<uint64_t>>
-        &SegmentDataOffsets) ->
-    typename llvm::object::ELFFile<ELFT>::Elf_Phdr * {
+    const rld::SegmentIndexedArray<llvm::Optional<int64_t>> &SegmentDataOffsets)
+    -> typename llvm::object::ELFFile<ELFT>::Elf_Phdr * {
 
   auto DebugHeading =
       makeOnce([](llvm::raw_ostream &OS) { OS << "ELF Program Headers\n"; });
@@ -188,18 +187,16 @@ auto rld::elf::emitProgramHeaders(
       return;
     }
 
-    uint64_t SegmentDataOffset = SegmentDataOffsets[Kind].getValueOr(0U);
-    if (Segment.HasOutputSections) {
-        SegmentDataOffset += TargetDataRegion.offset(); // FIXME: we can't do this here. Some segments lie outside of the file's "data" region.
-        assert(SegmentDataOffset >= TargetDataRegion.offset() &&
-            SegmentDataOffset + Segment.FileSize < TargetDataRegion.end());
+    int64_t SegmentDataOffset = SegmentDataOffsets[Kind].getValueOr(0);
+    if (Segment.VirtualSize > 0) {
+      SegmentDataOffset += TargetDataRegion.offset();
     }
-
+    assert(SegmentDataOffset >= 0);
     Phdr->p_type = elfSegmentKind<ELFT>(Kind);
     Phdr->p_flags = elfSegmentFlags<ELFT>(Kind);
     Phdr->p_vaddr = hasPhysicalAddress(Kind) ? Segment.VirtualAddr : 0;
     Phdr->p_paddr = Phdr->p_vaddr;
-    Phdr->p_offset = SegmentDataOffsets[Kind].getValueOr(0U);
+    Phdr->p_offset = SegmentDataOffset;
     Phdr->p_filesz = Segment.FileSize;
     Phdr->p_memsz = hasPhysicalAddress(Kind) ? Segment.VirtualSize : 0;
 
@@ -264,38 +261,34 @@ template auto rld::elf::emitProgramHeaders<llvm::object::ELF64LE>(
     typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Phdr *Phdr,
     Context &Ctxt, const rld::FileRegion &TargetDataRegion,
     const rld::Layout &Lout,
-    const rld::SegmentIndexedArray<llvm::Optional<uint64_t>>
-        &SegmentDataOffsets) ->
-    typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Phdr *;
+    const rld::SegmentIndexedArray<llvm::Optional<int64_t>> &SegmentDataOffsets)
+    -> typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Phdr *;
 
 template auto rld::elf::emitProgramHeaders<llvm::object::ELF64BE>(
     typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Phdr *Phdr,
     Context &Ctxt, const rld::FileRegion &TargetDataRegion,
     const rld::Layout &Lout,
-    const rld::SegmentIndexedArray<llvm::Optional<uint64_t>>
-        &SegmentDataOffsets) ->
-    typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Phdr *;
+    const rld::SegmentIndexedArray<llvm::Optional<int64_t>> &SegmentDataOffsets)
+    -> typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Phdr *;
 
 template auto rld::elf::emitProgramHeaders<llvm::object::ELF32LE>(
     typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Phdr *Phdr,
     Context &Ctxt, const rld::FileRegion &TargetDataRegion,
     const rld::Layout &Lout,
-    const rld::SegmentIndexedArray<llvm::Optional<uint64_t>>
-        &SegmentDataOffsets) ->
-    typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Phdr *;
+    const rld::SegmentIndexedArray<llvm::Optional<int64_t>> &SegmentDataOffsets)
+    -> typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Phdr *;
 
 template auto rld::elf::emitProgramHeaders<llvm::object::ELF32BE>(
     typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Phdr *Phdr,
     Context &Ctxt, const rld::FileRegion &TargetDataRegion,
     const rld::Layout &Lout,
-    const rld::SegmentIndexedArray<llvm::Optional<uint64_t>>
-        &SegmentDataOffsets) ->
-    typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Phdr *;
+    const rld::SegmentIndexedArray<llvm::Optional<int64_t>> &SegmentDataOffsets)
+    -> typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Phdr *;
 
 template <typename ELFT>
 auto rld::elf::emitSectionHeaders(
     typename llvm::object::ELFFile<ELFT>::Elf_Shdr *Shdr, const Layout &Lout,
-    const SectionArray<llvm::Optional<uint64_t>> &SectionFileOffsets,
+    const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t>
         &NameOffsets,
     uint64_t TargetDataOffset) ->
@@ -338,7 +331,7 @@ auto rld::elf::emitSectionHeaders(
 template auto rld::elf::emitSectionHeaders<llvm::object::ELF64LE>(
     typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Shdr *Shdr,
     const Layout &Lout,
-    const SectionArray<llvm::Optional<uint64_t>> &SectionFileOffsets,
+    const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t>
         &NameOffsets,
     uint64_t TargetDataOffset) ->
@@ -347,7 +340,7 @@ template auto rld::elf::emitSectionHeaders<llvm::object::ELF64LE>(
 template auto rld::elf::emitSectionHeaders<llvm::object::ELF64BE>(
     typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Shdr *Shdr,
     const Layout &Lout,
-    const SectionArray<llvm::Optional<uint64_t>> &SectionFileOffsets,
+    const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t>
         &NameOffsets,
     uint64_t TargetDataOffset) ->
@@ -356,7 +349,7 @@ template auto rld::elf::emitSectionHeaders<llvm::object::ELF64BE>(
 template auto rld::elf::emitSectionHeaders<llvm::object::ELF32LE>(
     typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Shdr *Shdr,
     const Layout &Lout,
-    const SectionArray<llvm::Optional<uint64_t>> &SectionFileOffsets,
+    const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t>
         &NameOffsets,
     uint64_t TargetDataOffset) ->
@@ -365,7 +358,7 @@ template auto rld::elf::emitSectionHeaders<llvm::object::ELF32LE>(
 template auto rld::elf::emitSectionHeaders<llvm::object::ELF32BE>(
     typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Shdr *Shdr,
     const Layout &Lout,
-    const SectionArray<llvm::Optional<uint64_t>> &SectionFileOffsets,
+    const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t>
         &NameOffsets,
     uint64_t TargetDataOffset) ->

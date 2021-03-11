@@ -171,70 +171,38 @@ PSTORE_MCREPO_SECTION_KINDS
 
 // has file data
 // ~~~~~~~~~~~~~
-template <pstore::repo::section_kind Kind> struct HasFileData {};
-template <> struct HasFileData<pstore::repo::section_kind::text> {
-  static constexpr bool value = true;
-};
-template <> struct HasFileData<pstore::repo::section_kind::data> {
-  static constexpr bool value = true;
-};
-template <> struct HasFileData<pstore::repo::section_kind::rel_ro> {
-  static constexpr bool value = true;
-};
-template <>
-struct HasFileData<pstore::repo::section_kind::mergeable_1_byte_c_string> {
-  static constexpr bool value = true;
-};
-template <>
-struct HasFileData<pstore::repo::section_kind::mergeable_2_byte_c_string> {
-  static constexpr bool value = true;
-};
-template <>
-struct HasFileData<pstore::repo::section_kind::mergeable_4_byte_c_string> {
-  static constexpr bool value = true;
-};
-template <> struct HasFileData<pstore::repo::section_kind::mergeable_const_4> {
-  static constexpr bool value = true;
-};
-template <> struct HasFileData<pstore::repo::section_kind::mergeable_const_8> {
-  static constexpr bool value = true;
-};
-template <> struct HasFileData<pstore::repo::section_kind::mergeable_const_16> {
-  static constexpr bool value = true;
-};
-template <> struct HasFileData<pstore::repo::section_kind::mergeable_const_32> {
-  static constexpr bool value = true;
-};
-template <> struct HasFileData<pstore::repo::section_kind::read_only> {
-  static constexpr bool value = true;
-};
-template <> struct HasFileData<pstore::repo::section_kind::thread_data> {
-  static constexpr bool value = true;
-};
-template <> struct HasFileData<pstore::repo::section_kind::debug_line> {
-  static constexpr bool value = true;
-};
-template <> struct HasFileData<pstore::repo::section_kind::debug_string> {
-  static constexpr bool value = true;
-};
-template <> struct HasFileData<pstore::repo::section_kind::debug_ranges> {
-  static constexpr bool value = true;
-};
-template <> struct HasFileData<pstore::repo::section_kind::interp> {
-  static constexpr bool value = true;
-};
+constexpr bool hasFileData(pstore::repo::section_kind Kind) {
+  switch (Kind) {
+  case pstore::repo::section_kind::bss:
+  case pstore::repo::section_kind::thread_bss:
+  case pstore::repo::section_kind::linked_definitions:
+  case pstore::repo::section_kind::last:
+    return false;
+  default:
+    return true;
+  };
+}
 
-template <> struct HasFileData<pstore::repo::section_kind::bss> {
-  static constexpr bool value = false;
-};
-template <> struct HasFileData<pstore::repo::section_kind::thread_bss> {
-  static constexpr bool value = false;
-};
-template <> struct HasFileData<pstore::repo::section_kind::linked_definitions> {
-  static constexpr bool value = false;
-};
-template <> struct HasFileData<pstore::repo::section_kind::last> {
-  static constexpr bool value = false;
+#define RLD_X(a)                                                               \
+  case rld::SectionKind::a:                                                    \
+    return false;
+#define X(a)                                                                   \
+  case rld::SectionKind::a:                                                    \
+    return hasFileData(ToPstoreSectionKind<rld::SectionKind::a>::value);
+
+constexpr bool hasFileData(rld::SectionKind Kind) {
+  switch (Kind) {
+    RLD_SECTION_KINDS
+    PSTORE_MCREPO_SECTION_KINDS
+  case rld::SectionKind::last:
+    return false;
+  }
+}
+#undef X
+#undef RLD_X
+
+template <pstore::repo::section_kind Kind> struct HasFileData {
+  static constexpr bool value = hasFileData(Kind);
 };
 
 // add section to layout
@@ -263,10 +231,10 @@ Contribution *LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
 
   Segment &Seg = Layout_->Segments[SegmentK];
   Seg.MaxAlign = std::max (Seg.MaxAlign, Alignment);
-  Seg.VirtualSize = alignTo(Seg.VirtualSize, Alignment) + Size;
-  if (HasFileData<SKind>::value) {
-    Seg.FileSize = alignTo(Seg.FileSize, Alignment) + Size;
-  }
+  //  Seg.VirtualSize = alignTo(Seg.VirtualSize, Alignment) + Size;
+  //  if (HasFileData<SKind>::value) {
+  //    Seg.FileSize = alignTo(Seg.FileSize, Alignment) + Size;
+  //  }
 
   OutputSection *const OutputSection =
       &Layout_->Sections[ToRldSectionKind<SKind>::value];
@@ -457,19 +425,33 @@ std::unique_ptr<Layout> LayoutBuilder::flattenSegments() {
     Base = alignTo(Base, Seg.MaxAlign);
     assert(Seg.VirtualAddr == 0);
     Seg.VirtualAddr = Base;
-    Base += Seg.VirtualSize;
+    //    Base += Seg.VirtualSize;
+
+    uint64_t VirtualSize = 0;
+    uint64_t FileSize = 0;
 
     auto A = Seg.VirtualAddr;
-    forEachSectionKind([&](SectionKind SectionK) {
+    forEachSectionKind([&](const SectionKind SectionK) {
       if (OutputSection *const Scn = Seg.Sections[SectionK]) {
+        const auto Alignment = Scn->MaxAlign;
+        assert(Alignment <= Seg.MaxAlign);
         Seg.HasOutputSections = true;
         assert(Scn->VirtualAddr == 0);
-        A = alignTo(A, Scn->MaxAlign);
+        A = alignTo(A, Alignment);
         Scn->VirtualAddr = A;
         A += Scn->VirtualSize;
+        VirtualSize = alignTo(VirtualSize, Alignment) + Scn->VirtualSize;
+        if (hasFileData(SectionK)) {
+          FileSize = alignTo(FileSize, Alignment) + Scn->FileSize;
+        }
       }
     });
-    assert(A == Base);
+
+    assert(Seg.VirtualSize == 0);
+    Seg.VirtualSize = VirtualSize;
+    assert(Seg.FileSize == 0);
+    Seg.FileSize = FileSize;
+    Base += VirtualSize;
   });
 
   llvmDebug("rld-Layout", Ctx_.IOMut, [this] { debugDumpLayout(); });

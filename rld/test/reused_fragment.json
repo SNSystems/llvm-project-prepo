@@ -1,0 +1,69 @@
+// This test contains definitions in two compilations that refer to the same
+// fragment.
+
+// RUN: rm -rf %t && mkdir -p %t
+// RUN: pstore-import %t/db.db %s
+// RUN: repo-create-ticket --repo %t/db.db -o %t/t0.o 072e60601c5545ca9e6d759ab9d7484f
+// RUN: repo-create-ticket --repo %t/db.db -o %t/t1.o cdbabbba384d4f12a6c6656eada97d72
+// RUN: rld --debug --repo=%t/db.db -o %t/rld.out %t/t0.o %t/t1.o
+//
+
+// TODO: verify that the output is correct. Originally an assertion tripped in rld with
+// this input.
+
+{
+  "version": 1,
+  "id"     : "36ba223b-4eec-4d57-bd86-3650c68e722b",
+  "transactions": [
+    {
+      "names": [
+        "/path", // 0
+        "x86_64-pc-linux-gnu-repo", // 1
+        "f", // 2
+        "g", // 3
+        "h", // 4
+        "j"  // 5
+      ],
+
+      "fragments": {
+        // Used for definition h.
+        "75dc28989269433bb972a59f17403dab": {
+          "read_only": { "data": "ZGF0YQ==" }
+        },
+
+        // Used for definitions f, g, and j.
+        "8cda64e4d658472f885f58d331025fbd": {
+          "read_only": {
+            "data" : "ZGF0YQ==",
+            "xfixups": [
+              { "name": 4, "type": 0, "offset": 0, "addend": 0 } // "h"
+            ]
+          }
+        }
+      }, // fragments
+
+      "compilations": {
+        // This compilation has two definitions that reference the same fragment (8cda).
+        "072e60601c5545ca9e6d759ab9d7484f": {
+          "path"  : 0, // "/path"
+          "triple": 1, // "x86_64-pc-linux-gnu-repo"
+          "definitions": [
+            { "digest": "8cda64e4d658472f885f58d331025fbd", "name": 2, "linkage": "external" }, // "f"
+            { "digest": "8cda64e4d658472f885f58d331025fbd", "name": 3, "linkage": "external" }, // "g"
+            { "digest": "75dc28989269433bb972a59f17403dab", "name": 4, "linkage": "external" }  // "h"
+          ]
+        },
+
+        // A compilation which contains a third reference to that fragment (8cda).
+        "cdbabbba384d4f12a6c6656eada97d72": {
+          "path"  : 0, // "/path"
+          "triple": 1, // "x86_64-pc-linux-gnu-repo"
+          "definitions": [
+            { "digest": "8cda64e4d658472f885f58d331025fbd", "name": 5, "linkage": "external" } // "j"
+          ]
+        }
+      } // compilations
+    } // transaction
+  ] // transactions
+}
+
