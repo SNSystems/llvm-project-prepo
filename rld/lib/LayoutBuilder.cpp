@@ -61,7 +61,8 @@ void LayoutBuilder::Visited::resize(uint32_t NumCompilations) {
   if (NumCompilations > Visited_.size()) {
     // Add something to NumCompilations to allow for the fact that we can
     // anticipate additional compilations coming from archives.
-    Visited_.resize(NumCompilations + NumCompilations / 2U);
+    Visited_.resize(static_cast<size_t>(NumCompilations) +
+                    NumCompilations / 2U);
   }
 }
 
@@ -185,18 +186,19 @@ constexpr bool hasFileData(pstore::repo::section_kind Kind) {
 
 #define RLD_X(a)                                                               \
   case rld::SectionKind::a:                                                    \
-    return false;
+    break;
 #define X(a)                                                                   \
   case rld::SectionKind::a:                                                    \
     return hasFileData(ToPstoreSectionKind<rld::SectionKind::a>::value);
 
 constexpr bool hasFileData(rld::SectionKind Kind) {
   switch (Kind) {
-    RLD_SECTION_KINDS
     PSTORE_MCREPO_SECTION_KINDS
-  case rld::SectionKind::last:
-    return false;
+    RLD_SECTION_KINDS
+  default:
+    break;
   }
+  return false;
 }
 #undef X
 #undef RLD_X
