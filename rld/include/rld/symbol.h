@@ -218,6 +218,12 @@ public:
     return WeakUndefined_;
   }
 
+#ifndef NDEBUG
+  void checkInvariants() const;
+#else
+  void checkInvariants() const {}
+#endif
+
   /// Process the definition of a symbol with append linkage that "collides"
   /// with an existing definition.
   ///

@@ -79,9 +79,46 @@ namespace rld {
 // ~~~~~
 uint64_t Symbol::value() const {
   const Contribution *const C = Contribution_.load();
+  // A weakly referenced symbol may be undefined here and has the value 0.
+  if (C == nullptr) {
+    return 0;
+  }
   assert(C != nullptr && C->OScn != nullptr);
   return C->OScn->VirtualAddr + C->Offset;
 }
+
+// check invariants
+// ~~~~~~~~~~~~~~~~
+#ifndef NDEBUG
+void Symbol::checkInvariants() const {
+  auto BodiesAndLock = this->definition();
+  llvm::Optional<Symbol::BodyContainer> const &OptionalBodies =
+      std::get<Symbol::DefinitionIndex>(BodiesAndLock);
+  if (!OptionalBodies) {
+    return;
+  }
+
+  auto const &Bodies = OptionalBodies.getValue();
+
+  assert((Bodies.size() == 1U ||
+          (Bodies.size() >= 1U &&
+           Bodies.front().linkage() == pstore::repo::linkage::append)) &&
+         "A symbol must have 1 body unless it has append linkage");
+
+  const auto BodiesEnd = std::end(Bodies);
+
+  assert(std::is_sorted(std::begin(Bodies), BodiesEnd,
+                        [](Symbol::Body const &A, Symbol::Body const &B) {
+                          return A.inputOrdinal() < B.inputOrdinal();
+                        }) &&
+         "Symbol bodies must be sorted by input ordinal");
+  assert(std::adjacent_find(std::begin(Bodies), BodiesEnd,
+                            [](Symbol::Body const &A, Symbol::Body const &B) {
+                              return A.inputOrdinal() == B.inputOrdinal();
+                            }) == BodiesEnd &&
+         "Symbol body input ordinals must be unique");
+}
+#endif
 
 // replace if lower ordinal
 // ~~~~~~~~~~~~~~~~~~~~~~~~

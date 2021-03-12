@@ -233,10 +233,6 @@ Contribution *LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
 
   Segment &Seg = Layout_->Segments[SegmentK];
   Seg.MaxAlign = std::max (Seg.MaxAlign, Alignment);
-  //  Seg.VirtualSize = alignTo(Seg.VirtualSize, Alignment) + Size;
-  //  if (HasFileData<SKind>::value) {
-  //    Seg.FileSize = alignTo(Seg.FileSize, Alignment) + Size;
-  //  }
 
   OutputSection *const OutputSection =
       &Layout_->Sections[ToRldSectionKind<SKind>::value];
@@ -249,16 +245,13 @@ Contribution *LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
         alignTo(OutputSection->FileSize, Alignment) + Size;
   }
 
-  auto const SectionAddress = UintptrAddress{
-      FAddr.to_address() + (reinterpret_cast<std::uint8_t const *>(&Section) -
-                            reinterpret_cast<std::uint8_t const *>(F.get()))};
-
-  // Compute the offset of this section within the output section.
-  auto const Offset = alignTo(
-      LayoutBuilder::prevSectionEnd(OutputSection->Contributions), Alignment);
-  OutputSection->Contributions.emplace_back(&Section, SectionAddress,
-                                            OutputSection, Offset, Size,
-                                            Alignment, Name, InputOrdinal);
+  OutputSection->Contributions.emplace_back(
+      &Section,
+      FragmentShadow::make(Ctx_, InputOrdinal, FAddr).xfxSymbols<SKind>(*F),
+      OutputSection,
+      alignTo(LayoutBuilder::prevSectionEnd(OutputSection->Contributions),
+              Alignment),
+      Size, Alignment, Name, InputOrdinal);
 
   llvmDebug(DebugType, Ctx_.IOMut, [&] {
     auto const &Entry = OutputSection->Contributions.back();
@@ -427,7 +420,6 @@ std::unique_ptr<Layout> LayoutBuilder::flattenSegments() {
     Base = alignTo(Base, Seg.MaxAlign);
     assert(Seg.VirtualAddr == 0);
     Seg.VirtualAddr = Base;
-    //    Base += Seg.VirtualSize;
 
     uint64_t VirtualSize = 0;
     uint64_t FileSize = 0;

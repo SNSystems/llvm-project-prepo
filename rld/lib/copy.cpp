@@ -67,6 +67,30 @@ inline void apply<llvm::ELF::R_X86_64_PLT32>(uint8_t *const Out,
                                              const Symbol *const Sym,
                                              const ExternalFixup &XFixup) {}
 
+template <>
+inline void apply<llvm::ELF::R_X86_64_PC32>(uint8_t *const Out,
+                                            const Symbol *const Sym,
+                                            const ExternalFixup &XFixup) {}
+template <>
+inline void apply<llvm::ELF::R_X86_64_GOTPCREL>(uint8_t *const Out,
+                                                const Symbol *const Sym,
+                                                const ExternalFixup &XFixup) {}
+template <>
+inline void apply<llvm::ELF::R_X86_64_TLSGD>(uint8_t *const Out,
+                                             const Symbol *const Sym,
+                                             const ExternalFixup &XFixup) {}
+template <>
+inline void apply<llvm::ELF::R_X86_64_TLSLD>(uint8_t *const Out,
+                                             const Symbol *const Sym,
+                                             const ExternalFixup &XFixup) {}
+template <>
+inline void apply<llvm::ELF::R_X86_64_DTPOFF32>(uint8_t *const Out,
+                                                const Symbol *const Sym,
+                                                const ExternalFixup &XFixup) {}
+template <>
+inline void apply<llvm::ELF::R_X86_64_32>(uint8_t *const Out,
+                                          const Symbol *const Sym,
+                                          const ExternalFixup &XFixup) {}
 
 template <pstore::repo::section_kind SKind,
           typename SType = typename pstore::repo::enum_to_section<SKind>::type>
@@ -83,8 +107,8 @@ static void copySection(Context &Ctxt, Contribution const &Contribution,
 
   // The contribution's shadow memory contains an array of symbol pointers; one
   // for each external fixup.
-  auto XfxSymbol = reinterpret_cast<const std::atomic<Symbol *> *>(
-      Ctxt.shadow() + Contribution.XfxShadow.absolute());
+
+  const std::atomic<Symbol *> *XfxSymbol = Contribution.XfxSymbols;
   for (ExternalFixup const &XFixup : Section->xfixups()) {
     Symbol const *const Sym = XfxSymbol->load();
     assert((Sym != nullptr ||

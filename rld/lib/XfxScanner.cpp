@@ -40,37 +40,28 @@ struct State {
 // resolve
 // ~~~~~~~
 template <pstore::repo::section_kind Kind>
-void resolve(State &S, FragmentAddress FAddr,
-             const pstore::repo::fragment &Fragment) {
-
+void resolve(State &S, const pstore::repo::fragment &Fragment,
+             FragmentShadow FS) {
+  std::atomic<Symbol *> *ShadowXfx = FS.xfxSymbols<Kind>(Fragment);
   const auto *const Section = Fragment.atp<Kind>();
-
-  const auto *const FragmentBase = reinterpret_cast<const uint8_t *>(&Fragment);
-  const auto *const SectionBase = reinterpret_cast<const uint8_t *>(Section);
-  assert(SectionBase > FragmentBase);
-  auto const SectionOffset = SectionBase - FragmentBase;
-  auto ShadowXfx = UintptrAddress{FAddr.to_address() + SectionOffset};
 
   for (pstore::repo::external_fixup const &Xfx : Section->xfixups()) {
     llvmDebug(DebugType, S.Ctxt.IOMut, [&]() {
       llvm::dbgs() << "-> " << loadStdString(S.Ctxt.Db, Xfx.name) << '\n';
     });
-    std::atomic<Symbol *> *const Shadow = symbolShadow(S.Ctxt, ShadowXfx++);
-    assert(Shadow != nullptr && "No shadow memory for an xfixup!");
-    assert(Shadow->load(std::memory_order_acquire) == nullptr &&
+    assert(ShadowXfx->load(std::memory_order_acquire) == nullptr &&
            "An xfixup has already been resolved");
-    // TODO: get the ordering right for this atomic write.
-    Shadow->store(referenceSymbol(S.Ctxt, S.Locals, S.Globals, S.Undefs,
-                                  Xfx.name, Xfx.strength()),
-                  std::memory_order_release);
+    ShadowXfx->store(referenceSymbol(S.Ctxt, S.Locals, S.Globals, S.Undefs,
+                                     Xfx.name, Xfx.strength()),
+                     std::memory_order_release);
+    ++ShadowXfx;
   }
 }
 
 template <>
 inline void resolve<pstore::repo::section_kind::linked_definitions>(
-    State & /*S*/,
-    pstore::typed_address<pstore::repo::fragment> /*FragmentAddress*/,
-    const pstore::repo::fragment & /*Fragment*/) {}
+    State & /*S*/, const pstore::repo::fragment & /*Fragment*/,
+    FragmentShadow /*FS*/) {}
 
 } // end anonymous namespace
 
@@ -92,31 +83,15 @@ bool rld::resolveXfixups(Context &Context, LocalSymbolsContainer const &Locals,
                    << "\"\n";
     });
 
+    Sym->checkInvariants();
+
     auto BodiesAndLock = Sym->definition();
     llvm::Optional<Symbol::BodyContainer> const &OptionalBodies =
         std::get<Symbol::DefinitionIndex>(BodiesAndLock);
-
     assert(OptionalBodies.hasValue() &&
-           "All local symbol definition must have a body");
+           "All local symbol definitions must have a body");
     auto const &Bodies = OptionalBodies.getValue();
-    assert((Bodies.size() == 1U ||
-            (Bodies.size() >= 1U &&
-             Bodies.front().linkage() == pstore::repo::linkage::append)) &&
-           "A symbol must have 1 body unless it has append linkage");
-
     const auto BodiesEnd = std::end(Bodies);
-
-    assert(std::is_sorted(std::begin(Bodies), BodiesEnd,
-                          [](Symbol::Body const &A, Symbol::Body const &B) {
-                            return A.inputOrdinal() < B.inputOrdinal();
-                          }) &&
-           "Symbol bodies must be sorted by input ordinal");
-    assert(std::adjacent_find(std::begin(Bodies), BodiesEnd,
-                              [](Symbol::Body const &A, Symbol::Body const &B) {
-                                return A.inputOrdinal() == B.inputOrdinal();
-                              }) == BodiesEnd &&
-           "Symbol body input ordinals must be unique");
-
     // Find the symbol body that is associated with this compilation.
     const auto Pos =
         std::lower_bound(std::begin(Bodies), BodiesEnd, InputOrdinal,
@@ -130,28 +105,26 @@ bool rld::resolveXfixups(Context &Context, LocalSymbolsContainer const &Locals,
     Symbol::Body const &Def = *Pos;
     assert(Def.inputOrdinal() == InputOrdinal);
 
-    const std::shared_ptr<const pstore::repo::fragment> &Fragment =
-        Def.fragment();
-    auto *const IsDone = reinterpret_cast<std::atomic<bool> *>(
-        S.Ctxt.shadow() + Def.fragmentAddress().absolute());
-    bool Expected = false;
-    if (!IsDone->compare_exchange_strong(Expected, true)) {
+    FragmentShadow FS =
+        FragmentShadow::make(Context, InputOrdinal, Def.fragmentAddress());
+    // Have we processed this fragment already?
+    if (!FS.markDone()) {
       return true;
     }
-
+    const std::shared_ptr<const pstore::repo::fragment> &Fragment =
+        Def.fragment();
     for (const pstore::repo::section_kind Kind : *Fragment) {
 #define X(a)                                                                   \
   case pstore::repo::section_kind::a:                                          \
-    resolve<pstore::repo::section_kind::a>(S, Def.fragmentAddress(),           \
-                                           *Fragment);                         \
+    resolve<pstore::repo::section_kind::a>(S, *Fragment, FS);                  \
     break;
 
-        switch (Kind) {
-          PSTORE_MCREPO_SECTION_KINDS
-        case pstore::repo::section_kind::last:
-          llvm_unreachable("Bad section kind");
-          break;
-        }
+      switch (Kind) {
+        PSTORE_MCREPO_SECTION_KINDS
+      case pstore::repo::section_kind::last:
+        llvm_unreachable("Bad section kind");
+        break;
+      }
 #undef X
     }
   }
