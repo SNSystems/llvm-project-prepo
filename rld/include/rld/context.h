@@ -110,6 +110,8 @@ public:
   pstore::database &Db;
   mutable std::mutex IOMut;
 
+  std::atomic<uint64_t> ELFStringTableSize;
+
   pstore::repo::compilation const &recordCompilation(
       pstore::extent<pstore::repo::compilation> const &CompilationExtent);
 

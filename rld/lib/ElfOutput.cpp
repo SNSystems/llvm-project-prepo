@@ -92,18 +92,18 @@ buildSectionNameStringTable(Layout *const Lout) {
 // ~~~~~~~~~~~~~~~~~~~~
 uint64_t prepareStringTable(rld::Context &Ctxt, rld::Layout *const Lout,
                             const GlobalSymbolsContainer &Globals) {
-  const uint64_t StringTableSize =
-      std::accumulate(std::begin(Globals), std::end(Globals), uint64_t{1},
-                      [&Ctxt](const uint64_t Acc, const Symbol &Sym) {
-                        return Acc + stringLength(Ctxt.Db, Sym.name()) + 1U;
-                      });
+  const auto StringTableSize = Ctxt.ELFStringTableSize.load();
+  assert(StringTableSize ==
+         std::accumulate(std::begin(Globals), std::end(Globals), uint64_t{1},
+                         [&Ctxt](const uint64_t Acc, const Symbol &Sym) {
+                           return Acc + stringLength(Ctxt.Db, Sym.name()) + 1U;
+                         }));
 
   OutputSection &StrTab = Lout->Sections[SectionKind::strtab];
   StrTab.AlwaysEmit = true;
   StrTab.FileSize = StringTableSize;
   StrTab.MaxAlign = 1U;
   StrTab.Writer = nullptr;
-
   return StringTableSize;
 }
 

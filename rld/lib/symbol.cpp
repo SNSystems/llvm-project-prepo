@@ -500,6 +500,8 @@ NotNull<Symbol *> SymbolResolver::addReference(
 Symbol *SymbolResolver::add(NotNull<GlobalSymbolsContainer *> const Globals,
                             pstore::repo::definition const &Def,
                             uint32_t InputOrdinal) {
+  Context_.ELFStringTableSize += stringLength(Context_.Db, Def.name) + 1U;
+
   return &Globals->emplace_back(
       Def.name,
       Symbol::Body(&Def, pstore::repo::fragment::load(Context_.Db, Def.fext),
@@ -587,6 +589,7 @@ referenceSymbol(Context &Ctxt, LocalSymbolsContainer const &Locals,
       symbolShadow(Ctxt, Name),
       [&]() {
         // Called for a reference to a (thus far) undefined symbol.
+        Ctxt.ELFStringTableSize += stringLength(Ctxt.Db, Name);
         return SymbolResolver::addUndefined(Globals, Undefs, Name, Strength);
       },
       [&](Symbol *const Sym) {

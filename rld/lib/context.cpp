@@ -60,7 +60,7 @@ llvm::StringRef rld::stringViewAsRef(pstore::raw_sstring_view S) {
 // ctor
 // ~~~~
 rld::Context::Context(pstore::database &D, llvm::StringRef EntryPoint)
-    : Db{D}, EntryPoint_{EntryPoint},
+    : Db{D}, ELFStringTableSize{1U}, EntryPoint_{EntryPoint},
       ShadowDb_{createShadowMemory(static_cast<std::size_t>(Db.size()))} {}
 
 void rld::Context::MmapDeleter::operator()(std::uint8_t *P) const {
