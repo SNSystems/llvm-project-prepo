@@ -45,6 +45,9 @@ std::string loadStdString(pstore::database const &Db,
 
 llvm::StringRef stringViewAsRef(pstore::raw_sstring_view S);
 
+size_t stringLength(pstore::database const &Db,
+                    pstore::typed_address<pstore::indirect_string> Addr);
+
 class Symbol;
 
 #ifndef NDEBUG

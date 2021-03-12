@@ -92,12 +92,11 @@ buildSectionNameStringTable(Layout *const Lout) {
 // ~~~~~~~~~~~~~~~~~~~~
 uint64_t prepareStringTable(rld::Context &Ctxt, rld::Layout *const Lout,
                             const GlobalSymbolsContainer &Globals) {
-  const uint64_t StringTableSize = std::accumulate(
-      std::begin(Globals), std::end(Globals), uint64_t{1},
-      [&Ctxt](const uint64_t Acc, const Symbol &Sym) {
-        pstore::shared_sstring_view Owner;
-        return Acc + loadString(Ctxt.Db, Sym.name(), &Owner).length() + 1U;
-      });
+  const uint64_t StringTableSize =
+      std::accumulate(std::begin(Globals), std::end(Globals), uint64_t{1},
+                      [&Ctxt](const uint64_t Acc, const Symbol &Sym) {
+                        return Acc + stringLength(Ctxt.Db, Sym.name()) + 1U;
+                      });
 
   OutputSection &StrTab = Lout->Sections[SectionKind::strtab];
   StrTab.AlwaysEmit = true;

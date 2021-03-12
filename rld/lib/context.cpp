@@ -33,6 +33,14 @@ rld::loadString(pstore::database const &Db,
       .as_string_view(Owner);
 }
 
+size_t rld::stringLength(pstore::database const &Db,
+                         pstore::typed_address<pstore::indirect_string> Addr) {
+  using namespace pstore::serialize;
+  return read<pstore::indirect_string>(
+             archive::database_reader{Db, Addr.to_address()})
+      .length();
+}
+
 std::string
 rld::loadStdString(pstore::database const &Db,
                    pstore::typed_address<pstore::indirect_string> Addr) {
