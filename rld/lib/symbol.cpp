@@ -589,7 +589,7 @@ referenceSymbol(Context &Ctxt, LocalSymbolsContainer const &Locals,
       symbolShadow(Ctxt, Name),
       [&]() {
         // Called for a reference to a (thus far) undefined symbol.
-        Ctxt.ELFStringTableSize += stringLength(Ctxt.Db, Name);
+        Ctxt.ELFStringTableSize += stringLength(Ctxt.Db, Name) + 1U;
         return SymbolResolver::addUndefined(Globals, Undefs, Name, Strength);
       },
       [&](Symbol *const Sym) {

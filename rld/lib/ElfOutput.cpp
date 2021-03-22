@@ -77,8 +77,7 @@ buildSectionNameStringTable(Layout *const Lout) {
   forEachSectionKind([&](SectionKind SectionK) {
     if (Lout->Sections[SectionK].shouldEmit()) {
       NameOffsets[SectionK] = SectionNameSize;
-      SectionNameSize +=
-          rld::elf::elfSectionNameAndLength(SectionK).second + 1U;
+      SectionNameSize += elf::elfSectionNameAndLength(SectionK).second + 1U;
     }
   });
 
