@@ -15,6 +15,8 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorOr.h"
 
+#include "pstore/core/index_types.hpp"
+#include "pstore/core/transaction.hpp"
 #include "pstore/core/uuid.hpp"
 #include "pstore/support/uint128.hpp"
 
@@ -110,6 +112,13 @@ ErrorOr<pstore::uuid> getOwnerIDFromTicket(const llvm::MemoryBufferRef &Buffer);
 /// \param TicketPath  The path of a ticket file.
 /// \returns  The ID of the owning database or an error.
 ErrorOr<pstore::uuid> getOwnerIDFromTicket(StringRef TicketPath);
+
+Expected<llvm::SmallString<256>> realTicketDirectory(const StringRef &Path);
+
+void recordTicketDirectory(
+    pstore::transaction<pstore::transaction_lock> &Transaction,
+    std::shared_ptr<pstore::index::path_index> const &Paths,
+    llvm::StringRef const &OutputPath);
 
 } // end namespace repo
 } // end namespace mc

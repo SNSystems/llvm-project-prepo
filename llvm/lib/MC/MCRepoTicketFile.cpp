@@ -8,14 +8,17 @@
 
 #include "llvm/MC/MCRepoTicketFile.h"
 
-#include "pstore/core/index_types.hpp"
 #include "pstore/core/database.hpp"
+#include "pstore/core/hamt_set.hpp"
+#include "pstore/core/index_types.hpp"
+#include "pstore/core/indirect_string.hpp"
 
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/CRC.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/Process.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -309,4 +312,29 @@ llvm::mc::repo::getOwnerIDFromTicket(StringRef TicketPath) {
     return MemoryBufferOrErr.getError();
   }
   return getOwnerIDFromTicket(**MemoryBufferOrErr);
+}
+
+Expected<llvm::SmallString<256>>
+llvm::mc::repo::realTicketDirectory(const StringRef &Path) {
+  // Make absolute and remove component traversals, links, etc.
+  llvm::SmallString<256> Out = Path;
+  sys::path::remove_filename(Out);
+  llvm::SmallString<256> Out2;
+  if (const std::error_code EC = sys::fs::real_path(Out, Out2)) {
+    return llvm::errorCodeToError(EC);
+  }
+  return Out2;
+}
+
+void llvm::mc::repo::recordTicketDirectory(
+    pstore::transaction<pstore::transaction_lock> &Transaction,
+    std::shared_ptr<pstore::index::path_index> const &Paths,
+    llvm::StringRef const &TicketDirectory) {
+
+  assert(sys::fs::is_directory(TicketDirectory) &&
+         "The path being recorded must be a directory");
+  pstore::indirect_string_adder Adder;
+  pstore::raw_sstring_view View{TicketDirectory.data(), TicketDirectory.size()};
+  Adder.add(Transaction, Paths, &View);
+  Adder.flush(Transaction);
 }

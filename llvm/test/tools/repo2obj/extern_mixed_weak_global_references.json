@@ -21,11 +21,10 @@
     {
       // generation 1
       "names":[
-        "x86_64-pc-linux-gnu-repo",
-        "/path",
-        "a",
-        "_ZTW1a",
-        "_ZTH1a"
+        "x86_64-pc-linux-gnu-repo", // 0
+        "a",      // 1
+        "_ZTW1a", // 2
+        "_ZTH1a"  // 3
       ],
       "fragments":{
         "38ba192db4955408af33b70221a5c1b2":{
@@ -33,19 +32,18 @@
               "align":16,
               "data":"ULgAAAAASIXAdAXoAAAAAGRIiwQlAAAAAEgDBQAAAABZww==",
               "xfixups":[
-                {"name":4,"type":10,"is_weak":false,"offset":2,"addend":0}, //"_ZTH1a"
-                {"name":4,"type":4,"is_weak":true,"offset":12,"addend":-4}, //"_ZTH1a"
-                {"name":2,"type":22,"offset":28,"addend":-4} //"a"
+                {"name":3,"type":10,"is_weak":false,"offset":2,"addend":0}, //"_ZTH1a"
+                {"name":3,"type":4,"is_weak":true,"offset":12,"addend":-4}, //"_ZTH1a"
+                {"name":1,"type":22,"offset":28,"addend":-4} //"a"
               ]
             }
           }
       },
       "compilations":{
         "e865ac76298a3007c24cad11885532d4":{
-          "path":1, //"/path"
           "triple":0, //"x86_64-pc-linux-gnu-repo"
           "definitions":[
-            {"digest":"38ba192db4955408af33b70221a5c1b2","name":3,"linkage":"link_once_odr","visibility":"hidden"} //"_ZTW1a"
+            {"digest":"38ba192db4955408af33b70221a5c1b2","name":2,"linkage":"link_once_odr","visibility":"hidden"} //"_ZTW1a"
           ]
         }
       }

@@ -170,11 +170,13 @@ struct Indices {
         Compilations{
             pstore::index::get_index<pstore::trailer::indices::compilation>(
                 Db)},
-        Names{pstore::index::get_index<pstore::trailer::indices::name>(Db)} {}
+        Names{pstore::index::get_index<pstore::trailer::indices::name>(Db)},
+        Paths{pstore::index::get_index<pstore::trailer::indices::path>(Db)} {}
 
   std::shared_ptr<pstore::index::fragment_index> Fragments;
   std::shared_ptr<pstore::index::compilation_index> Compilations;
   std::shared_ptr<pstore::index::name_index> Names;
+  std::shared_ptr<pstore::index::path_index> Paths;
 };
 
 } // end anonymous namespace
@@ -244,8 +246,15 @@ static llvm::Error writeConfigFile(llvm::StringRef const &Dir) {
   return llvm::errorCodeToError(OutFile.error());
 }
 
-static llvm::Error makeAbsolute(llvm::SmallVectorImpl<char> &Path) {
-  return llvm::errorCodeToError(llvm::sys::fs::make_absolute(Path));
+static llvm::Error checkIsDirectory(llvm::StringRef OutputDir) {
+  llvm::sys::fs::file_status FS;
+  if (const std::error_code EC = llvm::sys::fs::status(OutputDir, FS)) {
+    return llvm::errorCodeToError(EC);
+  }
+  if (!llvm::sys::fs::is_directory(FS)) {
+    return llvm::errorCodeToError(make_error_code(std::errc::not_a_directory));
+  }
+  return llvm::ErrorSuccess{};
 }
 
 int main(int argc, char *argv[]) {
@@ -264,17 +273,19 @@ int main(int argc, char *argv[]) {
   SharedFragments LinkOnceInfo{Idx.Fragments, LinkOncePerModule, "linkonce_"s};
   SharedFragments CommonInfo{Idx.Fragments, CommonPerModule, "common_"s};
 
+  const llvm::StringRef OutputDir{OutputDirOpt};
+  ExitOnErr(checkIsDirectory(OutputDir));
+  const auto FullOutputDir =
+      ExitOnErr(llvm::mc::repo::realTicketDirectory(OutputDir));
+  ExitOnErr(writeConfigFile(FullOutputDir));
+
   auto Transaction = pstore::begin(Db);
+
+  llvm::mc::repo::recordTicketDirectory(Transaction, Idx.Paths, FullOutputDir);
+
   StringAdder Strings{(ExternalPerModule + 1) * Modules + LinkOncePerModule +
                           CommonPerModule + AppendPerModule + 1,
                       Idx.Names};
-
-  llvm::SmallString<128> OutputDir = llvm::StringRef{OutputDirOpt};
-  ExitOnErr(makeAbsolute(OutputDir));
-  ExitOnErr(writeConfigFile(OutputDir));
-
-  IStringAddress TicketPath =
-      Strings.add(Transaction, OutputDir, false /*IsDefinition*/);
   IStringAddress TripleName = Strings.add(Transaction, Triple, false);
 
   // Create names for the append symbols.
@@ -366,7 +377,7 @@ int main(int argc, char *argv[]) {
     {
       // Create an entry in the compilation index.
       auto Compilation = pstore::repo::compilation::alloc(
-          Transaction, TicketPath, TripleName, std::begin(Definitions),
+          Transaction, TripleName, std::begin(Definitions),
           std::end(Definitions));
       pstore::index::digest const ModuleDigest =
           rawHash(Transaction.db(), Compilation);
@@ -375,7 +386,7 @@ int main(int argc, char *argv[]) {
 
       // Write the ticket file to disk.
       ExitOnErr(llvm::mc::repo::writeTicketFile(
-          getTicketFilePath(llvm::StringRef{OutputDir}, ModuleCtr),
+          getTicketFilePath(llvm::StringRef{OutputDirOpt}, ModuleCtr),
           Transaction.db(), ModuleDigest));
     }
 

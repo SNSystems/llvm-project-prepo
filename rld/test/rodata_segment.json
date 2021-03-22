@@ -24,7 +24,7 @@
   "id":"43777a3d-88d0-40ec-928f-f7abbfdbacdb",
   "transactions":[
     {
-      "names":[ "/path", "x86_64-pc-linux-gnu-repo", "a", "b" ],
+      "names":[ "x86_64-pc-linux-gnu-repo", "a", "b" ],
 
       "fragments":{
         // Used by ta.o
@@ -37,19 +37,17 @@
       "compilations":{
         // Will be ta.o
         "b24bcc617ea04e1ebb049c7d9474b207":{
-          "path":0,   //"/path"
-          "triple":1, //"x86_64-pc-linux-gnu-repo"
+          "triple":0, //"x86_64-pc-linux-gnu-repo"
           "definitions":[
-            {"digest":"55d19e2f6f02436a930780ab3ca1149e","name":2,"linkage":"external"} //"a"
+            {"digest":"55d19e2f6f02436a930780ab3ca1149e","name":1,"linkage":"external"} //"a"
           ]
         },
 
         // Will be tb.o
         "179954423c360b6469069364ba86e7af":{
-          "path":0,   //"/path"
-          "triple":1, //"x86_64-pc-linux-gnu-repo"
+          "triple":0, //"x86_64-pc-linux-gnu-repo"
           "definitions":[
-            {"digest":"833d8e4e88bf4f39b5ea6766ce29bdfb","name":3,"linkage":"external"}  //"b"
+            {"digest":"833d8e4e88bf4f39b5ea6766ce29bdfb","name":2,"linkage":"external"}  //"b"
           ]
         }
       } // compilatons

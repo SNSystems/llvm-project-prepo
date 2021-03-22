@@ -10,9 +10,8 @@
         {
             "names":[
                 "x86_64-pc-linux-gnu-repo", //0
-                "/path",                    //1
-                "f",                        //2
-                "g"                         //3
+                "f",                        //1
+                "g"                         //2
             ],
             "fragments":{
                 "9e30555726ae19d10a4dc6f1097a8def":{
@@ -20,17 +19,16 @@
                         "align":16,
                         "data":"VUiJ5bgrAAAAXcM=",
                         "xfixups": [
-                            {"name":3,"type":4,"is_weak":false,"offset":5,"addend":-4} //"g"
+                            {"name":2,"type":4,"is_weak":false,"offset":5,"addend":-4} //"g"
                         ]
                     }
                 }
             },
             "compilations":{
                 "25f1ea3ef1413aa52b0ef9567647acd1":{
-                    "path":1, //"/path"
                     "triple":0, //"x86_64-pc-linux-gnu-repo"
                     "definitions":[
-                        {"digest":"9e30555726ae19d10a4dc6f1097a8def","name":2,"linkage":"external"} //"f"
+                        {"digest":"9e30555726ae19d10a4dc6f1097a8def","name":1,"linkage":"external"} //"f"
                     ]
                 }
             }
