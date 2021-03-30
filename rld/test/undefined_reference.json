@@ -1,7 +1,7 @@
 // RUN: rm -rf %t && mkdir -p %t
 // RUN: pstore-import %t/db.db %s
 // RUN: repo-create-ticket --repo %t/db.db -o %t/t0.o 25f1ea3ef1413aa52b0ef9567647acd1
-// RUN: ! rld --repo=%t/db.db -o %t/rld.out %t/t0.o
+// RUN: not rld --repo=%t/db.db -o %t/rld.out %t/t0.o
 
 {
     "version":1,
