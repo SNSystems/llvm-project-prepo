@@ -141,10 +141,11 @@ public:
                                          const ModuleNamesContainer &Names,
                                          NamesWithPrefixContainer &Symbols);
 
-  pstore::index::digest buildCompilationRecord(
-      const pstore::database &Db, const MCAssembler &Asm,
-      ModuleNamesContainer &Names, NamesWithPrefixContainer &Symbols,
-      const ContentsType &Fragments, StringRef OutputFile, StringRef Triple);
+  pstore::index::digest
+  buildCompilationRecord(const pstore::database &Db, const MCAssembler &Asm,
+                         ModuleNamesContainer &Names,
+                         NamesWithPrefixContainer &Symbols,
+                         const ContentsType &Fragments, StringRef Triple);
 
   static pstore::repo::linkage toPstoreLinkage(GlobalValue::LinkageTypes L);
 
@@ -657,11 +658,8 @@ template <typename T> ArrayRef<std::uint8_t> makeByteArrayRef(T const &Value) {
 pstore::index::digest RepoObjectWriter::buildCompilationRecord(
     const pstore::database &Db, const MCAssembler &Asm,
     ModuleNamesContainer &Names, NamesWithPrefixContainer &Symbols,
-    const ContentsType &Fragments, StringRef OutputFile, StringRef Triple) {
+    const ContentsType &Fragments, StringRef Triple) {
   MD5 CompilationHash;
-
-  CompilationHash.update(OutputFile.size());
-  CompilationHash.update(OutputFile);
 
   CompilationHash.update(Triple.size());
   CompilationHash.update(Triple);
@@ -858,12 +856,13 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
   SmallString<64> ResultPath;
   StringRef OutputFile =
       streamPath(static_cast<raw_fd_ostream &>(W.OS), ResultPath);
+  Expected<llvm::SmallString<256>> OutputDir =
+      llvm::mc::repo::realTicketDirectory(OutputFile);
+  consumeError(OutputDir.takeError()); // What else can we do here?
+
   llvm::Triple const Triple =
       Asm.getContext().getObjectFileInfo()->getTargetTriple();
   std::string const &TripleStr = Triple.str();
-
-  Names.emplace(stringRefAsView(OutputFile),
-                pstore::typed_address<pstore::indirect_string>::null());
   Names.emplace(stringRefAsView(TripleStr),
                 pstore::typed_address<pstore::indirect_string>::null());
 
@@ -876,7 +875,7 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
   pstore::database &Db = llvm::getRepoDatabase();
   NamesWithPrefixContainer PrefixedNames;
   const pstore::index::digest CompilationDigest = buildCompilationRecord(
-      Db, Asm, Names, PrefixedNames, Fragments, OutputFile, TripleStr);
+      Db, Asm, Names, PrefixedNames, Fragments, TripleStr);
 
   buildLinkedDefinitions(Fragments, CompilationDigest, CompilationDefinitions);
 
@@ -885,6 +884,11 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
   if (!isExistingTicket(Db, CompilationDigest)) {
     TransactionType &Transaction = getRepoTransaction();
     {
+      llvm::mc::repo::recordTicketDirectory(
+          Transaction,
+          pstore::index::get_index<pstore::trailer::indices::path>(Db),
+          *OutputDir);
+
       std::shared_ptr<pstore::index::compilation_index> const CompilationIndex =
           pstore::index::get_index<pstore::trailer::indices::compilation>(Db);
       assert(CompilationIndex);
@@ -969,11 +973,6 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
         FragmentsIndex->insert(Transaction, std::make_pair(Key, Extent));
       }
 
-      // Find the store address of the output file path.
-      auto const OutputFilePos = Names.find(stringRefAsView(OutputFile));
-      assert(OutputFilePos != Names.end() && "Output file can't be found!");
-      auto OutputPathAddr = OutputFilePos->second;
-
       // Find the store address of the target triple.
       auto const TriplePos = Names.find(stringRefAsView(TripleStr));
       assert(TriplePos != Names.end() && "Triple can't be found!");
@@ -1026,8 +1025,8 @@ uint64_t RepoObjectWriter::writeObject(MCAssembler &Asm,
 
       // Store the Compilation.
       auto CExtent = pstore::repo::compilation::alloc(
-          Transaction, OutputPathAddr, TripleAddr,
-          CompilationDefinitions.begin(), CompilationDefinitions.end());
+          Transaction, TripleAddr, CompilationDefinitions.begin(),
+          CompilationDefinitions.end());
       CompilationIndex->insert(Transaction,
                                std::make_pair(CompilationDigest, CExtent));
 

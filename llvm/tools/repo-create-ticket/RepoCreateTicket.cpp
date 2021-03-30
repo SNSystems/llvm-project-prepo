@@ -8,17 +8,21 @@
 
 #include "llvm/MC/MCRepoTicketFile.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/ToolOutputFile.h"
 
 #include "pstore/core/hamt_map.hpp"
+#include "pstore/core/hamt_set.hpp"
 #include "pstore/core/index_types.hpp"
 
 using namespace llvm;
 
+#define DEBUG_TYPE "repo-create-ticket"
+
 namespace {
 
-cl::opt<std::string> CompilationDigest(cl::Positional, cl::Optional,
+cl::opt<std::string> CompilationDigest(cl::Positional, cl::Required,
                                        cl::desc("<compilation-digest>"));
 cl::opt<std::string>
     OutputPath("output", cl::Optional,
@@ -79,15 +83,35 @@ static Expected<pstore::index::digest> digestFromCommandLine(StringRef Str) {
   return *Digest;
 }
 
+// Add the ticket file path to the repository's paths index. That ensures that
+// we know about this directory as a source of potential collection roots when
+// the vacuum process runs.
+static Error addTicketDirectory(llvm::StringRef OutputPath,
+                                pstore::database &Db) {
+  Expected<llvm::SmallString<256>> TicketDirectory =
+      mc::repo::realTicketDirectory(OutputPath);
+  if (!TicketDirectory) {
+    return TicketDirectory.takeError();
+  }
+  LLVM_DEBUG(llvm::dbgs() << "ticket directory:" << *TicketDirectory << '\n');
+
+  auto Transaction = pstore::begin(Db);
+  mc::repo::recordTicketDirectory(
+      Transaction, pstore::index::get_index<pstore::trailer::indices::path>(Db),
+      *TicketDirectory);
+  Transaction.commit();
+  return Error::success();
+}
+
 int main(int argc, char *argv[]) {
   ExitOnError ExitOnErr("error: ", EXIT_FAILURE);
-  cl::ParseCommandLineOptions(
-      argc, argv,
-      "Create a ticket file from an existing program repository.\n");
+  cl::ParseCommandLineOptions(argc, argv,
+                              "Create a ticket file for a compilation in an "
+                              "existing program repository.\n");
 
   pstore::database Db{getRepoPath(RepoPath),
-                      pstore::database::access_mode::read_only};
-  auto const Digest = ExitOnErr(digestFromCommandLine(CompilationDigest));
+                      pstore::database::access_mode::writeable_no_create};
+  const auto Digest = ExitOnErr(digestFromCommandLine(CompilationDigest));
   const auto Index =
       pstore::index::get_index<pstore::trailer::indices::compilation>(Db);
   assert(Index != nullptr);
@@ -96,6 +120,8 @@ int main(int argc, char *argv[]) {
            << " was not found.\n";
     return EXIT_FAILURE;
   }
+
+  ExitOnErr(addTicketDirectory(OutputPath, Db));
 
   // Write the ticket file to disk.
 

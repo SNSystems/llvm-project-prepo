@@ -123,14 +123,12 @@ CompilationBuilder::compile(NameAndLinkageIterator First,
                           NameAdder_.add(Transaction, NL.first), NL.second};
       });
 
-  constexpr auto Path = "/path";
   constexpr auto Triple = "machine-vendor-os";
   auto const Result = CompilationIndex->insert(
       Transaction,
       std::make_pair(
           Digest{CompilationIndex->size()},
-          Compilation::alloc(Transaction, NameAdder_.add(Transaction, Path),
-                             NameAdder_.add(Transaction, Triple),
+          Compilation::alloc(Transaction, NameAdder_.add(Transaction, Triple),
                              std::begin(Definitions), std::end(Definitions))));
   NameAdder_.flush(Transaction); // Write the bodies of the strings.
   Transaction.commit();

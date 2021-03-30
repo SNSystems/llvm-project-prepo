@@ -1,5 +1,6 @@
 set(LLVM_LINK_COMPONENTS
     Object
+    MC
     Support
 )
 add_llvm_tool (repo-create-ticket
