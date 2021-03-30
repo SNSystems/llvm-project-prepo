@@ -115,6 +115,14 @@ template <typename Function> inline void forEachSectionKind(Function F) {
   }
 }
 
+template <SectionKind SK> struct ToPstoreSectionKind {};
+#define X(a)                                                                   \
+  template <> struct ToPstoreSectionKind<SectionKind::a> {                     \
+    static constexpr auto value = pstore::repo::section_kind::a;               \
+  };
+PSTORE_MCREPO_SECTION_KINDS
+#undef X
+
 template <typename Value>
 using SectionIndexedArray =
     EnumIndexedArray<SectionKind, SectionKind::last, Value>;
@@ -247,6 +255,13 @@ private:
   template <pstore::repo::section_kind SKind>
   Contribution *addSectionToLayout(FragmentPtr const &F, FragmentAddress FAddr,
                                    StringAddress Name, unsigned InputOrdinal);
+
+  /// \param SKind The kind of the section to be added.
+  /// \param Size  The number of bytes required for the section data.
+  /// \param Alignment  The alignment of the section data.
+  /// \returns  The OutputSection to which the section was added.
+  OutputSection *addToOutputSection(SectionKind SKind, size_t Size,
+                                    unsigned Alignment);
 
   LocalSymbolsContainer recoverDefinitionsFromCUMap(std::size_t Ordinal);
   void addSymbolBody(Symbol *const Sym, Symbol::Body const &Body,

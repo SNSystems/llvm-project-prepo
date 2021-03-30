@@ -1326,6 +1326,7 @@ static void scanReloc(InputSectionBase &sec, OffsetGetter &getOffset, RelTy *&i,
       ppc64noTocRelax.insert({&sym, addend});
   }
 
+#if 0
   // Relax relocations.
   //
   // If we know that a PLT entry will be resolved within the same ELF module, we
@@ -1351,7 +1352,7 @@ static void scanReloc(InputSectionBase &sec, OffsetGetter &getOffset, RelTy *&i,
       expr = fromPlt(expr);
     }
   }
-
+#endif
   // If the relocation does not emit a GOT or GOTPLT entry but its computation
   // uses their addresses, we need GOT or GOTPLT to be created.
   //

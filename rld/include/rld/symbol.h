@@ -155,14 +155,15 @@ public:
   explicit Symbol(StringAddress N, pstore::repo::reference_strength Strength)
       : Name_{N.absolute()},
         WeakUndefined_{Strength == pstore::repo::reference_strength::weak},
-        Contribution_{nullptr} {
+        Contribution_{nullptr}, HasPLT_{false} {
     assert(name() == N &&
            N.absolute() < (UINT64_C(1) << StringAddress::total_bits));
   }
 
   Symbol(StringAddress N, Body &&Definition)
       : Name_{N.absolute()}, WeakUndefined_{false}, Contribution_{nullptr},
-        Definition_{llvm::SmallVector<Body, 1>{std::move(Definition)}} {
+        HasPLT_{false}, Definition_{
+                            llvm::SmallVector<Body, 1>{std::move(Definition)}} {
     assert(name() == N &&
            N.absolute() < (UINT64_C(1) << StringAddress::total_bits));
   }
@@ -201,6 +202,14 @@ public:
     Contribution_.compare_exchange_strong(expected, C);
   }
   Contribution *contribution() const { return Contribution_.load(); }
+
+  /// Invoked when a PLT-related fixup targeting this symbol is encountered. The
+  /// first time the function is called it will return true telling the caller
+  /// to create a PLT entry; subsequent calls will return false.
+  bool shouldCreatePLTEntry() {
+    bool Expected = false;
+    return HasPLT_.compare_exchange_strong(Expected, true);
+  }
 
   /// Records a reference from an external fixup.
   ///
@@ -377,6 +386,9 @@ private:
 
   /// The output contribution produced by this symbol. Set during layout.
   std::atomic<Contribution *> Contribution_;
+
+  /// True if an associated PLT entry has been created for this symbol.
+  std::atomic<bool> HasPLT_;
 
   /// We allow an array of definitions so that append symbols can associate
   /// multiple definitions with a single name.

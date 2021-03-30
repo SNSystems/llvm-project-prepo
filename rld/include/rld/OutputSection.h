@@ -44,7 +44,7 @@ struct OutputSection {
   /// from contributions or metadata stored elsewhere).
   uint64_t FileSize = 0;
   /// The alignment of the most aligned contribution.
-  unsigned MaxAlign = 0U;
+  unsigned MaxAlign = 1U;
 
   bool AlwaysEmit = false;
   // The section to which this section is linked. Used to set the

@@ -28,28 +28,29 @@ constexpr auto DebugType = "rld-ELF";
   constexpr char rld::elf::ElfSectionName<rld::SectionKind::K>::name[];        \
   constexpr std::size_t rld::elf::ElfSectionName<rld::SectionKind::K>::length
 
-ELF_SECTION_NAME(text, ".text");
-ELF_SECTION_NAME(data, ".data");
 ELF_SECTION_NAME(bss, ".bss");
-ELF_SECTION_NAME(rel_ro, ".data.rel");
+ELF_SECTION_NAME(data, ".data");
+ELF_SECTION_NAME(debug_line, ".debug_line");
+ELF_SECTION_NAME(debug_ranges, ".debug_ranges");
+ELF_SECTION_NAME(debug_string, ".debug_str");
+ELF_SECTION_NAME(interp, ".interp");
+ELF_SECTION_NAME(linked_definitions, "");
 ELF_SECTION_NAME(mergeable_1_byte_c_string, ".rodata.str1.1");
 ELF_SECTION_NAME(mergeable_2_byte_c_string, ".rodata.str2.2");
 ELF_SECTION_NAME(mergeable_4_byte_c_string, ".rodata.str4.4");
-ELF_SECTION_NAME(mergeable_const_4, ".rodata.cst4");
-ELF_SECTION_NAME(mergeable_const_8, ".rodata.cst8");
 ELF_SECTION_NAME(mergeable_const_16, ".rodata.cst16");
 ELF_SECTION_NAME(mergeable_const_32, ".rodata.cst32");
+ELF_SECTION_NAME(mergeable_const_4, ".rodata.cst4");
+ELF_SECTION_NAME(mergeable_const_8, ".rodata.cst8");
+ELF_SECTION_NAME(plt, ".plt");
 ELF_SECTION_NAME(read_only, ".rodata");
-ELF_SECTION_NAME(thread_data, ".tls");
-ELF_SECTION_NAME(thread_bss, ".tbss");
-ELF_SECTION_NAME(debug_line, ".debug_line");
-ELF_SECTION_NAME(debug_string, ".debug_str");
-ELF_SECTION_NAME(debug_ranges, ".debug_ranges");
-ELF_SECTION_NAME(interp, ".interp");
+ELF_SECTION_NAME(rel_ro, ".data.rel");
 ELF_SECTION_NAME(shstrtab, ".shstrtab");
 ELF_SECTION_NAME(strtab, ".strtab");
 ELF_SECTION_NAME(symtab, ".symtab");
-ELF_SECTION_NAME(linked_definitions, "");
+ELF_SECTION_NAME(text, ".text");
+ELF_SECTION_NAME(thread_bss, ".tbss");
+ELF_SECTION_NAME(thread_data, ".tls");
 
 #undef ELF_SECTION_NAME
 

@@ -175,9 +175,6 @@ static int64_t computeSectionFileOffsets(
         assert(OutScn->SectionK == SectionK &&
                "The output-section's SectionKind should match");
         if (OutScn->shouldEmit()) {
-          assert(
-              !OutScn->Contributions.empty() &&
-              "We can't have data for the output file with no contributions!");
           assert(!(*SectionFileOffsets)[SectionK] &&
                  "Layout should not have assigned a section type to more than "
                  "one segment");
@@ -309,6 +306,7 @@ static constexpr unsigned char sectionToSymbolType(const SectionKind T) {
   case SectionKind::interp:
     return llvm::ELF::STT_NOTYPE;
   case SectionKind::linked_definitions:
+  case SectionKind::plt:
   case SectionKind::shstrtab:
   case SectionKind::strtab:
   case SectionKind::symtab:

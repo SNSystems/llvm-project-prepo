@@ -206,6 +206,7 @@ template <typename ELFT> constexpr auto elfSectionType(rld::SectionKind Kind) {
   case SectionKind::mergeable_const_32:
   case SectionKind::mergeable_const_4:
   case SectionKind::mergeable_const_8:
+  case SectionKind::plt:
   case SectionKind::read_only:
   case SectionKind::rel_ro:
   case SectionKind::text:
@@ -236,6 +237,7 @@ template <typename ELFT> constexpr auto elfSectionFlags(SectionKind Kind) {
 
   switch (Kind) {
   case SectionKind::text:
+  case SectionKind::plt:
     return Elf_Word{llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_EXECINSTR};
 
   case SectionKind::bss:
@@ -299,6 +301,8 @@ template <typename ELFT> constexpr auto elfSectionEntSize(SectionKind Kind) {
     return Elf_Word{32};
   case SectionKind::symtab:
     return Elf_Word{sizeof(typename llvm::object::ELFFile<ELFT>::Elf_Sym)};
+  case SectionKind::plt:
+    return Elf_Word{8};
   case SectionKind::text:
   case SectionKind::data:
   case SectionKind::bss:
@@ -320,9 +324,9 @@ template <typename ELFT> constexpr auto elfSectionEntSize(SectionKind Kind) {
   return Elf_Word{0};
 }
 
-template <rld::SectionKind SKind> struct ElfSectionName {};
+template <SectionKind SKind> struct ElfSectionName {};
 #define ELF_SECTION_NAME(K, N)                                                 \
-  template <> struct ElfSectionName<rld::SectionKind::K> {                     \
+  template <> struct ElfSectionName<SectionKind::K> {                          \
     static constexpr char name[] = N;                                          \
     static constexpr std::size_t length = pstore::array_elements(name) - 1U;   \
   }
@@ -341,6 +345,7 @@ ELF_SECTION_NAME(mergeable_const_16, ".rodata.cst16");
 ELF_SECTION_NAME(mergeable_const_32, ".rodata.cst32");
 ELF_SECTION_NAME(mergeable_const_4, ".rodata.cst4");
 ELF_SECTION_NAME(mergeable_const_8, ".rodata.cst8");
+ELF_SECTION_NAME(plt, ".plt");
 ELF_SECTION_NAME(read_only, ".rodata");
 ELF_SECTION_NAME(rel_ro, ".data.rel");
 ELF_SECTION_NAME(shstrtab, ".shstrtab");
@@ -353,29 +358,21 @@ ELF_SECTION_NAME(thread_data, ".tls");
 #undef ELF_SECTION_NAME
 
 #define X(x)                                                                   \
-  case rld::SectionKind::x:                                                    \
-    return {ElfSectionName<rld::SectionKind::x>::name,                         \
-            ElfSectionName<rld::SectionKind::x>::length};
-
+  case SectionKind::x:                                                         \
+    return {ElfSectionName<SectionKind::x>::name,                              \
+            ElfSectionName<SectionKind::x>::length};
+#define RLD_X(x) X(x)
 inline constexpr std::pair<char const *, std::size_t>
 elfSectionNameAndLength(rld::SectionKind SKind) {
   switch (SKind) {
     PSTORE_MCREPO_SECTION_KINDS
-  case rld::SectionKind::shstrtab:
-    return {ElfSectionName<rld::SectionKind::shstrtab>::name,
-            ElfSectionName<rld::SectionKind::shstrtab>::length};
-  case rld::SectionKind::strtab:
-    return {ElfSectionName<rld::SectionKind::strtab>::name,
-            ElfSectionName<rld::SectionKind::strtab>::length};
-  case rld::SectionKind::symtab:
-    return {ElfSectionName<rld::SectionKind::symtab>::name,
-            ElfSectionName<rld::SectionKind::symtab>::length};
+    RLD_SECTION_KINDS
   case rld::SectionKind::last:
     break;
   }
   llvm_unreachable("Unknown rld section-kind");
 }
-
+#undef RLD_X
 #undef X
 
 template <typename ELFT>

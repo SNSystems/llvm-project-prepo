@@ -51,6 +51,22 @@ inline void apply<llvm::ELF::R_X86_64_64>(uint8_t *const Out,
   llvm::support::ulittle64_t::ref{Out} = Value;
 }
 
+// Field: word32
+// Calculation: S + A
+// The R_X86_64_32 and R_X86_64_32S relocations truncate the computed value to
+// 32-bits. The linker must verify that the generated value for the R_X86_64_32
+// (R_X86_64_32S) relocation zero-extends (sign-extends) to the original 64-bit
+// value.
+template <>
+inline void apply<llvm::ELF::R_X86_64_32>(uint8_t *const Out,
+                                          const Symbol *const Sym,
+                                          const ExternalFixup &XFixup) {
+  const auto S = Sym != nullptr ? Sym->value() : UINT64_C(0);
+  const int64_t A = XFixup.addend;
+  const auto Value = S + A;
+  llvm::support::ulittle32_t::ref{Out} = Value;
+}
+
 template <>
 inline void apply<llvm::ELF::R_X86_64_32S>(uint8_t *const Out,
                                            const Symbol *const Sym,
@@ -59,7 +75,7 @@ inline void apply<llvm::ELF::R_X86_64_32S>(uint8_t *const Out,
   const int64_t A = XFixup.addend;
   // TODO: range check.
   const auto Value = S + A;
-  llvm::support::ulittle32_t::ref{Out} = Value;
+  llvm::support::little32_t::ref{Out} = Value;
 }
 
 template <>
@@ -67,6 +83,7 @@ inline void apply<llvm::ELF::R_X86_64_PLT32>(uint8_t *const Out,
                                              const Symbol *const Sym,
                                              const ExternalFixup &XFixup) {}
 
+#if 0
 template <>
 inline void apply<llvm::ELF::R_X86_64_PC32>(uint8_t *const Out,
                                             const Symbol *const Sym,
@@ -87,21 +104,20 @@ template <>
 inline void apply<llvm::ELF::R_X86_64_DTPOFF32>(uint8_t *const Out,
                                                 const Symbol *const Sym,
                                                 const ExternalFixup &XFixup) {}
-template <>
-inline void apply<llvm::ELF::R_X86_64_32>(uint8_t *const Out,
-                                          const Symbol *const Sym,
-                                          const ExternalFixup &XFixup) {}
+#endif
 
-template <pstore::repo::section_kind SKind,
-          typename SType = typename pstore::repo::enum_to_section<SKind>::type>
-static void copySection(Context &Ctxt, Contribution const &Contribution,
-                        uint8_t *Dest) {
+template <SectionKind SKind>
+void copyContribution(Context &Ctxt, Contribution const &Contribution,
+                      uint8_t *Dest) {
   llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
     llvm::dbgs() << "copy to "
                  << format_hex(reinterpret_cast<std::uintptr_t>(Dest)) << '\n';
   });
 
-  auto *const Section = reinterpret_cast<SType const *>(Contribution.Section);
+  using SectionType = typename pstore::repo::enum_to_section<
+      ToPstoreSectionKind<SKind>::value>::type;
+  auto *const Section =
+      reinterpret_cast<SectionType const *>(Contribution.Section);
   auto const &D = Section->payload();
   std::memcpy(Dest, D.begin(), D.size());
 
@@ -134,9 +150,8 @@ static void copySection(Context &Ctxt, Contribution const &Contribution,
 }
 
 template <>
-void copySection<pstore::repo::section_kind::bss>(Context &Ctxt,
-                                                  Contribution const &S,
-                                                  std::uint8_t *Dest) {
+void copyContribution<SectionKind::bss>(Context &Ctxt, Contribution const &S,
+                                        std::uint8_t *Dest) {
   llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
     llvm::dbgs() << "BSS fill "
                  << format_hex(reinterpret_cast<std::uintptr_t>(Dest)) << '\n';
@@ -149,27 +164,90 @@ void copySection<pstore::repo::section_kind::bss>(Context &Ctxt,
 }
 
 template <>
-void copySection<pstore::repo::section_kind::linked_definitions>(
-    Context &, Contribution const &, std::uint8_t *) {
+void copyContribution<SectionKind::linked_definitions>(Context &,
+                                                       Contribution const &,
+                                                       uint8_t *) {
   // discard
 }
 
+template <SectionKind SectionK>
+void copySection(Context &Ctxt, const Layout &Lout, uint8_t *Data) {
+  for (Contribution const &Contribution :
+       Lout.Sections[SectionK].Contributions) {
+    llvmDebug(DebugType, Ctxt.IOMut,
+              []() { llvm::dbgs() << SectionK << ": "; });
+
+    auto *const Dest = Data + alignTo(Contribution.Offset, Contribution.Align);
+    switch (SectionK) {
+#define X(a)                                                                   \
+  case SectionKind::a:                                                         \
+    copyContribution<SectionKind::a>(Ctxt, Contribution, Dest);                \
+    break;
+      PSTORE_MCREPO_SECTION_KINDS
+#undef X
+    default:
+      llvm_unreachable("Bad section kind");
+      break;
+    }
+  }
+}
+
+template <>
+void copySection<SectionKind::shstrtab>(Context & /*Ctxt*/,
+                                        const Layout & /*Lout*/,
+                                        std::uint8_t * /*Dest*/) {}
+template <>
+void copySection<SectionKind::strtab>(Context & /*Ctxt*/,
+                                      const Layout & /*Lout*/,
+                                      std::uint8_t * /*Dest*/) {}
+template <>
+void copySection<SectionKind::symtab>(Context & /*Ctxt*/,
+                                      const Layout & /*Lout*/,
+                                      std::uint8_t * /*Dest*/) {}
+
+template <>
+void copySection<SectionKind::plt>(Context &Ctxt, const Layout &Lout,
+                                   std::uint8_t *Dest) {
+  // FIXME: build the PLT section
+  memset(Dest, 0xFF, (Ctxt.PLTEntries.load() + 1) * 8);
+}
+
+static constexpr char const *jobName(const SectionKind SectionK) {
+  switch (SectionK) {
 #define X(K)                                                                   \
   case SectionKind::K:                                                         \
     return "Copy " #K;
 #define RLD_X(a) X(a)
-static constexpr char const *jobName(const SectionKind SectionK) {
-  switch (SectionK) {
     PSTORE_MCREPO_SECTION_KINDS
     RLD_SECTION_KINDS
+#undef RLD_X
+#undef X
   default:
     llvm_unreachable("Unknown section kind");
     break;
   }
   return nullptr;
 }
-#undef RLD_X
+
+bool hasDataToCopy(SectionKind SectionK, const Context &Ctxt,
+                   const Layout &Lout) {
+  switch (SectionK) {
+#define X(K)                                                                   \
+  case SectionKind::K:                                                         \
+    return !Lout.Sections[SectionKind::K].Contributions.empty();
+    PSTORE_MCREPO_SECTION_KINDS
 #undef X
+  case SectionKind::plt:
+    return Ctxt.PLTEntries.load() > 0U;
+
+  case SectionKind::shstrtab:
+  case SectionKind::strtab:
+  case SectionKind::symtab:
+  case SectionKind::last:
+    return false;
+  }
+  llvm_unreachable("Unhandled section type");
+}
 
 namespace rld {
 
@@ -180,42 +258,29 @@ void copyToOutput(
     uint64_t TargetDataOffset) {
 
   forEachSectionKind([&](const SectionKind SectionK) {
-    const OutputSection::ContributionVector &Contributions =
-        Lout.Sections[SectionK].Contributions;
-    if (Contributions.empty()) {
+    if (!hasDataToCopy(SectionK, Ctxt, Lout)) {
       return;
     }
     assert(SectionFileOffsets[SectionK].hasValue() &&
            "No layout position for a section with contributions");
     Workers.async(
-        [SectionK, &Ctxt, Data, &Contributions](const uint64_t Start) {
+        [SectionK, &Ctxt, Data, &Lout](const uint64_t Start) {
           llvm::NamedRegionTimer CopyTimer(jobName(SectionK), "Copy section",
                                            rld::TimerGroupName,
                                            rld::TimerGroupDescription);
-          for (Contribution const &Contribution : Contributions) {
-            llvmDebug(DebugType, Ctxt.IOMut,
-                      [SectionK]() { llvm::dbgs() << SectionK << ": "; });
 
-            auto *const Dest =
-                Data + alignTo(Contribution.Offset, Contribution.Align) + Start;
-            switch (SectionK) {
-#define X(a)                                                                   \
-  case SectionKind::a:                                                         \
-    copySection<pstore::repo::section_kind::a>(Ctxt, Contribution, Dest);      \
+          switch (SectionK) {
+#define X(x)                                                                   \
+  case SectionKind::x:                                                         \
+    copySection<SectionKind::x>(Ctxt, Lout, Data);                             \
     break;
-#define RLD_X(a)                                                               \
-  case SectionKind::a:                                                         \
-    break;
-
-              PSTORE_MCREPO_SECTION_KINDS
-              RLD_SECTION_KINDS
-
+#define RLD_X(x) X(x)
+            PSTORE_MCREPO_SECTION_KINDS
+            RLD_SECTION_KINDS
 #undef RLD_X
 #undef X
-            default:
-              llvm_unreachable("Bad section kind");
-              break;
-            }
+          case SectionKind::last:
+            break;
           }
         },
         TargetDataOffset + *SectionFileOffsets[SectionK]);

@@ -86,10 +86,10 @@ LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
     {SectionKind::debug_ranges, SegmentKind::discard},
     {SectionKind::interp, SegmentKind::interp},
     {SectionKind::linked_definitions, SegmentKind::discard},
-    {SectionKind::shstrtab, SegmentKind::discard}, // TODO:An unnecessary entry?
-                                                   // Use the repo section enum?
-    {SectionKind::strtab, SegmentKind::discard},   // TODO:An unnecessary entry?
-    {SectionKind::symtab, SegmentKind::discard},   // TODO:An unnecessary entry?
+    {SectionKind::plt, SegmentKind::text},
+    {SectionKind::shstrtab, SegmentKind::discard},
+    {SectionKind::strtab, SegmentKind::discard},
+    {SectionKind::symtab, SegmentKind::discard},
 }};
 
 // (ctor)
@@ -161,15 +161,6 @@ std::uint64_t LayoutBuilder::prevSectionEnd(
   return last.Offset + last.Size;
 }
 
-template <SectionKind SK> struct ToPstoreSectionKind {};
-
-#define X(a)                                                                   \
-  template <> struct ToPstoreSectionKind<SectionKind::a> {                     \
-    static constexpr auto value = pstore::repo::section_kind::a;               \
-  };
-PSTORE_MCREPO_SECTION_KINDS
-#undef X
-
 // has file data
 // ~~~~~~~~~~~~~
 constexpr bool hasFileData(pstore::repo::section_kind Kind) {
@@ -184,28 +175,40 @@ constexpr bool hasFileData(pstore::repo::section_kind Kind) {
   };
 }
 
-#define RLD_X(a)                                                               \
-  case rld::SectionKind::a:                                                    \
-    break;
 #define X(a)                                                                   \
-  case rld::SectionKind::a:                                                    \
-    return hasFileData(ToPstoreSectionKind<rld::SectionKind::a>::value);
+  case SectionKind::a:                                                         \
+    return hasFileData(ToPstoreSectionKind<SectionKind::a>::value);
 
-constexpr bool hasFileData(rld::SectionKind Kind) {
+constexpr bool hasFileData(SectionKind Kind) {
   switch (Kind) {
     PSTORE_MCREPO_SECTION_KINDS
-    RLD_SECTION_KINDS
+  case SectionKind::plt:
+    return true;
   default:
     break;
   }
   return false;
 }
 #undef X
-#undef RLD_X
 
-template <pstore::repo::section_kind Kind> struct HasFileData {
-  static constexpr bool value = hasFileData(Kind);
-};
+// add to output section
+// ~~~~~~~~~~~~~~~~~~~~~
+OutputSection *LayoutBuilder::addToOutputSection(SectionKind SKind, size_t Size,
+                                                 unsigned Alignment) {
+  Segment &Seg = Layout_->Segments[SectionToSegment_[SKind].second];
+  Seg.MaxAlign = std::max(Seg.MaxAlign, Alignment);
+
+  OutputSection *const OutputSection = &Layout_->Sections[SKind];
+  Seg.Sections[SKind] = OutputSection;
+  OutputSection->MaxAlign = std::max(OutputSection->MaxAlign, Alignment);
+  OutputSection->VirtualSize =
+      alignTo(OutputSection->VirtualSize, Alignment) + Size;
+  if (hasFileData(SKind)) {
+    OutputSection->FileSize =
+        alignTo(OutputSection->FileSize, Alignment) + Size;
+  }
+  return OutputSection;
+}
 
 // add section to layout
 // ~~~~~~~~~~~~~~~~~~~~~
@@ -228,22 +231,22 @@ Contribution *LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
   assert(reinterpret_cast<std::uint8_t const *>(&Section) >
          reinterpret_cast<std::uint8_t const *>(F.get()));
 
-  auto const Alignment = pstore::repo::section_alignment(Section);
   auto const Size = pstore::repo::section_size(Section);
+  auto const Alignment = pstore::repo::section_alignment(Section);
 
-  Segment &Seg = Layout_->Segments[SegmentK];
-  Seg.MaxAlign = std::max (Seg.MaxAlign, Alignment);
+  //  Segment &Seg = Layout_->Segments[SegmentK];
+  //  Seg.MaxAlign = std::max (Seg.MaxAlign, Alignment);
 
   OutputSection *const OutputSection =
-      &Layout_->Sections[ToRldSectionKind<SKind>::value];
-  Seg.Sections[ToRldSectionKind<SKind>::value] = OutputSection;
-  OutputSection->MaxAlign = std::max(OutputSection->MaxAlign, Alignment);
-  OutputSection->VirtualSize =
-      alignTo(OutputSection->VirtualSize, Alignment) + Size;
-  if (HasFileData<SKind>::value) {
-    OutputSection->FileSize =
-        alignTo(OutputSection->FileSize, Alignment) + Size;
-  }
+      this->addToOutputSection(ToRldSectionKind<SKind>::value, Size, Alignment);
+
+  //  Seg.Sections[ToRldSectionKind<SKind>::value] = OutputSection;
+  //  OutputSection->MaxAlign = std::max(OutputSection->MaxAlign, Alignment);
+  //  OutputSection->VirtualSize = alignTo(OutputSection->VirtualSize,
+  //  Alignment) + Size; if (HasFileData<SKind>::value) {
+  //    OutputSection->FileSize =
+  //        alignTo(OutputSection->FileSize, Alignment) + Size;
+  //  }
 
   OutputSection->Contributions.emplace_back(
       &Section,
@@ -406,6 +409,11 @@ void LayoutBuilder::run() {
         this->addSymbolBody(Sym, *Pos, Ordinal, Name);
       }
     }
+  }
+
+  if (const unsigned PLTEntries = Ctx_.PLTEntries.load()) {
+    this->addToOutputSection(rld::SectionKind::plt,
+                             (size_t{PLTEntries} + 1U) * 8U, 8U);
   }
 }
 

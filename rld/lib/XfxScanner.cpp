@@ -13,8 +13,15 @@
 //
 //===----------------------------------------------------------------------===//
 #include "rld/XfxScanner.h"
+
 #include "pstore/mcrepo/section.hpp"
+
+#include "llvm/BinaryFormat/ELF.h"
+#include "llvm/Support/Endian.h"
+
 #include "rld/context.h"
+
+#include <array>
 
 using namespace rld;
 
@@ -49,11 +56,65 @@ void resolve(State &S, const pstore::repo::fragment &Fragment,
     llvmDebug(DebugType, S.Ctxt.IOMut, [&]() {
       llvm::dbgs() << "-> " << loadStdString(S.Ctxt.Db, Xfx.name) << '\n';
     });
+
     assert(ShadowXfx->load(std::memory_order_acquire) == nullptr &&
            "An xfixup has already been resolved");
-    ShadowXfx->store(referenceSymbol(S.Ctxt, S.Locals, S.Globals, S.Undefs,
-                                     Xfx.name, Xfx.strength()),
-                     std::memory_order_release);
+
+    Symbol *const Sym = referenceSymbol(S.Ctxt, S.Locals, S.Globals, S.Undefs,
+                                        Xfx.name, Xfx.strength());
+
+    if (Xfx.type == llvm::ELF::R_X86_64_PLT32) {
+      if (Sym->shouldCreatePLTEntry()) {
+        S.Ctxt.PLTEntries.fetch_add(1U, std::memory_order_relaxed);
+
+        static std::mutex PLTMut;
+        static std::vector<uint8_t> PLT;
+        const std::unique_lock<std::mutex> PLTLock{PLTMut};
+        if (PLT.empty()) {
+          // add the PLT header
+          // TODO: hang an object representing the target architecture/ABI from
+          // the context and invoke a virtual method on it to do this.
+          static const std::array<uint8_t, 16> PLTData{{
+              0xff, 0x35, 0, 0, 0, 0, // pushq GOTPLT+8(%rip)
+              0xff, 0x25, 0, 0, 0, 0, // jmp *GOTPLT+16(%rip)
+              0x0f, 0x1f, 0x40, 0,    // nop
+          }};
+          PLT.reserve(PLTData.size());
+          std::copy(std::begin(PLTData), std::end(PLTData),
+                    std::back_inserter(PLT));
+          uint8_t *Ptr = &PLT.front();
+          //                    memcpy(buf, PLTData, sizeof(PLTData));
+          uint64_t GOTPLT = 0; // uint64_t gotPlt = in.gotPlt->getVA();
+          uint64_t PLT = 0; // uint64_t plt = in.ibtPlt ? in.ibtPlt->getVA() :
+                            // in.plt->getVA();
+          llvm::support::endian::write32le(Ptr + 2,
+                                           GOTPLT - PLT + 2); // GOTPLT+8
+          llvm::support::endian::write32le(Ptr + 8,
+                                           GOTPLT - PLT + 4); // GOTPLT+16
+        }
+
+        static const std::array<uint8_t, 16> Inst{{
+            0xff, 0x25, 0, 0, 0, 0, // jmpq *got(%rip)
+            0x68, 0, 0, 0, 0,       // pushq <relocation index>
+            0xe9, 0, 0, 0, 0,       // jmpq plt[0]
+        }};
+        uint8_t *Ptr = &PLT.back() + 1;
+        std::copy(std::begin(Inst), std::end(Inst), std::back_inserter(PLT));
+
+        // llvm::support::endian::write32le(buf + 2, sym.getGotPltVA() -
+        // pltEntryAddr - 6); llvm::support::endian::write32le(buf + 7,
+        // sym.pltIndex); llvm::support::endian::write32le(buf + 12,
+        // in.plt->getVA() - pltEntryAddr - 16);
+
+#if 0
+            PLT.emplace_back ();
+#endif
+        static int Count = 0;
+        std::cout << "plt " << ++Count << '\n';
+      }
+    }
+
+    ShadowXfx->store(Sym, std::memory_order_release);
     ++ShadowXfx;
   }
 }

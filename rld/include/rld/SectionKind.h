@@ -26,6 +26,7 @@ namespace rld {
 //* |___/\___\__|\__|_\___/_||_|_|\_\_|_||_\__,_| *
 //*                                               *
 #define RLD_SECTION_KINDS                                                      \
+  RLD_X(plt)                                                                   \
   RLD_X(shstrtab)                                                              \
   RLD_X(strtab)                                                                \
   RLD_X(symtab)
