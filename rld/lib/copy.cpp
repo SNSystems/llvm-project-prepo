@@ -272,7 +272,7 @@ void copyToOutput(
           switch (SectionK) {
 #define X(x)                                                                   \
   case SectionKind::x:                                                         \
-    copySection<SectionKind::x>(Ctxt, Lout, Data);                             \
+    copySection<SectionKind::x>(Ctxt, Lout, Data + Start);                     \
     break;
 #define RLD_X(x) X(x)
             PSTORE_MCREPO_SECTION_KINDS
