@@ -319,11 +319,13 @@ llvm::mc::repo::realTicketDirectory(const StringRef &Path) {
   // Make absolute and remove component traversals, links, etc.
   llvm::SmallString<256> Out = Path;
   sys::path::remove_filename(Out);
-  llvm::SmallString<256> Out2;
-  if (const std::error_code EC = sys::fs::real_path(Out, Out2)) {
+  llvm::SmallString<256> Result;
+  if (const std::error_code EC = Out.size() == 0U
+                                     ? llvm::sys::fs::current_path(Result)
+                                     : sys::fs::real_path(Out, Result)) {
     return llvm::errorCodeToError(EC);
   }
-  return Out2;
+  return Result;
 }
 
 void llvm::mc::repo::recordTicketDirectory(
