@@ -320,16 +320,9 @@ llvm::mc::repo::realTicketDirectory(const StringRef &Path) {
   llvm::SmallString<256> Out = Path;
   sys::path::remove_filename(Out);
   llvm::SmallString<256> Result;
-  if (Out.size() == 0) {
-    // No path was specified: just use the cwd.
-    if (const std::error_code EC = llvm::sys::fs::current_path(Result)) {
-      return llvm::errorCodeToError(EC);
-    }
-    return Result;
-  }
-
-  llvm::SmallString<256> Out2;
-  if (const std::error_code EC = sys::fs::real_path(Out, Result)) {
+  if (const std::error_code EC = Out.size() == 0U
+                                     ? llvm::sys::fs::current_path(Result)
+                                     : sys::fs::real_path(Out, Result)) {
     return llvm::errorCodeToError(EC);
   }
   return Result;
