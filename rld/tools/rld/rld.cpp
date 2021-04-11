@@ -431,18 +431,21 @@ int main(int Argc, char *Argv[]) {
     llvm::dbgs() << "Output triple: " << Ctxt.triple()->normalize() << '\n';
   });
 
-  rld::GlobalSymbolsContainer AllSymbols = GlobalSymbs->all();
-  llvmDebug(DebugType, Ctxt.IOMut, [&] { debugDumpSymbols(Ctxt, AllSymbols); });
+  auto AllSymbols =
+      std::make_unique<rld::GlobalSymbolsContainer>(GlobalSymbs->all());
+  llvmDebug(DebugType, Ctxt.IOMut,
+            [&] { debugDumpSymbols(Ctxt, *AllSymbols); });
 
   // Now we set about emitting an ELF executable...
   rld::llvmDebug(DebugType, Ctxt.IOMut,
                  [] { llvm::dbgs() << "Beginning output\n"; });
   ExitOnErr(
-      rld::elfOutput(OutputFileName, Ctxt, AllSymbols, WorkPool, LO.get()));
+      rld::elfOutput(OutputFileName, Ctxt, *AllSymbols, WorkPool, LO.get()));
 
   // Avoid calling the destructors of some of our global objects. We can simply
   // let the O/S do that instead. Remove these calls if looking for memoryleaks,
   // though!
+  AllSymbols.release();
   GlobalSymbs.release();
   LO.release();
   std::cout << "All done\n";
