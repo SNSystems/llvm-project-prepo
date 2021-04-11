@@ -607,7 +607,7 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
       }
 
       ++SymbolOut;
-      NameOffset += Sym.nameLength() + 1U;
+      NameOffset += Sym.nameLength(std::get<1>(Def)) + 1U;
     }
 
     (void)SymbolTableSize;

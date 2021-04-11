@@ -198,6 +198,10 @@ public:
   StringAddress name() const;
   /// \return The length of the symbol name.
   size_t nameLength() const;
+  template <typename LockType> size_t nameLength(const LockType &) const {
+    return NameLength_;
+  }
+
   /// \returns The value of the symbol. Available once layout is complete.
   uint64_t value() const;
 
