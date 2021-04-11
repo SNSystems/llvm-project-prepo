@@ -149,21 +149,23 @@ public:
 
   /// Constructs an undefined symbol.
   ///
-  /// \param N  The name of the symbol.
+  /// \param Name  The name of the symbol.
+  /// \param NameLength  The number of code units in the name of the symbol.
   /// \param Strength  The strength of the reference (weak/strong) that caused
   /// the creation of this symbol.
-  explicit Symbol(StringAddress N, pstore::repo::reference_strength Strength)
-      : Name_{N.absolute()},
+  explicit Symbol(StringAddress Name, size_t NameLength,
+                  pstore::repo::reference_strength Strength)
+      : Name_{Name.absolute()},
         WeakUndefined_{Strength == pstore::repo::reference_strength::weak},
-        Contribution_{nullptr}, HasPLT_{false} {
-    assert(name() == N &&
-           N.absolute() < (UINT64_C(1) << StringAddress::total_bits));
+        NameLength_{NameLength}, Contribution_{nullptr}, HasPLT_{false} {
+    assert(name() == Name &&
+           Name.absolute() < (UINT64_C(1) << StringAddress::total_bits));
   }
 
-  Symbol(StringAddress N, Body &&Definition)
-      : Name_{N.absolute()}, WeakUndefined_{false}, Contribution_{nullptr},
-        HasPLT_{false}, Definition_{
-                            llvm::SmallVector<Body, 1>{std::move(Definition)}} {
+  Symbol(StringAddress N, size_t NameLength, Body &&Definition)
+      : Name_{N.absolute()}, WeakUndefined_{false}, NameLength_{NameLength},
+        Contribution_{nullptr}, HasPLT_{false},
+        Definition_{llvm::SmallVector<Body, 1>{std::move(Definition)}} {
     assert(name() == N &&
            N.absolute() < (UINT64_C(1) << StringAddress::total_bits));
   }
@@ -194,6 +196,8 @@ public:
 
   /// \returns The name of the symbol.
   StringAddress name() const;
+  /// \return The length of the symbol name.
+  size_t nameLength() const;
   /// \returns The value of the symbol. Available once layout is complete.
   uint64_t value() const;
 
@@ -379,10 +383,11 @@ private:
 
   mutable Mutex Mut_; // TODO: is this really better than std::mutex?
   /// The StringAddress representing the name of this symbol.
-  std::uint64_t Name_ : StringAddress::total_bits;
+  uint64_t Name_ : StringAddress::total_bits;
   /// Was this symbol instance created as the result of encountering a weak
   /// reference? This will always be false if the symbol is defined.
-  std::uint64_t WeakUndefined_ : 1;
+  uint64_t WeakUndefined_ : 1;
+  size_t NameLength_;
 
   /// The output contribution produced by this symbol. Set during layout.
   std::atomic<Contribution *> Contribution_;
@@ -400,6 +405,13 @@ private:
 inline StringAddress Symbol::name() const {
   const std::lock_guard<decltype(Mut_)> Lock{Mut_};
   return StringAddress::make(Name_);
+}
+
+// name length
+// ~~~~~~~~~~~
+inline size_t Symbol::nameLength() const {
+  const std::lock_guard<decltype(Mut_)> Lock{Mut_};
+  return NameLength_;
 }
 
 // set name
@@ -588,13 +600,14 @@ public:
   /// \param Globals  The container which holds defined and undefined symbols.
   /// \param Undefs  The global collection of undefined symbols.
   /// \param Name  The name of the symbol being created.
+  /// \param NameLength The length of the symbol name.
   /// \param Strength  Is this symbol table entry being created as the
   ///   result of a weak reference?
   /// \returns  The newly created symbol.
   static NotNull<Symbol *>
   addUndefined(NotNull<GlobalSymbolsContainer *> Globals,
                NotNull<UndefsContainer *> Undefs, StringAddress Name,
-               pstore::repo::reference_strength Strength);
+               size_t NameLength, pstore::repo::reference_strength Strength);
 
   /// Records a reference to a symbol.
   ///

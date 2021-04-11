@@ -535,73 +535,80 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
         Ctxt, Lout->Sections[SectionKind::shstrtab], Data, *Lout);
   });
 
-  WorkPool.async([&Ctxt, &SectionToIndex, &FileRegions, BufferStart, &Globals,
-                  StringTableSize, SymbolTableSize, &SectionFileOffsets]() {
+  WorkPool.async([&Ctxt, &FileRegions, BufferStart, &Globals, StringTableSize,
+                  &SectionFileOffsets]() {
     // Produce the string table.
+    llvm::NamedRegionTimer StringTableTimer(
+        "String Table", "Write the symbol name section", rld::TimerGroupName,
+        rld::TimerGroupDescription);
+
     assert(SectionFileOffsets[SectionKind::strtab].hasValue() &&
            "The strtab section should have been assigned an offset");
-    assert(SectionFileOffsets[SectionKind::symtab].hasValue() &&
-           "The symbol section should have been assigned an offset");
 
     auto *const StringData = BufferStart +
                              FileRegions[Region::SectionData].offset() +
                              *SectionFileOffsets[SectionKind::strtab];
     auto *StringOut = StringData;
+    *(StringOut++) = '\0'; // The string table's initial null entry.
+    pstore::shared_sstring_view Owner;
+    for (const Symbol &Sym : Globals) {
+      // Copy a string.
+      const pstore::raw_sstring_view Str =
+          loadString(Ctxt.Db, Sym.name(), &Owner);
+      StringOut = std::copy(std::begin(Str), std::end(Str), StringOut);
+      *(StringOut++) = '\0';
+    }
+    (void)StringTableSize;
+    assert(StringOut > StringData &&
+           static_cast<size_t>(StringOut - StringData) == StringTableSize);
+  });
+
+  WorkPool.async([&SectionToIndex, &FileRegions, BufferStart, &Globals,
+                  SymbolTableSize, &SectionFileOffsets]() {
+    llvm::NamedRegionTimer StringTableTimer(
+        "Symbol Table", "Write the symbol table", rld::TimerGroupName,
+        rld::TimerGroupDescription);
+
+    assert(SectionFileOffsets[SectionKind::symtab].hasValue() &&
+           "The symbol section should have been assigned an offset");
+
     auto *const SymbolData = reinterpret_cast<Elf_Sym *>(
         BufferStart + FileRegions[Region::SectionData].offset() +
         *SectionFileOffsets[SectionKind::symtab]);
     auto *SymbolOut = SymbolData;
 
-    *(StringOut++) = '\0'; // The string table's initial null entry.
+    auto NameOffset = Elf_Word::value_type{1};
+    static_assert(std::is_unsigned<Elf_Word::value_type>::value,
+                  "Expected ELF_Word to be unsigned");
     for (const Symbol &Sym : Globals) {
       // Build a symbol.
-      {
-        const std::tuple<const Symbol::OptionalBodies &,
-                         std::unique_lock<Symbol::Mutex>>
-            Def = Sym.definition();
-        const Symbol::OptionalBodies &Bodies = std::get<0>(Def);
+      const std::tuple<const Symbol::OptionalBodies &,
+                       std::unique_lock<Symbol::Mutex>>
+          Def = Sym.definition();
+      const Symbol::OptionalBodies &Bodies = std::get<0>(Def);
+      SymbolOut->st_name = Elf_Word{NameOffset};
+      if (!Bodies) {
+        // this is an undefined symbol.
         std::memset(SymbolOut, 0, sizeof(*SymbolOut));
-        const ptrdiff_t NameOffset = StringOut - StringData;
-        static_assert(std::is_unsigned<Elf_Word::value_type>::value,
-                      "Expected ELF_Word to be unsigned");
-        assert(NameOffset >= 0 &&
-               static_cast<std::make_unsigned_t<ptrdiff_t>>(
-                   NameOffset <=
-                   std::numeric_limits<Elf_Word::value_type>::max()) &&
-               "Need to be able to safely cast NameOffset to Elf_Word");
-        SymbolOut->st_name =
-            Elf_Word{static_cast<Elf_Word::value_type>(NameOffset)};
-        if (!Bodies) {
-          // this is an undefined symbol.
-        } else {
-          // If there are multiple bodies associated with a symbol then the ELF
-          // symbol simply points to the first.
-          const Symbol::Body &B = Bodies->front();
-          const Contribution *const C = Sym.contribution();
-          assert(C != nullptr);
+      } else {
+        // If there are multiple bodies associated with a symbol then the ELF
+        // symbol simply points to the first.
+        const Symbol::Body &B = Bodies->front();
+        const Contribution *const C = Sym.contribution();
+        assert(C != nullptr);
 
-          SymbolOut->st_value = C->OScn->VirtualAddr + C->Offset;
-          SymbolOut->st_shndx = SectionToIndex[C->OScn->SectionK];
-          SymbolOut->st_size =
-              0; // FIXME: the sum of the sizes of all of the bodies.
-          SymbolOut->setVisibility(elf::elfVisibility<ELFT>(B.visibility()));
-          SymbolOut->setBindingAndType(linkageToELFBinding(B.linkage()),
-                                       sectionToSymbolType(C->OScn->SectionK));
-        }
-        ++SymbolOut;
+        SymbolOut->st_value = C->OScn->VirtualAddr + C->Offset;
+        SymbolOut->st_shndx = SectionToIndex[C->OScn->SectionK];
+        SymbolOut->st_size =
+            0; // FIXME: the sum of the sizes of all of the bodies.
+        SymbolOut->setVisibility(elf::elfVisibility<ELFT>(B.visibility()));
+        SymbolOut->setBindingAndType(linkageToELFBinding(B.linkage()),
+                                     sectionToSymbolType(C->OScn->SectionK));
       }
-      {
-        // Copy a string.
-        pstore::shared_sstring_view Owner;
-        const pstore::raw_sstring_view Str =
-            loadString(Ctxt.Db, Sym.name(), &Owner);
-        StringOut = std::copy(std::begin(Str), std::end(Str), StringOut);
-        *(StringOut++) = '\0';
-      }
+
+      ++SymbolOut;
+      NameOffset += Sym.nameLength() + 1U;
     }
-    (void)StringTableSize;
-    assert(StringOut > StringData &&
-           static_cast<size_t>(StringOut - StringData) == StringTableSize);
 
     (void)SymbolTableSize;
     assert(SymbolOut >= SymbolData &&

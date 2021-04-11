@@ -473,11 +473,11 @@ bool UndefsContainer::strongUndefCountIsCorrect() const {
 // add undefined [static]
 // ~~~~~~~~~~~~~
 NotNull<Symbol *>
-SymbolResolver::addUndefined(NotNull<GlobalSymbolsContainer *> const Globals,
-                             NotNull<UndefsContainer *> const Undefs,
-                             StringAddress const Name,
-                             pstore::repo::reference_strength Strength) {
-  Symbol *const Sym = &Globals->emplace_back(Name, Strength);
+SymbolResolver::addUndefined(const NotNull<GlobalSymbolsContainer *> Globals,
+                             const NotNull<UndefsContainer *> Undefs,
+                             const StringAddress Name, const size_t NameLength,
+                             const pstore::repo::reference_strength Strength) {
+  Symbol *const Sym = &Globals->emplace_back(Name, NameLength, Strength);
   Undefs->insert(Sym);
   return Sym;
 }
@@ -500,10 +500,11 @@ NotNull<Symbol *> SymbolResolver::addReference(
 Symbol *SymbolResolver::add(NotNull<GlobalSymbolsContainer *> const Globals,
                             pstore::repo::definition const &Def,
                             uint32_t InputOrdinal) {
-  Context_.ELFStringTableSize += stringLength(Context_.Db, Def.name) + 1U;
+  const size_t Length = stringLength(Context_.Db, Def.name);
+  Context_.ELFStringTableSize.fetch_add(Length + 1U, std::memory_order_relaxed);
 
   return &Globals->emplace_back(
-      Def.name,
+      Def.name, Length,
       Symbol::Body(&Def, pstore::repo::fragment::load(Context_.Db, Def.fext),
                    Def.fext.addr, InputOrdinal));
 }
@@ -589,8 +590,11 @@ referenceSymbol(Context &Ctxt, LocalSymbolsContainer const &Locals,
       symbolShadow(Ctxt, Name),
       [&]() {
         // Called for a reference to a (thus far) undefined symbol.
-        Ctxt.ELFStringTableSize += stringLength(Ctxt.Db, Name) + 1U;
-        return SymbolResolver::addUndefined(Globals, Undefs, Name, Strength);
+        const size_t Length = stringLength(Ctxt.Db, Name);
+        Ctxt.ELFStringTableSize.fetch_add(Length + 1U,
+                                          std::memory_order_relaxed);
+        return SymbolResolver::addUndefined(Globals, Undefs, Name, Length,
+                                            Strength);
       },
       [&](Symbol *const Sym) {
         // Called if we see a reference to a symbol already in the symbol table.
