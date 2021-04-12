@@ -15,13 +15,13 @@ set (triple "x86_64-pc-linux-gnu-repo")
 SET (CMAKE_C_COMPILER   "clang"  CACHE FILEPATH "Compiler")
 SET (CMAKE_CXX_COMPILER "clang++"  CACHE FILEPATH "Compiler")
 
-# The user must specify the utils_dir by giving
+# The user may specify the utils_dir by giving
 # '-Dutils_dir:STRING=/path/to/llvm/utils/repo' on the command line
 if (utils_dir)
     # Environment variables are always preserved.
     set(ENV{_utils_dir} "${utils_dir}")
 else ()
-    set(utils_dir "$ENV{_utils_dir}")
+    set (utils_dir /usr/share/repo)
 endif ()
 
 SET (CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -fno-exceptions -fno-rtti" CACHE STRING "Default C Flags Debug")

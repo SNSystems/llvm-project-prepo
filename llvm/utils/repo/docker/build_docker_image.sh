@@ -123,6 +123,16 @@ echo "Using a temporary directory for the build: $BUILD_DIR"
 cp -r "$SOURCE_DIR/$IMAGE_SOURCE" "$BUILD_DIR/$IMAGE_SOURCE"
 cp -r "$SOURCE_DIR/scripts" "$BUILD_DIR/scripts"
 
+# Copy the repo build utility tools to the docker build directory.
+mkdir "$BUILD_DIR/repo"
+cp "$SOURCE_DIR/../archive.py"   \
+   "$SOURCE_DIR/../link.py"      \
+   "$SOURCE_DIR/../repo.cmake"   \
+   "$SOURCE_DIR/../repo.json"    \
+   "$SOURCE_DIR/../wrap_tool.py" \
+   "$BUILD_DIR/repo/"
+
+
 if [ "$DOCKER_TAG" != "" ]; then
   DOCKER_TAG=":$DOCKER_TAG"
 fi

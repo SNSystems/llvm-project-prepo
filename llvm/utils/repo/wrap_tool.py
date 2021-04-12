@@ -130,18 +130,30 @@ def _open_config_file(name='repo.json'):
     :return: The path of a file with the specified name or None if not found.
     """
 
-    prev_path = None
-    path = os.path.abspath(os.curdir)
-    while path != prev_path:
+    def try_path(p):
         try:
-            fp = open(os.path.join (path, name))
+            fp = open (p)
             _logger.debug('configuration file "%s" was found at "%s"', name, path)
             return fp
         except:
-            pass
+            return None
+
+    # First start in the current directory and work up through the parent
+    # directories.
+    prev_path = None
+    path = os.path.abspath(os.curdir)
+    while path != prev_path:
+        fp = try_path (os.path.join (path, name))
+        if fp:
+            return fp
         # Navigate one level up the directory hierarchy
         prev_path = path
         path = os.path.abspath(os.path.join(path, os.pardir))
+
+    # Try a global location.
+    fp = try_path (os.path.join ('/usr/share/repo', name))
+    if fp:
+        return fp
 
     _logger.warning('configuration file "%s" was not found in any parent directory', name)
     return None
