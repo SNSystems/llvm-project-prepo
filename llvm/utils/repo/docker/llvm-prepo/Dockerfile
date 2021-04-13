@@ -7,8 +7,8 @@
 #===-----------------------------------------------------------------------===//
 
 # Stage 1. Check out LLVM and pstore source code and run the build.
-FROM ubuntu:18.04 as builder
-#LABEL maintainer "LLVM Developers"
+FROM ubuntu:20.04 as builder
+LABEL maintainer "paulhuggett@mac.com"
 
 # Install LLVM's build dependencies.
 
@@ -17,9 +17,17 @@ RUN grep deb /etc/apt/sources.list | \
     sed 's/^deb/deb-src /g' >> /etc/apt/sources.list
 
 # Install compiler, python, ninja and cmake.
-RUN apt-get update
-RUN apt-get install -y --no-install-recommends \
-    apt-utils build-essential ca-certificates cmake git ninja-build python
+RUN DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC \
+    apt-get update
+RUN DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC \
+    apt-get install -y --no-install-recommends \
+            apt-utils       \
+            build-essential \
+            ca-certificates \
+            cmake           \
+            git             \
+            ninja-build     \
+            python
 
 RUN rm -rf /var/lib/apt/lists/*
 
@@ -56,8 +64,8 @@ RUN apt-get install -y openssl
 RUN openssl passwd -1 prepo > "${workspace_dir}/prepo_pwd.txt"
 
 # Stage 2. Produce a minimal release image with build results.
-FROM ubuntu:18.04 as llvm-prepo-stage
-#LABEL maintainer "LLVM Developers"
+FROM ubuntu:20.04 as llvm-prepo-stage
+LABEL maintainer "paulhuggett@mac.com"
 ENTRYPOINT /bin/bash
 
 # Copy build results of stage 1 to /usr/local.
@@ -73,8 +81,12 @@ RUN update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++ 30
 
 # Install a collection of packages that will allow us to build things.
 RUN apt-get update
-RUN apt-get install -y --no-install-recommends  sudo
-RUN apt-get install -y binutils libstdc++-8-dev
+RUN apt-get install -y --no-install-recommends \
+            binutils         \
+            libc6-dev        \
+            libgcc-10-dev    \
+            libstdc++-10-dev \
+            sudo
 RUN rm -rf /var/lib/apt/lists/*
 
 COPY repo/archive.py /usr/share/repo/
