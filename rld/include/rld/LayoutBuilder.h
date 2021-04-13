@@ -184,12 +184,14 @@ public:
   LayoutBuilder &operator=(LayoutBuilder &&) noexcept = delete;
 
   /// Call when a compilation scan has been completed.
-  void visited(uint32_t Ordinal, LocalSymbolsContainer &&Locals);
+  void visited(uint32_t Ordinal,
+               std::tuple<LocalSymbolsContainer, LocalPLTsContainer> &&Locals);
 
   /// The main layout thread entry point.
   void run();
 
-  std::unique_ptr<Layout> flattenSegments();
+  std::tuple<std::unique_ptr<Layout>, std::unique_ptr<LocalPLTsContainer>>
+  flattenSegments();
 
 private:
   Context &Ctx_;
@@ -222,7 +224,9 @@ private:
   Visited CompilationWaiter_;
 
   std::mutex CUsMut_;
-  llvm::DenseMap<std::size_t, LocalSymbolsContainer> CUs_;
+  llvm::DenseMap<uint32_t,
+                 std::tuple<LocalSymbolsContainer, LocalPLTsContainer>>
+      CUs_;
 
   using SectionToSegmentArray =
     EnumIndexedArray<SectionKind, SectionKind::last, std::pair<SectionKind, SegmentKind>>;
@@ -231,6 +235,8 @@ private:
 
   /// The Layout_ container is built as layout runs.
   std::unique_ptr<Layout> Layout_;
+  /// The PLTS_ container is built as each compilation finishes scan.
+  std::unique_ptr<LocalPLTsContainer> PLTs_;
 
   static constexpr decltype(auto) sectionNum(pstore::repo::section_kind SKind) {
     return static_cast<std::underlying_type<pstore::repo::section_kind>::type>(
@@ -263,7 +269,9 @@ private:
   OutputSection *addToOutputSection(SectionKind SKind, size_t Size,
                                     unsigned Alignment);
 
-  LocalSymbolsContainer recoverDefinitionsFromCUMap(std::size_t Ordinal);
+  std::tuple<LocalSymbolsContainer, LocalPLTsContainer>
+  recoverDefinitionsFromCUMap(std::size_t Ordinal);
+
   void addSymbolBody(Symbol *const Sym, Symbol::Body const &Body,
                      uint32_t Ordinal, StringAddress const Name);
 

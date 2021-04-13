@@ -380,7 +380,8 @@ static unsigned numberOfSegments(Layout const &Lout) {
 
 llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
                            const GlobalSymbolsContainer &Globals,
-                           llvm::ThreadPool &WorkPool, Layout *const Lout) {
+                           llvm::ThreadPool &WorkPool, Layout *const Lout,
+                           const LocalPLTsContainer &PLTs) {
   llvm::NamedRegionTimer Timer("ELF Output", "Binary Output Phase",
                                rld::TimerGroupName, rld::TimerGroupDescription);
 
@@ -492,8 +493,12 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
     Ehdr->e_shstrndx = SectionToIndex[SectionKind::shstrtab];
   });
 
-  WorkPool.async([&Ctxt, BufferStart, NumSegments, Lout, &FileRegions,
-                  &SegmentFileOffsets]() {
+  WorkPool.async([&Ctxt, BufferStart, Lout, &FileRegions, &SegmentFileOffsets
+#ifndef NDEBUG
+                  ,
+                  NumSegments
+#endif
+  ]() {
     // Produce the program header table.
     auto *const Start = reinterpret_cast<Elf_Phdr *>(
         BufferStart + FileRegions[Region::SegmentTable].offset());
@@ -509,7 +514,12 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
   });
 
   WorkPool.async([Lout, BufferStart, &SectionFileOffsets, &NameOffsets,
-                  NumSections, &FileRegions]() {
+                  &FileRegions
+#ifndef NDEBUG
+                  ,
+                  NumSections
+#endif
+  ]() {
     // Produce the section header table.
     auto *const Start = reinterpret_cast<Elf_Shdr *>(
         BufferStart + FileRegions[Region::SectionTable].offset());
@@ -577,7 +587,8 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
         *SectionFileOffsets[SectionKind::symtab]);
     auto *SymbolOut = SymbolData;
 
-    auto NameOffset = Elf_Word::value_type{1};
+    auto NameOffset =
+        Elf_Word::value_type{1}; // 1 to allow for the initial '\0'.
     static_assert(std::is_unsigned<Elf_Word::value_type>::value,
                   "Expected ELF_Word to be unsigned");
     for (const Symbol &Sym : Globals) {
@@ -607,7 +618,10 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
       }
 
       ++SymbolOut;
-      NameOffset += Sym.nameLength(std::get<1>(Def)) + 1U;
+      // Pass our lock to nameLength() so that it doesn't try to take one of its
+      // own.
+      NameOffset += Sym.nameLength(std::get<1>(Def)) +
+                    1U; // +1 to allow for the final '\0'.
     }
 
     (void)SymbolTableSize;
@@ -615,7 +629,7 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
            static_cast<size_t>(SymbolOut - SymbolData) == SymbolTableSize);
   });
 
-  copyToOutput(Ctxt, WorkPool, BufferStart, *Lout, SectionFileOffsets,
+  copyToOutput(Ctxt, WorkPool, BufferStart, *Lout, PLTs, SectionFileOffsets,
                FileRegions[Region::SectionData].offset());
   WorkPool.wait();
 

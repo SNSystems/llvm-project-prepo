@@ -107,8 +107,8 @@ inline void apply<llvm::ELF::R_X86_64_DTPOFF32>(uint8_t *const Out,
 #endif
 
 template <SectionKind SKind>
-void copyContribution(Context &Ctxt, Contribution const &Contribution,
-                      uint8_t *Dest) {
+uint8_t *copyContribution(Context &Ctxt, const Contribution &Contribution,
+                          uint8_t *Dest) {
   llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
     llvm::dbgs() << "copy to "
                  << format_hex(reinterpret_cast<std::uintptr_t>(Dest)) << '\n';
@@ -118,15 +118,16 @@ void copyContribution(Context &Ctxt, Contribution const &Contribution,
       ToPstoreSectionKind<SKind>::value>::type;
   auto *const Section =
       reinterpret_cast<SectionType const *>(Contribution.Section);
-  auto const &D = Section->payload();
-  std::memcpy(Dest, D.begin(), D.size());
+  const auto &D = Section->payload();
+  const auto Size = D.size();
+  std::memcpy(Dest, D.begin(), Size);
 
   // The contribution's shadow memory contains an array of symbol pointers; one
   // for each external fixup.
 
   const std::atomic<Symbol *> *XfxSymbol = Contribution.XfxSymbols;
   for (ExternalFixup const &XFixup : Section->xfixups()) {
-    Symbol const *const Sym = XfxSymbol->load();
+    const Symbol *const Sym = XfxSymbol->load();
     assert((Sym != nullptr ||
             XFixup.strength() == pstore::repo::reference_strength::weak) &&
            "An xfixup symbol may only be unresolved if the reference is weak");
@@ -147,11 +148,13 @@ void copyContribution(Context &Ctxt, Contribution const &Contribution,
     }
     ++XfxSymbol;
   }
+  return Dest + Size;
 }
 
 template <>
-void copyContribution<SectionKind::bss>(Context &Ctxt, Contribution const &S,
-                                        std::uint8_t *Dest) {
+uint8_t *copyContribution<SectionKind::bss>(Context &Ctxt,
+                                            const Contribution &S,
+                                            uint8_t *Dest) {
   llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
     llvm::dbgs() << "BSS fill "
                  << format_hex(reinterpret_cast<std::uintptr_t>(Dest)) << '\n';
@@ -161,27 +164,31 @@ void copyContribution<SectionKind::bss>(Context &Ctxt, Contribution const &S,
           pstore::repo::enum_to_section<pstore::repo::section_kind::bss>::type,
           pstore::repo::bss_section>::value,
       "BSS section kind must map to BSS section type");
+  return Dest;
 }
 
 template <>
-void copyContribution<SectionKind::linked_definitions>(Context &,
-                                                       Contribution const &,
-                                                       uint8_t *) {
+uint8_t *copyContribution<SectionKind::linked_definitions>(Context &,
+                                                           const Contribution &,
+                                                           uint8_t *Dest) {
   // discard
+  return Dest;
 }
 
 template <SectionKind SectionK>
-void copySection(Context &Ctxt, const Layout &Lout, uint8_t *Data) {
+uint8_t *copySection(Context &Ctxt, const Layout &Lout,
+                     const LocalPLTsContainer & /*PLT*/, uint8_t *Data) {
+  auto *Dest = Data;
   for (Contribution const &Contribution :
        Lout.Sections[SectionK].Contributions) {
     llvmDebug(DebugType, Ctxt.IOMut,
               []() { llvm::dbgs() << SectionK << ": "; });
 
-    auto *const Dest = Data + alignTo(Contribution.Offset, Contribution.Align);
+    Dest = Data + alignTo(Contribution.Offset, Contribution.Align);
     switch (SectionK) {
 #define X(a)                                                                   \
   case SectionKind::a:                                                         \
-    copyContribution<SectionKind::a>(Ctxt, Contribution, Dest);                \
+    Dest = copyContribution<SectionKind::a>(Ctxt, Contribution, Dest);         \
     break;
       PSTORE_MCREPO_SECTION_KINDS
 #undef X
@@ -189,27 +196,78 @@ void copySection(Context &Ctxt, const Layout &Lout, uint8_t *Data) {
       llvm_unreachable("Bad section kind");
       break;
     }
+    // TODO: check that Dest is increasing.
   }
+  return Dest;
 }
 
 template <>
-void copySection<SectionKind::shstrtab>(Context & /*Ctxt*/,
-                                        const Layout & /*Lout*/,
-                                        std::uint8_t * /*Dest*/) {}
+uint8_t *copySection<SectionKind::shstrtab>(Context & /*Ctxt*/,
+                                            const Layout & /*Lout*/,
+                                            const LocalPLTsContainer & /*PLT*/,
+                                            uint8_t *Dest) {
+  return Dest;
+}
 template <>
-void copySection<SectionKind::strtab>(Context & /*Ctxt*/,
-                                      const Layout & /*Lout*/,
-                                      std::uint8_t * /*Dest*/) {}
+uint8_t *copySection<SectionKind::strtab>(Context & /*Ctxt*/,
+                                          const Layout & /*Lout*/,
+                                          const LocalPLTsContainer & /*PLT*/,
+                                          uint8_t *Dest) {
+  return Dest;
+}
 template <>
-void copySection<SectionKind::symtab>(Context & /*Ctxt*/,
-                                      const Layout & /*Lout*/,
-                                      std::uint8_t * /*Dest*/) {}
+uint8_t *copySection<SectionKind::symtab>(Context & /*Ctxt*/,
+                                          const Layout & /*Lout*/,
+                                          const LocalPLTsContainer & /*PLT*/,
+                                          uint8_t *Dest) {
+  return Dest;
+}
 
 template <>
-void copySection<SectionKind::plt>(Context &Ctxt, const Layout &Lout,
-                                   std::uint8_t *Dest) {
-  // FIXME: build the PLT section
-  memset(Dest, 0xFF, (Ctxt.PLTEntries.load() + 1) * 8);
+uint8_t *copySection<SectionKind::plt>(Context &Ctxt, const Layout &Lout,
+                                       const LocalPLTsContainer &PLTSymbols,
+                                       std::uint8_t *Dest) {
+  // memset(Dest, 0xFF, (Ctxt.PLTEntries.load() + 1) * 8);
+
+  if (PLTSymbols.empty()) {
+    return Dest;
+  }
+
+  {
+    // add the PLT header
+    // TODO: hang an object representing the target architecture/ABI from
+    // the context and invoke a virtual method on it to do this.
+    static const std::array<uint8_t, 16> PLTData{{
+        0xFF, 0x35, 0, 0, 0, 0, // pushq GOTPLT+8(%rip)
+        0xFF, 0x25, 0, 0, 0, 0, // jmp *GOTPLT+16(%rip)
+        0x0F, 0x1F, 0x40, 0,    // nop
+    }};
+
+    auto Out = std::copy(std::begin(PLTData), std::end(PLTData), Dest);
+
+    uint64_t GOTPLT = 0; // uint64_t gotPlt = in.gotPlt->getVA();
+    uint64_t PLT =
+        0; // uint64_t plt = in.ibtPlt ? in.ibtPlt->getVA() : in.plt->getVA();
+    llvm::support::endian::write32le(Dest + 2, GOTPLT - PLT + 2); // GOTPLT+8
+    llvm::support::endian::write32le(Dest + 8, GOTPLT - PLT + 4); // GOTPLT+16
+    Dest = Out;
+  }
+
+  for (const Symbol *const Sym : PLTSymbols) {
+    static const std::array<uint8_t, 16> Inst{{
+        0xFF, 0x25, 0, 0, 0, 0, // jmpq *got(%rip)
+        0x68, 0, 0, 0, 0,       // pushq <relocation index>
+        0xE9, 0, 0, 0, 0,       // jmpq plt[0]
+    }};
+    auto Out = std::copy(std::begin(Inst), std::end(Inst), Dest);
+    llvm::support::endian::write32le(
+        Dest + 2, 0 /*sym.getGotPltVA() - pltEntryAddr - 6*/);
+    llvm::support::endian::write32le(Dest + 7, 0 /*sym.pltIndex*/);
+    llvm::support::endian::write32le(Dest + 12,
+                                     0 /*in.plt->getVA() - pltEntryAddr - 16*/);
+    Dest = Out;
+  }
+  return Dest;
 }
 
 static constexpr char const *jobName(const SectionKind SectionK) {
@@ -253,8 +311,8 @@ namespace rld {
 
 void copyToOutput(
     Context &Ctxt, llvm::ThreadPool &Workers, uint8_t *const Data,
-    const Layout &Lout,
-    const rld::SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
+    const Layout &Lout, const LocalPLTsContainer &PLTs,
+    const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     uint64_t TargetDataOffset) {
 
   forEachSectionKind([&](const SectionKind SectionK) {
@@ -264,7 +322,7 @@ void copyToOutput(
     assert(SectionFileOffsets[SectionK].hasValue() &&
            "No layout position for a section with contributions");
     Workers.async(
-        [SectionK, &Ctxt, Data, &Lout](const uint64_t Start) {
+        [SectionK, &Ctxt, Data, &Lout, &PLTs](const uint64_t Start) {
           llvm::NamedRegionTimer CopyTimer(jobName(SectionK), "Copy section",
                                            rld::TimerGroupName,
                                            rld::TimerGroupDescription);
@@ -272,7 +330,7 @@ void copyToOutput(
           switch (SectionK) {
 #define X(x)                                                                   \
   case SectionKind::x:                                                         \
-    copySection<SectionKind::x>(Ctxt, Lout, Data + Start);                     \
+    copySection<SectionKind::x>(Ctxt, Lout, PLTs, Data + Start);               \
     break;
 #define RLD_X(x) X(x)
             PSTORE_MCREPO_SECTION_KINDS

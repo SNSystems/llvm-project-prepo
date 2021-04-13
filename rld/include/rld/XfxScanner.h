@@ -20,10 +20,10 @@
 
 namespace rld {
 
-bool resolveXfixups(Context &Context, LocalSymbolsContainer const &Locals,
-                    NotNull<rld::GlobalSymbolsContainer *> const Globals,
-                    NotNull<UndefsContainer *> const Undefs,
-                    uint32_t InputOrdinal);
+LocalPLTsContainer
+resolveXfixups(Context &Context, const LocalSymbolsContainer &Locals,
+               const NotNull<rld::GlobalSymbolsContainer *> Globals,
+               const NotNull<UndefsContainer *> Undefs, uint32_t InputOrdinal);
 
 } // end namespace rld
 

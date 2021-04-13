@@ -328,6 +328,7 @@ int main(int Argc, char *Argv[]) {
       std::make_unique<rld::GlobalsStorage>(NumWorkers.getValue());
 
   std::unique_ptr<rld::Layout> LO;
+  std::unique_ptr<rld::LocalPLTsContainer> PLTs;
   {
     llvm::NamedRegionTimer LayoutTimer("Layout", "Output file layout",
                                        rld::TimerGroupName,
@@ -420,7 +421,7 @@ int main(int Argc, char *Argv[]) {
 #endif
     }
     LayoutThread.join();
-    LO = Layout.flattenSegments();
+    std::tie(LO, PLTs) = Layout.flattenSegments();
 
     if (ExitCode != EXIT_SUCCESS) {
       return ExitCode;
@@ -439,8 +440,8 @@ int main(int Argc, char *Argv[]) {
   // Now we set about emitting an ELF executable...
   rld::llvmDebug(DebugType, Ctxt.IOMut,
                  [] { llvm::dbgs() << "Beginning output\n"; });
-  ExitOnErr(
-      rld::elfOutput(OutputFileName, Ctxt, *AllSymbols, WorkPool, LO.get()));
+  ExitOnErr(rld::elfOutput(OutputFileName, Ctxt, *AllSymbols, WorkPool,
+                           LO.get(), *PLTs));
 
   // Avoid calling the destructors of some of our global objects. We can simply
   // let the O/S do that instead. Remove these calls if looking for memoryleaks,

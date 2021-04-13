@@ -113,8 +113,9 @@ XfxScannerTest::defineSymbols(CompilationPtr const &Compilation,
 TEST_F(XfxScannerTest, Empty) {
   rld::LocalSymbolsContainer Locals;
   constexpr auto InputOrdinal = uint32_t{0};
-  bool Ok = resolveXfixups(Context_, Locals, &Globals_, &Undefs_, InputOrdinal);
-  EXPECT_TRUE(Ok);
+  const rld::LocalPLTsContainer PLTSymbols =
+      resolveXfixups(Context_, Locals, &Globals_, &Undefs_, InputOrdinal);
+  EXPECT_TRUE(PLTSymbols.empty());
   EXPECT_TRUE(Undefs_.empty());
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U);
   EXPECT_TRUE(Undefs_.strongUndefCountIsCorrect());
@@ -136,9 +137,9 @@ TEST_F(XfxScannerTest, StrongRefToUndefined) {
   ASSERT_TRUE(Locals.hasValue()) << "Expected defineSymbols to succeed";
 
   // Resolve the external fixups in our compilation.
-  bool Ok =
+  const rld::LocalPLTsContainer PLTSymbols =
       resolveXfixups(Context_, *Locals, &Globals_, &Undefs_, InputOrdinal);
-  EXPECT_TRUE(Ok);
+  EXPECT_TRUE(PLTSymbols.empty());
 
   EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
   EXPECT_EQ(Undefs_.strongUndefCount(), 1U)
@@ -176,9 +177,9 @@ TEST_F(XfxScannerTest, WeakRefToUndefined) {
   ASSERT_TRUE(Locals.hasValue()) << "Expected defineSymbols to succeed";
 
   // Resolve the external fixups in our compilation.
-  bool Ok =
+  const rld::LocalPLTsContainer PLTSymbols =
       resolveXfixups(Context_, *Locals, &Globals_, &Undefs_, InputOrdinal);
-  EXPECT_TRUE(Ok);
+  EXPECT_TRUE(PLTSymbols.empty());
 
   EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U)
@@ -219,9 +220,9 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
     ASSERT_TRUE(Locals1.hasValue()) << "Expected defineSymbols to succeed";
     EXPECT_EQ(Locals1->size(), 1U);
     // Resolve the external fixups in compilation #1.
-    bool Ok =
+    const rld::LocalPLTsContainer PLTSymbols1 =
         resolveXfixups(Context_, *Locals1, &Globals_, &Undefs_, InputOrdinal1);
-    EXPECT_TRUE(Ok);
+    EXPECT_TRUE(PLTSymbols1.empty());
   }
 
   // Check the state after the first compilation has been processed.
@@ -244,9 +245,9 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
     ASSERT_TRUE(Locals2.hasValue()) << "Expected defineSymbols to succeed";
     EXPECT_EQ(Locals2->size(), 1U);
     // Resolve the external fixups in compilation #2.
-    bool Ok =
+    const rld::LocalPLTsContainer PLTSymbols2 =
         resolveXfixups(Context_, *Locals2, &Globals_, &Undefs_, InputOrdinal2);
-    EXPECT_TRUE(Ok);
+    EXPECT_TRUE(PLTSymbols2.empty());
   }
 
   EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
@@ -270,9 +271,9 @@ TEST_F(XfxScannerTest, StrongRefToExternalDef) {
   ASSERT_TRUE(Locals.hasValue()) << "Expected defineSymbols to succeed";
 
   // Resolve the external fixups in our compilation.
-  bool Ok =
+  const rld::LocalPLTsContainer PLTSymbols =
       resolveXfixups(Context_, *Locals, &Globals_, &Undefs_, InputOrdinal);
-  EXPECT_TRUE(Ok);
+  EXPECT_TRUE(PLTSymbols.empty());
 
   EXPECT_TRUE(Undefs_.empty());
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U);
@@ -300,13 +301,15 @@ TEST_F(XfxScannerTest, RefToAppendDef) {
 
   auto const L0 = this->defineSymbols(C0, InputOrdinal0);
   ASSERT_TRUE(L0.hasValue()) << "Expected defineSymbols for C0 to succeed";
-  EXPECT_TRUE(
-      resolveXfixups(Context_, *L0, &Globals_, &Undefs_, InputOrdinal0));
+  const rld::LocalPLTsContainer PLTSymbols0 =
+      resolveXfixups(Context_, *L0, &Globals_, &Undefs_, InputOrdinal0);
+  EXPECT_TRUE(PLTSymbols0.empty());
 
   auto const L1 = this->defineSymbols(C1, InputOrdinal1);
   ASSERT_TRUE(L1.hasValue()) << "Expected defineSymbols for C1 to succeed";
-  EXPECT_TRUE(
-      resolveXfixups(Context_, *L1, &Globals_, &Undefs_, InputOrdinal1));
+  const rld::LocalPLTsContainer PLTSymbols1 =
+      resolveXfixups(Context_, *L1, &Globals_, &Undefs_, InputOrdinal1);
+  EXPECT_TRUE(PLTSymbols1.empty());
 
   EXPECT_TRUE(Undefs_.empty());
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U);

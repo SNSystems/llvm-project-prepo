@@ -31,6 +31,35 @@ constexpr auto DebugType = "rld-LayoutBuilder";
 
 } // end anonymous namespace
 
+// has file data
+// ~~~~~~~~~~~~~
+static constexpr bool hasFileData(pstore::repo::section_kind Kind) {
+  switch (Kind) {
+  case pstore::repo::section_kind::bss:
+  case pstore::repo::section_kind::thread_bss:
+  case pstore::repo::section_kind::linked_definitions:
+  case pstore::repo::section_kind::last:
+    return false;
+  default:
+    return true;
+  }
+}
+
+#define X(a)                                                                   \
+  case rld::SectionKind::a:                                                    \
+    return hasFileData(rld::ToPstoreSectionKind<rld::SectionKind::a>::value);
+
+static constexpr bool hasFileData(rld::SectionKind Kind) {
+  switch (Kind) {
+    PSTORE_MCREPO_SECTION_KINDS
+  case rld::SectionKind::plt:
+    return true;
+  default:
+    return false;
+  }
+}
+#undef X
+
 namespace rld {
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, Contribution const &C) {
@@ -125,7 +154,8 @@ LayoutBuilder::LayoutBuilder(Context &Ctx,
                              uint32_t NumCompilations)
     : Ctx_{Ctx}, Globals_{Globals}, NumCompilations_{NumCompilations},
       CompilationWaiter_{NumCompilations}, CUsMut_{}, CUs_{},
-      Layout_{std::make_unique<Layout>()} {
+      Layout_{std::make_unique<Layout>()},
+      PLTs_{std::make_unique<LocalPLTsContainer>()} {
 
   for (auto SegmentK = firstSegmentKind(); SegmentK < SegmentKind::last;
        ++SegmentK) {
@@ -137,10 +167,13 @@ LayoutBuilder::LayoutBuilder(Context &Ctx,
 
 // visited
 // ~~~~~~~
-void LayoutBuilder::visited(uint32_t Index, LocalSymbolsContainer &&Locals) {
+void LayoutBuilder::visited(
+    uint32_t Index,
+    std::tuple<LocalSymbolsContainer, LocalPLTsContainer> &&Locals) {
   {
-    std::lock_guard<std::mutex> const CUsLock{CUsMut_};
-    assert(CUs_.find(Index) == CUs_.end());
+    std::lock_guard<std::mutex> const _{CUsMut_};
+    assert(CUs_.find(Index) == CUs_.end() &&
+           "Should not complete work on a CU twice");
 
     auto const Res = CUs_.try_emplace(Index, std::move(Locals));
     (void)Res;
@@ -160,36 +193,6 @@ std::uint64_t LayoutBuilder::prevSectionEnd(
   Contribution const &last = Contributions.back();
   return last.Offset + last.Size;
 }
-
-// has file data
-// ~~~~~~~~~~~~~
-constexpr bool hasFileData(pstore::repo::section_kind Kind) {
-  switch (Kind) {
-  case pstore::repo::section_kind::bss:
-  case pstore::repo::section_kind::thread_bss:
-  case pstore::repo::section_kind::linked_definitions:
-  case pstore::repo::section_kind::last:
-    return false;
-  default:
-    return true;
-  };
-}
-
-#define X(a)                                                                   \
-  case SectionKind::a:                                                         \
-    return hasFileData(ToPstoreSectionKind<SectionKind::a>::value);
-
-constexpr bool hasFileData(SectionKind Kind) {
-  switch (Kind) {
-    PSTORE_MCREPO_SECTION_KINDS
-  case SectionKind::plt:
-    return true;
-  default:
-    break;
-  }
-  return false;
-}
-#undef X
 
 // add to output section
 // ~~~~~~~~~~~~~~~~~~~~~
@@ -234,19 +237,8 @@ Contribution *LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
   auto const Size = pstore::repo::section_size(Section);
   auto const Alignment = pstore::repo::section_alignment(Section);
 
-  //  Segment &Seg = Layout_->Segments[SegmentK];
-  //  Seg.MaxAlign = std::max (Seg.MaxAlign, Alignment);
-
   OutputSection *const OutputSection =
       this->addToOutputSection(ToRldSectionKind<SKind>::value, Size, Alignment);
-
-  //  Seg.Sections[ToRldSectionKind<SKind>::value] = OutputSection;
-  //  OutputSection->MaxAlign = std::max(OutputSection->MaxAlign, Alignment);
-  //  OutputSection->VirtualSize = alignTo(OutputSection->VirtualSize,
-  //  Alignment) + Size; if (HasFileData<SKind>::value) {
-  //    OutputSection->FileSize =
-  //        alignTo(OutputSection->FileSize, Alignment) + Size;
-  //  }
 
   OutputSection->Contributions.emplace_back(
       &Section,
@@ -270,10 +262,11 @@ Contribution *LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
 // We were handed the compilation's definitions when its scan completed.
 // Recover it from where we stashed it in the CUs_ map.
 auto LayoutBuilder::recoverDefinitionsFromCUMap(const std::size_t Ordinal)
-    -> LocalSymbolsContainer {
-  std::lock_guard<std::mutex> const CUsLock{CUsMut_};
+    -> std::tuple<LocalSymbolsContainer, LocalPLTsContainer> {
+  std::lock_guard<std::mutex> const _{CUsMut_};
   assert(CUs_.find(Ordinal) != CUs_.end());
-  LocalSymbolsContainer D = std::move(CUs_[Ordinal]);
+  std::tuple<LocalSymbolsContainer, LocalPLTsContainer> D =
+      std::move(CUs_[Ordinal]);
   CUs_.erase(Ordinal);
   return D;
 }
@@ -357,7 +350,11 @@ void LayoutBuilder::run() {
       llvm::dbgs() << "Finished scanning #" << Ordinal << '\n';
     });
 
-    for (auto const &Definition : recoverDefinitionsFromCUMap(Ordinal)) {
+    std::tuple<LocalSymbolsContainer, LocalPLTsContainer> PerCompilation =
+        recoverDefinitionsFromCUMap(Ordinal);
+
+    for (auto const &Definition :
+         std::get<LocalSymbolsContainer>(PerCompilation)) {
       StringAddress const Name = Definition.first;
       Symbol *const Sym = Definition.second;
 
@@ -376,15 +373,6 @@ void LayoutBuilder::run() {
       assert(Bodies.size() >= 1U &&
              "A defined symbol must have a least 1 body");
 
-#if 0
-{
-    auto const & Fragment = Bodies.front().fragment();
-    // TODO: make this a method of the fragment type.
-    auto const FirstSection = static_cast <pstore::repo::section_kind> (Fragment->members().get_indices().front());
-    assert (Fragment->has_section(FirstSection));
-//Sym->Value = Fragment->members().get_indices().front();
-}
-#endif
       if (Bodies.size() == 1U) {
         auto const &B = Bodies.front();
         if (B.inputOrdinal() == Ordinal) {
@@ -400,6 +388,11 @@ void LayoutBuilder::run() {
                                     pstore::repo::linkage::append;
                            }) &&
                "Multi-body symbols must all have append linkage");
+        assert(std::is_sorted(First, Last,
+                              [](Symbol::Body const &A, Symbol::Body const &B) {
+                                return A.inputOrdinal() < B.inputOrdinal();
+                              }) &&
+               "Multi-body symbols must be sorted by input ordinal");
 
         auto const Pos = std::lower_bound(
             First, Last, Ordinal, [](Symbol::Body const &A, uint32_t B) {
@@ -409,17 +402,36 @@ void LayoutBuilder::run() {
         this->addSymbolBody(Sym, *Pos, Ordinal, Name);
       }
     }
-  }
+
+    LocalPLTsContainer const &PLTs =
+        std::get<LocalPLTsContainer>(PerCompilation);
+    PLTs_->reserve(PLTs_->size() + PLTs.size());
+    std::copy(std::begin(PLTs), std::end(PLTs), std::back_inserter(*PLTs_));
+  } // input file loop.
 
   if (const unsigned PLTEntries = Ctx_.PLTEntries.load()) {
+    assert(PLTEntries == PLTs_->size());
+    std::sort(std::begin(*PLTs_), std::end(*PLTs_),
+              [](const Symbol *const A, const Symbol *const B) {
+                return A->name() < B->name();
+              });
+
+    llvmDebug(DebugType, Ctx_.IOMut, [&] {
+      llvm::dbgs() << "PLT symbols:" << '\n';
+      for (Symbol const *const PLTSym : *PLTs_) {
+        llvm::dbgs() << "  " << loadStdString(Ctx_.Db, PLTSym->name()) << '\n';
+      }
+    });
+
     this->addToOutputSection(rld::SectionKind::plt,
-                             (size_t{PLTEntries} + 1U) * 8U, 8U);
+                             (size_t{PLTEntries} + 1U) * 16U, 8U);
   }
 }
 
 // flatten segments
 // ~~~~~~~~~~~~~~~~
-std::unique_ptr<Layout> LayoutBuilder::flattenSegments() {
+std::tuple<std::unique_ptr<Layout>, std::unique_ptr<LocalPLTsContainer>>
+LayoutBuilder::flattenSegments() {
   auto Base = uint64_t{0x0000000000200000};
   assert(Base % PageSize == 0U);
 
@@ -457,7 +469,7 @@ std::unique_ptr<Layout> LayoutBuilder::flattenSegments() {
   });
 
   llvmDebug("rld-Layout", Ctx_.IOMut, [this] { debugDumpLayout(); });
-  return std::move(Layout_);
+  return {std::move(Layout_), std::move(PLTs_)};
 }
 
 } // namespace rld

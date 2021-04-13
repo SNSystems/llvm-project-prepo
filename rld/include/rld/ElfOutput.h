@@ -31,7 +31,8 @@ class Layout;
 
 llvm::Error elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
                       const GlobalSymbolsContainer &Globals,
-                      llvm::ThreadPool &WorkPool, Layout *const Lout);
+                      llvm::ThreadPool &WorkPool, Layout *const Lout,
+                      const LocalPLTsContainer &PLTs);
 
 } // end namespace rld
 

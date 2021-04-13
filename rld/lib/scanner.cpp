@@ -81,20 +81,19 @@ void Scanner::run(
       GlobalSymbols, Undefs_, Compilation, InputOrdinal, ErrorFn);
 
   bool Error = !Locals.hasValue();
-  if (!Error) {
-    assert(Locals->size() == Compilation.size());
-    Error =
-        resolveXfixups(Context_, *Locals, GlobalSymbols, Undefs_, InputOrdinal);
-  }
-
   if (Error) {
     // FIXME: handle the error somehow
   }
 
+  assert(Locals->size() == Compilation.size());
+  LocalPLTsContainer PLTSymbols =
+      resolveXfixups(Context_, *Locals, GlobalSymbols, Undefs_, InputOrdinal);
+
   // Notify layout that we've completed work on the item at 'index' and tell it
   // about its definitions.
   auto &&L = Locals.getValue();
-  Layout_.visited(InputOrdinal, std::move(L));
+  Layout_.visited(InputOrdinal,
+                  std::make_tuple(std::move(L), std::move(PLTSymbols)));
 }
 
 } // namespace rld

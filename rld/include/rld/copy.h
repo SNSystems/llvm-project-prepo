@@ -35,8 +35,8 @@ namespace rld {
     /// of each segment's data.
     void copyToOutput(
         Context &Ctxt, llvm::ThreadPool &Workers, uint8_t *const Data,
-        const Layout &Lout,
-        const rld::SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
+        const Layout &Lout, const LocalPLTsContainer &PLTs,
+        const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
         uint64_t TargetDataOffset);
 
 } // end namespace rld
