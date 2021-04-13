@@ -147,13 +147,18 @@ public:
     FragmentAddress FAddr_;
   };
 
+  static pstore::address stringBodyFromIndirect(pstore::database const &DB,
+                                                StringAddress Name) {
+    return pstore::indirect_string::read(DB, Name).in_store_address();
+  }
+
   /// Constructs an undefined symbol.
   ///
   /// \param Name  The name of the symbol.
   /// \param NameLength  The number of code units in the name of the symbol.
   /// \param Strength  The strength of the reference (weak/strong) that caused
-  /// the creation of this symbol.
-  explicit Symbol(StringAddress Name, size_t NameLength,
+  ///   the creation of this symbol.
+  explicit Symbol(pstore::address Name, size_t NameLength,
                   pstore::repo::reference_strength Strength)
       : Name_{Name.absolute()},
         WeakUndefined_{Strength == pstore::repo::reference_strength::weak},
@@ -162,7 +167,14 @@ public:
            Name.absolute() < (UINT64_C(1) << StringAddress::total_bits));
   }
 
-  Symbol(StringAddress N, size_t NameLength, Body &&Definition)
+  /// Constructs a symbol with an initial definition.
+  ///
+  /// \param Name  The name of the symbol.
+  /// \param NameLength  The number of code units in the name of the symbol.
+  /// \param Strength  The strength of the reference (weak/strong) that caused
+  ///   the creation of this symbol.
+  /// \param Definition The initial body (value) of the symbol.
+  Symbol(pstore::address N, size_t NameLength, Body &&Definition)
       : Name_{N.absolute()}, WeakUndefined_{false}, NameLength_{NameLength},
         Contribution_{nullptr}, HasPLT_{false},
         Definition_{llvm::SmallVector<Body, 1>{std::move(Definition)}} {
@@ -195,7 +207,7 @@ public:
   }
 
   /// \returns The name of the symbol.
-  StringAddress name() const;
+  pstore::address name() const;
   /// \return The length of the symbol name.
   size_t nameLength() const;
   template <typename LockType> size_t nameLength(const LockType &) const {
@@ -406,9 +418,9 @@ private:
 
 // name
 // ~~~~
-inline StringAddress Symbol::name() const {
+inline pstore::address Symbol::name() const {
   const std::lock_guard<decltype(Mut_)> Lock{Mut_};
-  return StringAddress::make(Name_);
+  return pstore::address{Name_};
 }
 
 // name length
@@ -611,7 +623,7 @@ public:
   /// \returns  The newly created symbol.
   static NotNull<Symbol *>
   addUndefined(NotNull<GlobalSymbolsContainer *> Globals,
-               NotNull<UndefsContainer *> Undefs, StringAddress Name,
+               NotNull<UndefsContainer *> Undefs, pstore::address Name,
                size_t NameLength, pstore::repo::reference_strength Strength);
 
   /// Records a reference to a symbol.
@@ -633,7 +645,8 @@ private:
                        const pstore::repo::definition &Def,
                        uint32_t InputCount);
 
-  Symbol *add(const NotNull<GlobalSymbolsContainer *> Globals,
+  Symbol *add(NotNull<GlobalSymbolsContainer *> const Globals,
+              pstore::address Name, size_t Length,
               const pstore::repo::definition &Def, uint32_t InputOrdinal);
 
   Context &Context_;

@@ -23,29 +23,30 @@
 const char *rld::TimerGroupName = "rld";
 const char *rld::TimerGroupDescription = "rld prepo linker";
 
-pstore::raw_sstring_view
-rld::loadString(pstore::database const &Db,
-                pstore::typed_address<pstore::indirect_string> Addr,
-                NotNull<pstore::shared_sstring_view *> Owner) {
-  using namespace pstore::serialize;
-  return read<pstore::indirect_string>(
-             archive::database_reader{Db, Addr.to_address()})
-      .as_string_view(Owner);
+size_t
+rld::stringLength(const pstore::database &Db,
+                  const pstore::typed_address<pstore::indirect_string> Addr) {
+  pstore::shared_sstring_view Owner;
+  return pstore::get_sstring_view(Db, Addr, &Owner).length();
 }
 
-size_t rld::stringLength(pstore::database const &Db,
-                         pstore::typed_address<pstore::indirect_string> Addr) {
-  using namespace pstore::serialize;
-  return read<pstore::indirect_string>(
-             archive::database_reader{Db, Addr.to_address()})
-      .length();
+size_t rld::stringLength(const pstore::database &Db,
+                         const pstore::address Addr) {
+  pstore::shared_sstring_view Owner;
+  return pstore::get_sstring_view(Db, Addr, &Owner).length();
 }
 
 std::string
-rld::loadStdString(pstore::database const &Db,
-                   pstore::typed_address<pstore::indirect_string> Addr) {
+rld::loadStdString(const pstore::database &Db,
+                   const pstore::typed_address<pstore::indirect_string> Addr) {
   pstore::shared_sstring_view Owner;
-  return std::string(loadString(Db, Addr, &Owner));
+  return std::string{loadString(Db, Addr, &Owner)};
+}
+
+std::string rld::loadStdString(const pstore::database &Db,
+                               const pstore::address Addr) {
+  pstore::shared_sstring_view Owner;
+  return std::string{loadString(Db, Addr, &Owner)};
 }
 
 llvm::StringRef rld::stringViewAsRef(pstore::raw_sstring_view S) {

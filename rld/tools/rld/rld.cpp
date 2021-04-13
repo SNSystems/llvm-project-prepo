@@ -284,14 +284,6 @@ static llvm::ErrorOr<std::unique_ptr<pstore::database>> openRepository() {
 
 using namespace rld;
 
-llvm::raw_ostream &
-operator<<(llvm::raw_ostream &OS,
-           std::pair<pstore::database const &, StringAddress> const &SA) {
-  pstore::shared_sstring_view Owner;
-  return OS << stringViewAsRef(
-             loadString(std::get<0>(SA), std::get<1>(SA), &Owner));
-}
-
 int main(int Argc, char *Argv[]) {
   llvm::cl::ParseCommandLineOptions(Argc, Argv);
 
@@ -384,8 +376,7 @@ int main(int Argc, char *Argv[]) {
           if (!U.allReferencesAreWeak()) {
             // TODO: also need to show where the reference is made.
             llvm::errs() << "Undefined symbol: "
-                         << std::make_pair(std::cref(Ctxt.Db), U.name())
-                         << '\n';
+                         << loadStdString(Ctxt.Db, U.name()) << '\n';
           }
         }
         // FIXME: need a means of cancelling the layout thread.

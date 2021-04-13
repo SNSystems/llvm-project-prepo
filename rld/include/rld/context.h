@@ -35,18 +35,29 @@ namespace rld {
 
 using UintptrAddress = pstore::typed_address<std::uintptr_t>;
 
-pstore::raw_sstring_view
-loadString(pstore::database const &Db,
-           pstore::typed_address<pstore::indirect_string> Addr,
-           NotNull<pstore::shared_sstring_view *> Owner);
+inline pstore::raw_sstring_view
+loadString(const pstore::database &Db,
+           const pstore::typed_address<pstore::indirect_string> Addr,
+           const NotNull<pstore::shared_sstring_view *> Owner) {
+  return pstore::get_sstring_view(Db, Addr, Owner);
+}
+inline pstore::raw_sstring_view
+loadString(const pstore::database &Db, const pstore::address Addr,
+           const NotNull<pstore::shared_sstring_view *> Owner) {
+  return pstore::get_sstring_view(Db, Addr, Owner);
+}
 
-std::string loadStdString(pstore::database const &Db,
-                          pstore::typed_address<pstore::indirect_string> Addr);
+std::string
+loadStdString(const pstore::database &Db,
+              const pstore::typed_address<pstore::indirect_string> Addr);
+std::string loadStdString(const pstore::database &Db,
+                          const pstore::address Addr);
 
 llvm::StringRef stringViewAsRef(pstore::raw_sstring_view S);
 
-size_t stringLength(pstore::database const &Db,
-                    pstore::typed_address<pstore::indirect_string> Addr);
+size_t stringLength(const pstore::database &Db,
+                    const pstore::typed_address<pstore::indirect_string> Addr);
+size_t stringLength(const pstore::database &Db, const pstore::address Addr);
 
 class Symbol;
 

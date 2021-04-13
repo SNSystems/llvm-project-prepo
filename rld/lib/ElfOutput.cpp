@@ -121,7 +121,6 @@ static uint64_t prepareSymbolTable(rld::Layout *const Lout,
   StrTab.MaxAlign = alignof(Elf_Sym);
   StrTab.Link = SectionKind::strtab;
   StrTab.Writer = nullptr;
-
   return NumSymbols;
 }
 
@@ -563,8 +562,8 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
     pstore::shared_sstring_view Owner;
     for (const Symbol &Sym : Globals) {
       // Copy a string.
-      const pstore::raw_sstring_view Str =
-          loadString(Ctxt.Db, Sym.name(), &Owner);
+      const pstore::raw_sstring_view Str = pstore::get_sstring_view(
+          Ctxt.Db, Sym.name(), Sym.nameLength(), &Owner);
       StringOut = std::copy(std::begin(Str), std::end(Str), StringOut);
       *(StringOut++) = '\0';
     }

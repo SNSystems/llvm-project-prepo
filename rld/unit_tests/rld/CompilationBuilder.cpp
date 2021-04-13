@@ -101,12 +101,19 @@ CompilationBuilder::createFragmentWithBSSSection(Transaction &T, size_t Size) {
 
 // store string
 // ~~~~~~~~~~~~
-rld::StringAddress CompilationBuilder::storeString(char const *Name) {
+rld::StringAddress CompilationBuilder::storeString(const char *Name) {
   auto Transaction = pstore::begin(Db_);
   rld::StringAddress const SAddr = NameAdder_.add(Transaction, Name);
   NameAdder_.flush(Transaction); // Write the string body.
   Transaction.commit();
   return SAddr;
+}
+
+// direct string address
+// ~~~~~~~~~~~~~~~~~~~~~
+pstore::address
+CompilationBuilder::directStringAddress(const rld::StringAddress Addr) {
+  return pstore::indirect_string::read(Db_, Addr).in_store_address();
 }
 
 // get fragment index

@@ -71,7 +71,8 @@ public:
                                unsigned CommonSize)
       -> std::shared_ptr<pstore::repo::compilation const>;
 
-  rld::StringAddress storeString(char const *Name);
+  rld::StringAddress storeString(const char *Name);
+  pstore::address directStringAddress(rld::StringAddress Addr);
 
   static std::shared_ptr<pstore::index::fragment_index>
   getFragmentIndex(pstore::database &Db);

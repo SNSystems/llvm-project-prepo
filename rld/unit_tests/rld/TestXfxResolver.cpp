@@ -152,15 +152,18 @@ TEST_F(XfxScannerTest, StrongRefToUndefined) {
 
   // Build an intermediate vector with just the name and has-definition values.
   // This avoids baking the order of the global symbol table into the test.
-  std::vector<std::pair<rld::StringAddress, bool>> G;
+  std::vector<std::pair<pstore::address, bool>> G;
   std::transform(std::begin(Globals_), std::end(Globals_),
                  std::back_inserter(G), [](rld::Symbol const &Sym) {
                    return std::make_pair(Sym.name(), Sym.hasDefinition());
                  });
-  EXPECT_THAT(G,
-              UnorderedElementsAre(
-                  std::make_pair(CompilationBuilder_.storeString("f"), true),
-                  std::make_pair(CompilationBuilder_.storeString("x"), false)));
+  EXPECT_THAT(G, UnorderedElementsAre(
+                     std::make_pair(CompilationBuilder_.directStringAddress(
+                                        CompilationBuilder_.storeString("f")),
+                                    true),
+                     std::make_pair(CompilationBuilder_.directStringAddress(
+                                        CompilationBuilder_.storeString("x")),
+                                    false)));
 }
 
 TEST_F(XfxScannerTest, WeakRefToUndefined) {
@@ -192,15 +195,18 @@ TEST_F(XfxScannerTest, WeakRefToUndefined) {
 
   // Build an intermediate vector with just the name and has-definition values.
   // This avoids baking the order of the global symbol table into the test.
-  std::vector<std::pair<rld::StringAddress, bool>> G;
+  std::vector<std::pair<pstore::address, bool>> G;
   std::transform(std::begin(Globals_), std::end(Globals_),
                  std::back_inserter(G), [](rld::Symbol const &Sym) {
                    return std::make_pair(Sym.name(), Sym.hasDefinition());
                  });
-  EXPECT_THAT(G,
-              UnorderedElementsAre(
-                  std::make_pair(CompilationBuilder_.storeString("f"), true),
-                  std::make_pair(CompilationBuilder_.storeString("x"), false)));
+  EXPECT_THAT(G, UnorderedElementsAre(
+                     std::make_pair(CompilationBuilder_.directStringAddress(
+                                        CompilationBuilder_.storeString("f")),
+                                    true),
+                     std::make_pair(CompilationBuilder_.directStringAddress(
+                                        CompilationBuilder_.storeString("x")),
+                                    false)));
 }
 
 // Checks that a weakly referenced undef is promoted to a strongly-referenced
@@ -283,7 +289,8 @@ TEST_F(XfxScannerTest, StrongRefToExternalDef) {
       << "The compilation should have a single definition";
 
   auto const Pos = std::begin(Globals_);
-  EXPECT_EQ(Pos->name(), CompilationBuilder_.storeString("f"));
+  EXPECT_EQ(Pos->name(), CompilationBuilder_.directStringAddress(
+                             CompilationBuilder_.storeString("f")));
   EXPECT_TRUE(Pos->hasDefinition()) << "Expected 'f' to be defined";
 }
 
@@ -321,6 +328,7 @@ TEST_F(XfxScannerTest, RefToAppendDef) {
       << "Locals for Compilation 1 should have a single definition";
 
   auto const Pos = std::begin(Globals_);
-  EXPECT_EQ(Pos->name(), CompilationBuilder_.storeString("f"));
+  EXPECT_EQ(Pos->name(), CompilationBuilder_.directStringAddress(
+                             CompilationBuilder_.storeString("f")));
   EXPECT_TRUE(Pos->hasDefinition()) << "Expected 'f' to be defined";
 }

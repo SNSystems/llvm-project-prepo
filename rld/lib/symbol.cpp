@@ -403,7 +403,7 @@ void debugDumpSymbols(Context const &Ctx,
       // Note that requesting a symbol's definition returns an owned lock on the
       // object. That means that we need to get the name first since accessing
       // both will try to acquire the same lock.
-      StringAddress const Name = S.name();
+      auto const Name = S.name();
       auto const X = S.definition();
       auto const &Def = std::get<Symbol::DefinitionIndex>(X);
 
@@ -472,11 +472,10 @@ bool UndefsContainer::strongUndefCountIsCorrect() const {
 //-MARK: SymbolResolver
 // add undefined [static]
 // ~~~~~~~~~~~~~
-NotNull<Symbol *>
-SymbolResolver::addUndefined(const NotNull<GlobalSymbolsContainer *> Globals,
-                             const NotNull<UndefsContainer *> Undefs,
-                             const StringAddress Name, const size_t NameLength,
-                             const pstore::repo::reference_strength Strength) {
+NotNull<Symbol *> SymbolResolver::addUndefined(
+    const NotNull<GlobalSymbolsContainer *> Globals,
+    const NotNull<UndefsContainer *> Undefs, const pstore::address Name,
+    const size_t NameLength, const pstore::repo::reference_strength Strength) {
   Symbol *const Sym = &Globals->emplace_back(Name, NameLength, Strength);
   Undefs->insert(Sym);
   return Sym;
@@ -498,13 +497,11 @@ NotNull<Symbol *> SymbolResolver::addReference(
 // add
 // ~~~
 Symbol *SymbolResolver::add(NotNull<GlobalSymbolsContainer *> const Globals,
-                            pstore::repo::definition const &Def,
-                            uint32_t InputOrdinal) {
-  const size_t Length = stringLength(Context_.Db, Def.name);
-  Context_.ELFStringTableSize.fetch_add(Length + 1U, std::memory_order_relaxed);
-
+                            const pstore::address Name, const size_t Length,
+                            const pstore::repo::definition &Def,
+                            const uint32_t InputOrdinal) {
   return &Globals->emplace_back(
-      Def.name, Length,
+      Name, Length,
       Symbol::Body(&Def, pstore::repo::fragment::load(Context_.Db, Def.fext),
                    Def.fext.addr, InputOrdinal));
 }
@@ -525,7 +522,15 @@ SymbolResolver::defineSymbol(NotNull<GlobalSymbolsContainer *> const Globals,
   });
 
   // Create a new symbol with definition 'Def'.
-  auto AddSymbol = [&]() { return this->add(Globals, Def, InputOrdinal); };
+  auto AddSymbol = [&]() {
+    const auto IndirStr = pstore::indirect_string::read(Context_.Db, Def.name);
+    const size_t Length = IndirStr.length();
+    Context_.ELFStringTableSize.fetch_add(Length + 1U,
+                                          std::memory_order_relaxed);
+
+    return this->add(Globals, IndirStr.in_store_address(), Length, Def,
+                     InputOrdinal);
+  };
 
   switch (Def.linkage()) {
   case linkage::append:
@@ -590,11 +595,12 @@ referenceSymbol(Context &Ctxt, LocalSymbolsContainer const &Locals,
       symbolShadow(Ctxt, Name),
       [&]() {
         // Called for a reference to a (thus far) undefined symbol.
-        const size_t Length = stringLength(Ctxt.Db, Name);
+        const auto IndirStr = pstore::indirect_string::read(Ctxt.Db, Name);
+        const size_t Length = IndirStr.length();
         Ctxt.ELFStringTableSize.fetch_add(Length + 1U,
                                           std::memory_order_relaxed);
-        return SymbolResolver::addUndefined(Globals, Undefs, Name, Length,
-                                            Strength);
+        return SymbolResolver::addUndefined(
+            Globals, Undefs, IndirStr.in_store_address(), Length, Strength);
       },
       [&](Symbol *const Sym) {
         // Called if we see a reference to a symbol already in the symbol table.
