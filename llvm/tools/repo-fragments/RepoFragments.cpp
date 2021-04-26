@@ -74,11 +74,11 @@ static constexpr unsigned clamp_to_unsigned(size_t S) {
 namespace {
 
 cl::opt<std::string> TicketPath(cl::Positional,
-                                cl::desc("<Path of the ticket file>"),
+                                cl::desc("<ticket file>"),
                                 cl::Required);
 cl::list<std::string> Names(cl::Positional, cl::ZeroOrMore,
-                            cl::desc("<Definitions(s) to be displayed>"));
-cl::opt<std::string> RepoPath("repo", cl::Optional,
+                            cl::desc("[<name>...]"));
+cl::opt<std::string> RepoPath("repo",
                               cl::desc("Path of the program repository"),
                               cl::init("./clang.db"));
 cl::opt<bool> DigestOnly("digest-only", cl::init(false),
@@ -152,9 +152,8 @@ int main(int argc, char *argv[]) {
     // Dump this digest (and perhaps name) if it was requested by the user.
     if (IsRequestedName(MemberNameRef)) {
       outs() << Sep << makeNameAndDigest(DigestOnly, MemberNameRef, CM.digest);
+      Sep = UseComma ? "," : "\n";
     }
-
-    Sep = UseComma ? "," : "\n";
   }
   outs() << '\n';
   return EXIT_SUCCESS;
