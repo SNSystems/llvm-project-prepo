@@ -217,6 +217,9 @@ public:
   /// \returns The value of the symbol. Available once layout is complete.
   uint64_t value() const;
 
+  void setPLTIndex(unsigned Index) { PLTIndex_ = Index; }
+  unsigned pltIndex() const { return PLTIndex_; }
+
   void setFirstContribution(Contribution *const C) {
     Contribution *expected = nullptr;
     Contribution_.compare_exchange_strong(expected, C);
@@ -410,6 +413,8 @@ private:
 
   /// True if an associated PLT entry has been created for this symbol.
   std::atomic<bool> HasPLT_;
+  /// The index of this symbol's entry in the PLT (if present).
+  unsigned PLTIndex_ = 0;
 
   /// We allow an array of definitions so that append symbols can associate
   /// multiple definitions with a single name.

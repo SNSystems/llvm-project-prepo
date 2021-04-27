@@ -20,6 +20,8 @@
 
 #include "llvm/ADT/Twine.h"
 #include "llvm/BinaryFormat/ELF.h"
+#include "llvm/Object/ELF.h"
+#include "llvm/Object/ELFTypes.h"
 #include "llvm/Support/Threading.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -52,11 +54,17 @@ static constexpr bool hasFileData(pstore::repo::section_kind Kind) {
 static constexpr bool hasFileData(rld::SectionKind Kind) {
   switch (Kind) {
     PSTORE_MCREPO_SECTION_KINDS
+  case rld::SectionKind::rela_plt:
+  case rld::SectionKind::gotplt:
   case rld::SectionKind::plt:
     return true;
-  default:
+  case rld::SectionKind::shstrtab:
+  case rld::SectionKind::strtab:
+  case rld::SectionKind::symtab:
+  case rld::SectionKind::last:
     return false;
   }
+  llvm_unreachable("Unknown section-kind");
 }
 #undef X
 
@@ -115,7 +123,9 @@ LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
     {SectionKind::debug_ranges, SegmentKind::discard},
     {SectionKind::interp, SegmentKind::interp},
     {SectionKind::linked_definitions, SegmentKind::discard},
+    {SectionKind::gotplt, SegmentKind::data},
     {SectionKind::plt, SegmentKind::text},
+    {SectionKind::rela_plt, SegmentKind::rodata},
     {SectionKind::shstrtab, SegmentKind::discard},
     {SectionKind::strtab, SegmentKind::discard},
     {SectionKind::symtab, SegmentKind::discard},
@@ -415,6 +425,10 @@ void LayoutBuilder::run() {
               [](const Symbol *const A, const Symbol *const B) {
                 return A->name() < B->name();
               });
+    auto Count = 0U;
+    for (Symbol *const S : *PLTs_) {
+      S->setPLTIndex(Count++);
+    }
 
     llvmDebug(DebugType, Ctx_.IOMut, [&] {
       llvm::dbgs() << "PLT symbols:" << '\n';
@@ -423,8 +437,16 @@ void LayoutBuilder::run() {
       }
     });
 
-    this->addToOutputSection(rld::SectionKind::plt,
-                             (size_t{PLTEntries} + 1U) * 16U, 8U);
+    const size_t PLTSize = (size_t{PLTEntries} + 1U) * 16U;
+    this->addToOutputSection(rld::SectionKind::plt, PLTSize, 8U);
+    this->addToOutputSection(rld::SectionKind::gotplt, PLTSize, 8U);
+
+    using ELFT = llvm::object::ELFType<llvm::support::little, true>;
+    using Elf_Rela = llvm::object::ELFFile<ELFT>::Elf_Ehdr;
+    OutputSection *const rela_plt = this->addToOutputSection(
+        rld::SectionKind::rela_plt, PLTEntries * sizeof(Elf_Rela), 8U);
+    rela_plt->Link = rld::SectionKind::symtab;
+    rela_plt->Info = rld::SectionKind::gotplt;
   }
 }
 

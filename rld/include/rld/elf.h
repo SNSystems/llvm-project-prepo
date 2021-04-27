@@ -206,6 +206,7 @@ template <typename ELFT> constexpr auto elfSectionType(rld::SectionKind Kind) {
   case SectionKind::mergeable_const_32:
   case SectionKind::mergeable_const_4:
   case SectionKind::mergeable_const_8:
+  case SectionKind::gotplt:
   case SectionKind::plt:
   case SectionKind::read_only:
   case SectionKind::rel_ro:
@@ -223,6 +224,9 @@ template <typename ELFT> constexpr auto elfSectionType(rld::SectionKind Kind) {
 
   case SectionKind::symtab:
     return Elf_Word{llvm::ELF::SHT_SYMTAB};
+
+  case SectionKind::rela_plt:
+    return Elf_Word{llvm::ELF::SHT_RELA};
 
   case SectionKind::linked_definitions:
   case SectionKind::last:
@@ -244,6 +248,7 @@ template <typename ELFT> constexpr auto elfSectionFlags(SectionKind Kind) {
   case SectionKind::data:
     return Elf_Word{llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_WRITE};
 
+  case SectionKind::gotplt:
   case SectionKind::rel_ro:
     return Elf_Word{llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_WRITE};
 
@@ -264,6 +269,9 @@ template <typename ELFT> constexpr auto elfSectionFlags(SectionKind Kind) {
 
   case SectionKind::thread_bss:
     return Elf_Word{llvm::ELF::SHF_TLS};
+
+  case SectionKind::rela_plt:
+    return Elf_Word{llvm::ELF::SHF_ALLOC};
 
   case SectionKind::debug_line:
   case SectionKind::debug_string:
@@ -301,22 +309,25 @@ template <typename ELFT> constexpr auto elfSectionEntSize(SectionKind Kind) {
     return Elf_Word{32};
   case SectionKind::symtab:
     return Elf_Word{sizeof(typename llvm::object::ELFFile<ELFT>::Elf_Sym)};
+  case SectionKind::gotplt:
   case SectionKind::plt:
     return Elf_Word{8};
-  case SectionKind::text:
-  case SectionKind::data:
+  case SectionKind::rela_plt:
+    return Elf_Word{sizeof(typename llvm::object::ELFFile<ELFT>::Elf_Rela)};
   case SectionKind::bss:
-  case SectionKind::rel_ro:
-  case SectionKind::read_only:
-  case SectionKind::thread_data:
-  case SectionKind::thread_bss:
+  case SectionKind::data:
   case SectionKind::debug_line:
-  case SectionKind::debug_string:
   case SectionKind::debug_ranges:
+  case SectionKind::debug_string:
   case SectionKind::interp:
   case SectionKind::linked_definitions:
+  case SectionKind::read_only:
+  case SectionKind::rel_ro:
   case SectionKind::shstrtab:
   case SectionKind::strtab:
+  case SectionKind::text:
+  case SectionKind::thread_bss:
+  case SectionKind::thread_data:
     break;
   case SectionKind::last:
     llvm_unreachable("an impossible section kind");
@@ -324,37 +335,40 @@ template <typename ELFT> constexpr auto elfSectionEntSize(SectionKind Kind) {
   return Elf_Word{0};
 }
 
+#define RLD_ELF_SECTION_NAMES                                                  \
+  ELF_SECTION_NAME(bss, ".bss")                                                \
+  ELF_SECTION_NAME(data, ".data")                                              \
+  ELF_SECTION_NAME(debug_line, ".debug_line")                                  \
+  ELF_SECTION_NAME(debug_ranges, ".debug_ranges")                              \
+  ELF_SECTION_NAME(debug_string, ".debug_str")                                 \
+  ELF_SECTION_NAME(linked_definitions, "")                                     \
+  ELF_SECTION_NAME(interp, ".interp")                                          \
+  ELF_SECTION_NAME(mergeable_1_byte_c_string, ".rodata.str1.1")                \
+  ELF_SECTION_NAME(mergeable_2_byte_c_string, ".rodata.str2.2")                \
+  ELF_SECTION_NAME(mergeable_4_byte_c_string, ".rodata.str4.4")                \
+  ELF_SECTION_NAME(mergeable_const_16, ".rodata.cst16")                        \
+  ELF_SECTION_NAME(mergeable_const_32, ".rodata.cst32")                        \
+  ELF_SECTION_NAME(mergeable_const_4, ".rodata.cst4")                          \
+  ELF_SECTION_NAME(mergeable_const_8, ".rodata.cst8")                          \
+  ELF_SECTION_NAME(gotplt, ".got.plt")                                         \
+  ELF_SECTION_NAME(rela_plt, ".rela.plt")                                      \
+  ELF_SECTION_NAME(plt, ".plt")                                                \
+  ELF_SECTION_NAME(read_only, ".rodata")                                       \
+  ELF_SECTION_NAME(rel_ro, ".data.rel")                                        \
+  ELF_SECTION_NAME(shstrtab, ".shstrtab")                                      \
+  ELF_SECTION_NAME(strtab, ".strtab")                                          \
+  ELF_SECTION_NAME(symtab, ".symtab")                                          \
+  ELF_SECTION_NAME(text, ".text")                                              \
+  ELF_SECTION_NAME(thread_bss, ".tbss")                                        \
+  ELF_SECTION_NAME(thread_data, ".tls")
+
 template <SectionKind SKind> struct ElfSectionName {};
 #define ELF_SECTION_NAME(K, N)                                                 \
   template <> struct ElfSectionName<SectionKind::K> {                          \
     static constexpr char name[] = N;                                          \
     static constexpr std::size_t length = pstore::array_elements(name) - 1U;   \
-  }
-
-ELF_SECTION_NAME(bss, ".bss");
-ELF_SECTION_NAME(data, ".data");
-ELF_SECTION_NAME(debug_line, ".debug_line");
-ELF_SECTION_NAME(debug_ranges, ".debug_ranges");
-ELF_SECTION_NAME(debug_string, ".debug_str");
-ELF_SECTION_NAME(linked_definitions, "");
-ELF_SECTION_NAME(interp, ".interp");
-ELF_SECTION_NAME(mergeable_1_byte_c_string, ".rodata.str1.1");
-ELF_SECTION_NAME(mergeable_2_byte_c_string, ".rodata.str2.2");
-ELF_SECTION_NAME(mergeable_4_byte_c_string, ".rodata.str4.4");
-ELF_SECTION_NAME(mergeable_const_16, ".rodata.cst16");
-ELF_SECTION_NAME(mergeable_const_32, ".rodata.cst32");
-ELF_SECTION_NAME(mergeable_const_4, ".rodata.cst4");
-ELF_SECTION_NAME(mergeable_const_8, ".rodata.cst8");
-ELF_SECTION_NAME(plt, ".plt");
-ELF_SECTION_NAME(read_only, ".rodata");
-ELF_SECTION_NAME(rel_ro, ".data.rel");
-ELF_SECTION_NAME(shstrtab, ".shstrtab");
-ELF_SECTION_NAME(strtab, ".strtab");
-ELF_SECTION_NAME(symtab, ".symtab");
-ELF_SECTION_NAME(text, ".text");
-ELF_SECTION_NAME(thread_bss, ".tbss");
-ELF_SECTION_NAME(thread_data, ".tls");
-
+  };
+RLD_ELF_SECTION_NAMES
 #undef ELF_SECTION_NAME
 
 #define X(x)                                                                   \

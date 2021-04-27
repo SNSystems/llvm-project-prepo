@@ -305,6 +305,8 @@ static constexpr unsigned char sectionToSymbolType(const SectionKind T) {
   case SectionKind::interp:
     return llvm::ELF::STT_NOTYPE;
   case SectionKind::linked_definitions:
+  case SectionKind::rela_plt:
+  case SectionKind::gotplt:
   case SectionKind::plt:
   case SectionKind::shstrtab:
   case SectionKind::strtab:

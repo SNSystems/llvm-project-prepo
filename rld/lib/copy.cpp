@@ -31,24 +31,30 @@ static constexpr auto DebugType = "rld-copy";
 using ExternalFixup = pstore::repo::external_fixup;
 
 template <uint8_t Relocation>
-static void apply(uint8_t * /*Out*/, const Symbol *const /*Sym*/,
-                  const ExternalFixup & /*XFixup*/) {
+static void apply(uint8_t *const Out, const Contribution &Contribution,
+                  const Layout &Lout, uint64_t Offset, const Symbol *const Sym,
+                  const ExternalFixup &XFixup) {
   llvm_unreachable("Relocation type is unsupported");
 }
 
 template <>
-inline void apply<llvm::ELF::R_X86_64_NONE>(uint8_t *, const Symbol *,
-                                            const ExternalFixup &) {}
+inline void apply<llvm::ELF::R_X86_64_NONE>(uint8_t *const Out,
+                                            const Contribution &Contribution,
+                                            const Layout &Lout, uint64_t Offset,
+                                            const Symbol *const Sym,
+                                            const ExternalFixup &XFixup) {}
 
 template <>
 inline void apply<llvm::ELF::R_X86_64_64>(uint8_t *const Out,
+                                          const Contribution &Contribution,
+                                          const Layout &Lout, uint64_t Offset,
                                           const Symbol *const Sym,
                                           const ExternalFixup &XFixup) {
   const auto S = Sym != nullptr ? Sym->value() : UINT64_C(0);
   const int64_t A = XFixup.addend;
   // TODO: range check.
   auto Value = S + A;
-  llvm::support::ulittle64_t::ref{Out} = Value;
+  llvm::support::ulittle64_t::ref{Out + Offset} = Value;
 }
 
 // Field: word32
@@ -59,29 +65,56 @@ inline void apply<llvm::ELF::R_X86_64_64>(uint8_t *const Out,
 // value.
 template <>
 inline void apply<llvm::ELF::R_X86_64_32>(uint8_t *const Out,
+                                          const Contribution &Contribution,
+                                          const Layout &Lout, uint64_t Offset,
                                           const Symbol *const Sym,
                                           const ExternalFixup &XFixup) {
   const auto S = Sym != nullptr ? Sym->value() : UINT64_C(0);
   const int64_t A = XFixup.addend;
   const auto Value = S + A;
-  llvm::support::ulittle32_t::ref{Out} = Value;
+  llvm::support::ulittle32_t::ref{Out + Offset} = Value;
 }
 
 template <>
 inline void apply<llvm::ELF::R_X86_64_32S>(uint8_t *const Out,
+                                           const Contribution &Contribution,
+                                           const Layout &Lout, uint64_t Offset,
                                            const Symbol *const Sym,
                                            const ExternalFixup &XFixup) {
   const auto S = Sym != nullptr ? Sym->value() : UINT64_C(0);
   const int64_t A = XFixup.addend;
   // TODO: range check.
   const auto Value = S + A;
-  llvm::support::little32_t::ref{Out} = Value;
+  llvm::support::little32_t::ref{Out + Offset} = Value;
 }
 
 template <>
-inline void apply<llvm::ELF::R_X86_64_PLT32>(uint8_t *const Out,
-                                             const Symbol *const Sym,
-                                             const ExternalFixup &XFixup) {}
+inline void apply<llvm::ELF::R_X86_64_PLT32>(
+    uint8_t *const Out, const Contribution &Contribution, const Layout &Layout,
+    uint64_t Offset, const Symbol *const Sym, const ExternalFixup &XFixup) {
+  if (Sym->hasDefinition()) {
+    const struct Contribution *const Target = Sym->contribution();
+    const uint64_t P = Target->OScn->VirtualAddr + Target->Offset;
+    const int64_t A = XFixup.addend;
+    assert(alignTo(Contribution.Offset, Contribution.Align) ==
+           Contribution.Offset);
+    const uint64_t L =
+        Contribution.OScn->VirtualAddr + Contribution.Offset + XFixup.offset;
+    const auto Value = P + A - L;
+    llvm::support::little32_t::ref{Out + Offset} = Value;
+    return;
+  }
+
+  const uint64_t L = Layout.Sections[SectionKind::plt].VirtualAddr +
+                     (Sym->pltIndex() + 1) * 16;
+  const int64_t A = XFixup.addend;
+  assert(alignTo(Contribution.Offset, Contribution.Align) ==
+         Contribution.Offset);
+  const uint64_t P =
+      Contribution.OScn->VirtualAddr + Contribution.Offset + XFixup.offset;
+  const auto Value = L + A - P;
+  llvm::support::little32_t::ref{Out + Offset} = Value;
+}
 
 #if 0
 template <>
@@ -107,8 +140,9 @@ inline void apply<llvm::ELF::R_X86_64_DTPOFF32>(uint8_t *const Out,
 #endif
 
 template <SectionKind SKind>
-uint8_t *copyContribution(Context &Ctxt, const Contribution &Contribution,
-                          uint8_t *Dest) {
+uint8_t *copyContribution(uint8_t *Dest, Context &Ctxt,
+                          const Contribution &Contribution,
+                          const Layout &Lout) {
   llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
     llvm::dbgs() << "copy to "
                  << format_hex(reinterpret_cast<std::uintptr_t>(Dest)) << '\n';
@@ -141,7 +175,8 @@ uint8_t *copyContribution(Context &Ctxt, const Contribution &Contribution,
     switch (XFixup.type) {
 #define ELF_RELOC(Name, Value)                                                 \
   case llvm::ELF::Name:                                                        \
-    apply<llvm::ELF::Name>(Dest + XFixup.offset, Sym, XFixup);                 \
+    apply<llvm::ELF::Name>(Dest, Contribution, Lout, XFixup.offset, Sym,       \
+                           XFixup);                                            \
     break;
 #include "llvm/BinaryFormat/ELFRelocs/x86_64.def"
 #undef ELF_RELOC
@@ -152,9 +187,9 @@ uint8_t *copyContribution(Context &Ctxt, const Contribution &Contribution,
 }
 
 template <>
-uint8_t *copyContribution<SectionKind::bss>(Context &Ctxt,
+uint8_t *copyContribution<SectionKind::bss>(uint8_t *Dest, Context &Ctxt,
                                             const Contribution &S,
-                                            uint8_t *Dest) {
+                                            const Layout &Lout) {
   llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
     llvm::dbgs() << "BSS fill "
                  << format_hex(reinterpret_cast<std::uintptr_t>(Dest)) << '\n';
@@ -168,16 +203,17 @@ uint8_t *copyContribution<SectionKind::bss>(Context &Ctxt,
 }
 
 template <>
-uint8_t *copyContribution<SectionKind::linked_definitions>(Context &,
+uint8_t *copyContribution<SectionKind::linked_definitions>(uint8_t *Dest,
+                                                           Context &,
                                                            const Contribution &,
-                                                           uint8_t *Dest) {
+                                                           const Layout &) {
   // discard
   return Dest;
 }
 
 template <SectionKind SectionK>
-uint8_t *copySection(Context &Ctxt, const Layout &Lout,
-                     const LocalPLTsContainer & /*PLT*/, uint8_t *Data) {
+uint8_t *copySection(uint8_t *Data, Context &Ctxt, const Layout &Lout,
+                     const LocalPLTsContainer & /*PLT*/) {
   auto *Dest = Data;
   for (Contribution const &Contribution :
        Lout.Sections[SectionK].Contributions) {
@@ -188,7 +224,7 @@ uint8_t *copySection(Context &Ctxt, const Layout &Lout,
     switch (SectionK) {
 #define X(a)                                                                   \
   case SectionKind::a:                                                         \
-    Dest = copyContribution<SectionKind::a>(Ctxt, Contribution, Dest);         \
+    Dest = copyContribution<SectionKind::a>(Dest, Ctxt, Contribution, Lout);   \
     break;
       PSTORE_MCREPO_SECTION_KINDS
 #undef X
@@ -202,36 +238,38 @@ uint8_t *copySection(Context &Ctxt, const Layout &Lout,
 }
 
 template <>
-uint8_t *copySection<SectionKind::shstrtab>(Context & /*Ctxt*/,
-                                            const Layout & /*Lout*/,
-                                            const LocalPLTsContainer & /*PLT*/,
-                                            uint8_t *Dest) {
+uint8_t *
+copySection<SectionKind::shstrtab>(uint8_t *Dest, Context & /*Ctxt*/,
+                                   const Layout & /*Lout*/,
+                                   const LocalPLTsContainer & /*PLT*/) {
   return Dest;
 }
 template <>
-uint8_t *copySection<SectionKind::strtab>(Context & /*Ctxt*/,
+uint8_t *copySection<SectionKind::strtab>(uint8_t *Dest, Context & /*Ctxt*/,
                                           const Layout & /*Lout*/,
-                                          const LocalPLTsContainer & /*PLT*/,
-                                          uint8_t *Dest) {
+                                          const LocalPLTsContainer & /*PLT*/) {
   return Dest;
 }
 template <>
-uint8_t *copySection<SectionKind::symtab>(Context & /*Ctxt*/,
+uint8_t *copySection<SectionKind::symtab>(uint8_t *Dest, Context & /*Ctxt*/,
                                           const Layout & /*Lout*/,
-                                          const LocalPLTsContainer & /*PLT*/,
-                                          uint8_t *Dest) {
+                                          const LocalPLTsContainer & /*PLT*/) {
   return Dest;
 }
 
 template <>
-uint8_t *copySection<SectionKind::plt>(Context &Ctxt, const Layout &Lout,
-                                       const LocalPLTsContainer &PLTSymbols,
-                                       std::uint8_t *Dest) {
-  // memset(Dest, 0xFF, (Ctxt.PLTEntries.load() + 1) * 8);
+uint8_t *
+copySection<SectionKind::gotplt>(std::uint8_t *Dest, Context &Ctxt,
+                                 const Layout &Lout,
+                                 const LocalPLTsContainer &PLTSymbols) {
+  return Dest;
+}
 
-  if (PLTSymbols.empty()) {
-    return Dest;
-  }
+template <>
+uint8_t *copySection<SectionKind::plt>(std::uint8_t *Dest, Context &Ctxt,
+                                       const Layout &Lout,
+                                       const LocalPLTsContainer &PLTSymbols) {
+  assert(!PLTSymbols.empty());
 
   {
     // add the PLT header
@@ -253,18 +291,21 @@ uint8_t *copySection<SectionKind::plt>(Context &Ctxt, const Layout &Lout,
     Dest = Out;
   }
 
+  auto PLTVirtualAddr = Lout.Sections[SectionKind::plt].VirtualAddr;
+  const auto GOTPLTVirtualAddr = Lout.Sections[SectionKind::gotplt].VirtualAddr;
   for (const Symbol *const Sym : PLTSymbols) {
     static const std::array<uint8_t, 16> Inst{{
         0xFF, 0x25, 0, 0, 0, 0, // jmpq *got(%rip)
         0x68, 0, 0, 0, 0,       // pushq <relocation index>
         0xE9, 0, 0, 0, 0,       // jmpq plt[0]
     }};
-    auto Out = std::copy(std::begin(Inst), std::end(Inst), Dest);
-    llvm::support::endian::write32le(
-        Dest + 2, 0 /*sym.getGotPltVA() - pltEntryAddr - 6*/);
-    llvm::support::endian::write32le(Dest + 7, 0 /*sym.pltIndex*/);
+    auto *const Out = std::copy(std::begin(Inst), std::end(Inst), Dest);
+    llvm::support::endian::write32le(Dest + 2,
+                                     GOTPLTVirtualAddr - PLTVirtualAddr - 6U);
+    llvm::support::endian::write32le(Dest + 7, Sym->pltIndex());
     llvm::support::endian::write32le(Dest + 12,
                                      0 /*in.plt->getVA() - pltEntryAddr - 16*/);
+    PLTVirtualAddr += 16;
     Dest = Out;
   }
   return Dest;
@@ -295,6 +336,8 @@ bool hasDataToCopy(SectionKind SectionK, const Context &Ctxt,
     return !Lout.Sections[SectionKind::K].Contributions.empty();
     PSTORE_MCREPO_SECTION_KINDS
 #undef X
+  case SectionKind::rela_plt:
+  case SectionKind::gotplt:
   case SectionKind::plt:
     return Ctxt.PLTEntries.load() > 0U;
 
@@ -320,7 +363,7 @@ void copyToOutput(
       return;
     }
     assert(SectionFileOffsets[SectionK].hasValue() &&
-           "No layout position for a section with contributions");
+           "No layout position for a section with data to copy");
     Workers.async(
         [SectionK, &Ctxt, Data, &Lout, &PLTs](const uint64_t Start) {
           llvm::NamedRegionTimer CopyTimer(jobName(SectionK), "Copy section",
@@ -330,7 +373,7 @@ void copyToOutput(
           switch (SectionK) {
 #define X(x)                                                                   \
   case SectionKind::x:                                                         \
-    copySection<SectionKind::x>(Ctxt, Lout, PLTs, Data + Start);               \
+    copySection<SectionKind::x>(Data + Start, Ctxt, Lout, PLTs);               \
     break;
 #define RLD_X(x) X(x)
             PSTORE_MCREPO_SECTION_KINDS

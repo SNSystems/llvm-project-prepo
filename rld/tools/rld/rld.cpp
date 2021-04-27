@@ -131,6 +131,12 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, rld::SectionKind SKind) {
 
   switch (SKind) {
     PSTORE_MCREPO_SECTION_KINDS
+  case rld::SectionKind::gotplt:
+    OS << "gotplt";
+    break;
+  case rld::SectionKind::rela_plt:
+    OS << "rela_plt";
+    break;
   case rld::SectionKind::plt:
     OS << "plt";
     break;

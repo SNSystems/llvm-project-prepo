@@ -51,6 +51,9 @@ struct OutputSection {
   // ELF section header's sh_link field. A value of 'last' corresponds to an
   // sh_link value of 0 (i.e. no linked section).
   SectionKind Link = SectionKind::last;
+  // The ELF section-info field. For relocation sections this is section to
+  // which the relocations apply.
+  SectionKind Info = SectionKind::last;
 
   bool shouldEmit() const {
     return AlwaysEmit || VirtualSize > 0 || FileSize > 0;

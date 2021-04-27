@@ -26,32 +26,8 @@ constexpr auto DebugType = "rld-ELF";
 
 #define ELF_SECTION_NAME(K, N)                                                 \
   constexpr char rld::elf::ElfSectionName<rld::SectionKind::K>::name[];        \
-  constexpr std::size_t rld::elf::ElfSectionName<rld::SectionKind::K>::length
-
-ELF_SECTION_NAME(bss, ".bss");
-ELF_SECTION_NAME(data, ".data");
-ELF_SECTION_NAME(debug_line, ".debug_line");
-ELF_SECTION_NAME(debug_ranges, ".debug_ranges");
-ELF_SECTION_NAME(debug_string, ".debug_str");
-ELF_SECTION_NAME(interp, ".interp");
-ELF_SECTION_NAME(linked_definitions, "");
-ELF_SECTION_NAME(mergeable_1_byte_c_string, ".rodata.str1.1");
-ELF_SECTION_NAME(mergeable_2_byte_c_string, ".rodata.str2.2");
-ELF_SECTION_NAME(mergeable_4_byte_c_string, ".rodata.str4.4");
-ELF_SECTION_NAME(mergeable_const_16, ".rodata.cst16");
-ELF_SECTION_NAME(mergeable_const_32, ".rodata.cst32");
-ELF_SECTION_NAME(mergeable_const_4, ".rodata.cst4");
-ELF_SECTION_NAME(mergeable_const_8, ".rodata.cst8");
-ELF_SECTION_NAME(plt, ".plt");
-ELF_SECTION_NAME(read_only, ".rodata");
-ELF_SECTION_NAME(rel_ro, ".data.rel");
-ELF_SECTION_NAME(shstrtab, ".shstrtab");
-ELF_SECTION_NAME(strtab, ".strtab");
-ELF_SECTION_NAME(symtab, ".symtab");
-ELF_SECTION_NAME(text, ".text");
-ELF_SECTION_NAME(thread_bss, ".tbss");
-ELF_SECTION_NAME(thread_data, ".tls");
-
+  constexpr std::size_t rld::elf::ElfSectionName<rld::SectionKind::K>::length;
+RLD_ELF_SECTION_NAMES
 #undef ELF_SECTION_NAME
 
 llvm::ErrorOr<unsigned> rld::elf::details::machineFromTriple(
@@ -68,40 +44,6 @@ llvm::ErrorOr<unsigned> rld::elf::details::machineFromTriple(
     return std::errc::not_enough_memory; // FIXME: unknown machine type in
                                          // triple
   }
-}
-
-template <typename ELFT> static void initStandardSections() {
-  // null section
-  typename ELFT::Elf_Shdr SH;
-  zero(SH);
-  // assert(SectionHeaders.size() == SectionIndices::Null);
-  // SectionHeaders.push_back(SH);
-
-  // string table
-  zero(SH);
-  SH.sh_name = 0; // Strings.insert(Generated.add(".strtab"));
-  SH.sh_type = llvm::ELF::SHT_STRTAB;
-  // assert(SectionHeaders.size() == SectionIndices::StringTab);
-  // SectionHeaders.push_back(SH);
-
-  // Symbol table
-  zero(SH);
-  SH.sh_name = 0; // Strings.insert(Generated.add(".symtab"));
-  SH.sh_type = llvm::ELF::SHT_SYMTAB;
-  SH.sh_link = 0; // SectionIndices::StringTab;
-  SH.sh_entsize = sizeof(typename ELFT::Elf_Sym);
-  SH.sh_addralign = alignof(typename ELFT::Elf_Sym);
-  // assert(SectionHeaders.size() == SectionIndices::SymTab);
-  // SectionHeaders.push_back(SH);
-}
-
-// FIXME: copied from repo2obj WriteHelpers.h
-template <typename Ty>
-static void writeAlignmentPadding(llvm::raw_ostream &OS) {
-  constexpr auto Alignment = alignof(Ty);
-  uint8_t Padding[Alignment] = {0};
-  OS.write(reinterpret_cast<char const *>(Padding),
-           Alignment - (OS.tell() % Alignment));
 }
 
 // FIXME: copied from repo2obj WriteHelpers.h
@@ -237,8 +179,7 @@ auto rld::elf::emitProgramHeaders(
 
 /// \param Lout The layout.
 /// \returns A table which contains the index of section-header record for each
-/// of the
-///   various section-kinds.
+///   of the various section-kinds.
 static rld::SectionIndexedArray<unsigned>
 getLinkSections(const rld::Layout &Lout) {
   using namespace rld;
@@ -297,8 +238,7 @@ auto rld::elf::emitSectionHeaders(
 
   // A table which contains the index of section-header record for each of the
   // various section-kinds.
-  SectionIndexedArray<unsigned> Links = getLinkSections(Lout);
-
+  const SectionIndexedArray<unsigned> Links = getLinkSections(Lout);
   // The Null section.
   std::memset(Shdr, 0, sizeof(*Shdr));
   ++Shdr;
@@ -306,6 +246,9 @@ auto rld::elf::emitSectionHeaders(
   forEachSectionKind([&](SectionKind SectionK) {
     const OutputSection &OScn = Lout.Sections[SectionK];
     if (OScn.shouldEmit()) {
+      const auto linkSection = [&Links](SectionKind L) {
+        return L == SectionKind::last ? 0 : Links[L];
+      };
       std::memset(Shdr, 0, sizeof(*Shdr));
       Shdr->sh_name = NameOffsets[SectionK];
       Shdr->sh_type = elfSectionType<ELFT>(SectionK);
@@ -317,8 +260,8 @@ auto rld::elf::emitSectionHeaders(
           *SectionFileOffsets[SectionK] +
           TargetDataOffset; // File offset of section data, in bytes
       Shdr->sh_size = OScn.FileSize;
-      Shdr->sh_link = OScn.Link == SectionKind::last ? 0 : Links[OScn.Link];
-      //  link Elf_Word sh_info;      // Section type-specific extra information
+      Shdr->sh_link = linkSection(OScn.Link);
+      Shdr->sh_info = linkSection(OScn.Info);
       Shdr->sh_addralign = OScn.MaxAlign;
       Shdr->sh_entsize = elfSectionEntSize<ELFT>(SectionK);
 
