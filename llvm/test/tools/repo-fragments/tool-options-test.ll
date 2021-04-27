@@ -12,6 +12,7 @@
 ; RUN: repo-fragments -repo=%t.db -d %t.o | FileCheck --check-prefix=DIGESTONLY %s
 ; RUN: repo-fragments -repo=%t.db -comma %t.o | FileCheck --check-prefix=COMMA %s
 ; RUN: repo-fragments -repo=%t.db -c %t.o | FileCheck --check-prefix=COMMA %s
+; RUN: repo-fragments -repo=%t.db -c %t.o f | FileCheck --check-prefix=NAME --match-full-lines --strict-whitespace %s
 ;
 ; BASIC: f: {{([[:xdigit:]]{32})}}
 ; BASIC: v: {{([[:xdigit:]]{32})}}
@@ -20,6 +21,7 @@
 ; DIGESTONLY: {{([[:xdigit:]]{32})}}
 ; CHECK2: {{([[:xdigit:]]{32})}}
 ; COMMA: f: {{([[:xdigit:]]{32})}},v: {{([[:xdigit:]]{32})}}
+; NAME:f: {{([[:xdigit:]]{32})}}
 ;
 target triple = "x86_64-pc-linux-gnu-repo"
 
