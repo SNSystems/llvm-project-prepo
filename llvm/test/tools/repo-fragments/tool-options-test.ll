@@ -12,7 +12,7 @@
 ; RUN: repo-fragments -repo=%t.db -d %t.o | FileCheck --check-prefix=DIGESTONLY %s
 ; RUN: repo-fragments -repo=%t.db -comma %t.o | FileCheck --check-prefix=COMMA %s
 ; RUN: repo-fragments -repo=%t.db -c %t.o | FileCheck --check-prefix=COMMA %s
-; RUN: repo-fragments -repo=%t.db %t.o f | FileCheck --check-prefix=NAME --match-full-lines --strict-whitespace %s
+; RUN: repo-fragments -repo=%t.db -c %t.o f | FileCheck --check-prefix=NAME --match-full-lines --strict-whitespace %s
 ;
 ; BASIC: f: {{([[:xdigit:]]{32})}}
 ; BASIC: v: {{([[:xdigit:]]{32})}}
