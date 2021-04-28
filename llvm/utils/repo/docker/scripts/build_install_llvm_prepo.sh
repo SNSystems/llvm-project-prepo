@@ -89,19 +89,19 @@ pushd "$WORKSPACE_DIR/build"
 
 # Run the build as specified in the build arguments.
 echo "Running build on: '$(pwd)'"
-echo "cmake -GNinja"
-echo "      -DCMAKE_INSTALL_PREFIX=$INSTALL_DIR"
-echo "      -DLLVM_ENABLE_PROJECTS=\"clang;pstore\""
-echo "      -DLLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD=OFF"
-echo "      -DLLVM_TARGETS_TO_BUILD=X86"
+echo "cmake -G Ninja"
+echo "      -D CMAKE_INSTALL_PREFIX=$INSTALL_DIR"
+echo "      -D LLVM_ENABLE_PROJECTS=\"clang;pstore;rld\""
+echo "      -D LLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD=OFF"
+echo "      -D LLVM_TARGETS_TO_BUILD=X86"
 echo "      $CMAKE_ARGS"
 echo "      $WORKSPACE_DIR/src/llvm"
-cmake -GNinja \
-  -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
-  -DLLVM_ENABLE_PROJECTS="clang;pstore" \
-  -DLLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD=OFF \
-  -DLLVM_TARGETS_TO_BUILD=X86 \
-  $CMAKE_ARGS \
+cmake -G Ninja \
+  -D CMAKE_INSTALL_PREFIX="$INSTALL_DIR"     \
+  -D LLVM_ENABLE_PROJECTS="clang;pstore;rld" \
+  -D LLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD=OFF   \
+  -D LLVM_TARGETS_TO_BUILD=X86               \
+  $CMAKE_ARGS                                \
   "$WORKSPACE_DIR/src/llvm"
 ninja $CMAKE_INSTALL_TARGETS
 

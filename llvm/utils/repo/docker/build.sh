@@ -11,12 +11,13 @@
     --branch master \
     --docker-tag latest \
     --install-target install-clang \
+    --install-target install-clang-resource-headers \
     --install-target install-pstore \
     --install-target install-repo2obj \
     --install-target install-repo-ticket-dump \
     --install-target install-repo-create-ticket \
     --install-target install-repo-fragments \
-    --install-target install-clang-resource-headers \
+    --install-target install-rld \
     -- \
     -D CMAKE_BUILD_TYPE=Release \
     -D PSTORE_POSIX_SMALL_FILES=Yes \
