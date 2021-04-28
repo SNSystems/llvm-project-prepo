@@ -446,5 +446,4 @@ int main(int Argc, char *Argv[]) {
   AllSymbols.release();
   GlobalSymbs.release();
   LO.release();
-  std::cout << "All done\n";
 }
