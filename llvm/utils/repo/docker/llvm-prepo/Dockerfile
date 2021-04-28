@@ -86,6 +86,7 @@ RUN apt-get install -y --no-install-recommends \
             libc6-dev        \
             libgcc-10-dev    \
             libstdc++-10-dev \
+            make             \
             sudo
 RUN rm -rf /var/lib/apt/lists/*
 
