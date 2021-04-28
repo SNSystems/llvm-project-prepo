@@ -7,22 +7,20 @@
 
 // CHECK: Elf file type is EXEC (Executable file)
 // CHECK: Entry point 0x200000
-// CHECK: There are 4 program headers, starting at offset 64
+// CHECK: There are 3 program headers, starting at offset 64
 //
 // CHECK: Program Headers:
 // CHECK:   Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
-// CHECK:   PHDR           0x000040 0x0000000000200040 0x0000000000200040 0x0000e0 0x0000e0 R   0x1
-// CHECK:   LOAD           0x000000 0x0000000000200000 0x0000000000200000 0x001038 0x001038 R   0x1000
+// CHECK:   LOAD           0x001000 0x0000000000200000 0x0000000000200000 0x000038 0x000038 R   0x1000
 // CHECK:   LOAD           0x002000 0x0000000000201000 0x0000000000201000 0x0000c6 0x0000c6 R E 0x1000
 // CHECK:   GNU_STACK      0x000000 0x0000000000000000 0x0000000000000000 0x000000 0x000000 RW  0x0
 //
 // CHECK:  Section to Segment mapping:
 // CHECK:   Segment Sections...
-// CHECK:    00
-// CHECK:    01     .rodata.str1.1 .rodata
-// CHECK:    02     .text
-// CHECK:    03
-// CHECK:    None   .shstrtab
+// CHECK:    00     .rodata.str1.1 .rodata
+// CHECK:    01     .text
+// CHECK:    02
+// CHECK:    None   .shstrtab .strtab .symtab
 
 
 {

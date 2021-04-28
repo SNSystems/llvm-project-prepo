@@ -10,14 +10,9 @@
 // RUN: rld --repo=%t/db.db --workers=1 -o %t/rld.out %t/ta.o %t/tb.o
 // RUN: llvm-readelf --program-headers %t/rld.out | FileCheck %s
 
-// Note that the size of the RODATA segment shown here is bloated because the code does not yet
-// understand that it should allow for the ELF header/PHDRS rather than placing data on a new
-// VM page.
-
-// CHECK:      Program Headers:
-// CHECK-NEXT: Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
-// CHECK-NEXT: PHDR           0x000040 0x0000000000200040 0x0000000000200040 0x0000a8 0x0000a8 R   0x1
-// CHECK-NEXT: LOAD           0x000000 0x0000000000200000 0x0000000000200000 0x001012 0x001012 R   0x1000
+// CHECK: Program Headers:
+// CHECK_NEXT:  Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
+// CHECK_NEXT:  LOAD           0x001000 0x0000000000200000 0x0000000000200000 0x000012 0x000012 R   0x1000
 
 {
   "version":1,
