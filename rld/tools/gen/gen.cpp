@@ -85,6 +85,11 @@ llvm::cl::opt<unsigned> XFixupSize{
     "xfixup-size", llvm::cl::desc{"Number of external fixups in a section"},
     llvm::cl::init(0U)};
 
+llvm::cl::opt<std::string::size_type> PrefixLength{
+    "prefix-length",
+    llvm::cl::desc{"Length of prefix applied to generated names"},
+    llvm::cl::init(6)};
+
 llvm::cl::opt<std::string>
     Triple("triple",
            llvm::cl::desc("The target-triple associated with each compilation"),
@@ -261,8 +266,11 @@ int main(int argc, char *argv[]) {
   llvm::cl::ParseCommandLineOptions(argc, argv,
                                     "Repository Test Data Generator");
 
-  static auto const ExternalPrefix = "external_"s;
-  static auto const AppendPrefix = "append_"s;
+  //  static constexpr std::string::size_type NameBloat = Pr64 * 1024;
+  static const auto AppendPrefix = std::string(PrefixLength, 'a') + '_';
+  static const auto CommonPrefix = std::string(PrefixLength, 'c') + '_';
+  static const auto ExternalPrefix = std::string(PrefixLength, 'x') + '_';
+  static const auto LinkOncePrefix = std::string(PrefixLength, 'l') + '_';
 
   int ExitCode = EXIT_SUCCESS;
   llvm::ExitOnError ExitOnErr("Error: ", EXIT_FAILURE);
@@ -270,8 +278,9 @@ int main(int argc, char *argv[]) {
   pstore::database Db{getRepositoryPath(), pstore::database::access_mode::writable};
 
   Indices Idx{Db};
-  SharedFragments LinkOnceInfo{Idx.Fragments, LinkOncePerModule, "linkonce_"s};
-  SharedFragments CommonInfo{Idx.Fragments, CommonPerModule, "common_"s};
+  SharedFragments LinkOnceInfo{Idx.Fragments, LinkOncePerModule,
+                               LinkOncePrefix};
+  SharedFragments CommonInfo{Idx.Fragments, CommonPerModule, CommonPrefix};
 
   const llvm::StringRef OutputDir{OutputDirOpt};
   ExitOnErr(checkIsDirectory(OutputDir));
