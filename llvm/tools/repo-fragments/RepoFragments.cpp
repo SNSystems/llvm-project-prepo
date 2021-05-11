@@ -139,6 +139,7 @@ int main(int argc, char *argv[]) {
   };
 
   const auto *Sep = "";
+  const auto *End = "";
   auto const Compilation =
       pstore::repo::compilation::load(Db, CompilationPos->second);
   for (auto const &CM : *Compilation) {
@@ -152,9 +153,10 @@ int main(int argc, char *argv[]) {
     // Dump this digest (and perhaps name) if it was requested by the user.
     if (IsRequestedName(MemberNameRef)) {
       outs() << Sep << makeNameAndDigest(DigestOnly, MemberNameRef, CM.digest);
+      End = "\n";
       Sep = UseComma ? "," : "\n";
     }
   }
-  outs() << '\n';
+  outs() << End;
   return EXIT_SUCCESS;
 }
