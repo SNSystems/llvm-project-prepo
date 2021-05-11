@@ -16,8 +16,13 @@ set(LIBCXXABI_SOURCES
   # Internal files
   abort_message.cpp
   fallback_malloc.cpp
-  private_typeinfo.cpp
 )
+
+# private_typeinfo.cpp needs to be built with RTTI enabled.
+# Don't include private_typeinfo.cpp in the source since repo doesn't yet support rtti.
+if (NOT ${CMAKE_CXX_COMPILER_TARGET} MATCHES "x86_64-pc-linux-gnu-repo")
+  list(APPEND LIBCXXABI_SOURCES private_typeinfo.cpp)
+endif()
 
 if (LIBCXXABI_ENABLE_NEW_DELETE_DEFINITIONS)
   list(APPEND LIBCXXABI_SOURCES stdlib_new_delete.cpp)
