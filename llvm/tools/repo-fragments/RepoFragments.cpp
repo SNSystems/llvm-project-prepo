@@ -6,7 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/MC/MCRepoTicketFile.h"
 #include "llvm/Support/CommandLine.h"
@@ -16,10 +15,11 @@
 
 #include <algorithm>
 #include <limits>
+#include <unordered_map>
 
 using namespace llvm;
 
-raw_ostream &operator<<(raw_ostream &OS, pstore::index::digest const &Digest) {
+raw_ostream &operator<<(raw_ostream &OS, const pstore::index::digest &Digest) {
   return OS << Digest.to_hex_string();
 }
 
@@ -47,7 +47,7 @@ struct NameAndDigest {
   pstore::index::digest Digest;
 };
 
-raw_ostream &operator<<(raw_ostream &OS, NameAndDigest const &ND) {
+raw_ostream &operator<<(raw_ostream &OS, const NameAndDigest &ND) {
   if (ND.Name) {
     OS << *ND.Name << ": ";
   }
@@ -58,17 +58,59 @@ raw_ostream &operator<<(raw_ostream &OS, NameAndDigest const &ND) {
 // Returns an object that can be written to an ostream to produce the requested
 // output.
 static NameAndDigest makeNameAndDigest(bool DigestOnly, const StringRef &Name,
-                                       pstore::index::digest const &Digest) {
+                                       const pstore::index::digest &Digest) {
   if (DigestOnly) {
     return NameAndDigest{Digest};
   }
   return NameAndDigest{Name, Digest};
 }
 
-// Clamps the size_t input value to the maximum unsigned value.
-static constexpr unsigned clamp_to_unsigned(size_t S) {
-  constexpr size_t largest = std::numeric_limits<unsigned>::max();
-  return static_cast<uint16_t>(S > largest ? largest : S);
+/// Dumps selected entries from a compilation.
+///
+/// \tparam NameIterator  An input iterator whose value-type is compatible with
+///   StringRef.
+/// \param Db  The owning database instance.
+/// \param Compilation  The compilation whose members are to be dumped.
+/// \param First  The start of the range of objects to be dumped.
+/// \param Last  The end of the range of objects to be dumped.
+/// \param Dump  A function which is called to dump an individual name. It must
+///   have a signature compatible with std::function<void(const
+///   pstore::repo::definition &)>.
+/// \returns False if one of the names in the [First, Last) range was not found
+///   in the compilation. True otherwise.
+template <typename NameIterator, typename DumpFunction>
+static bool dumpSelected(const pstore::database &Db,
+                         const pstore::repo::compilation &Compilation,
+                         NameIterator First, NameIterator Last,
+                         DumpFunction Dump) {
+  using pstore::indirect_string;
+  using pstore::repo::definition;
+
+  bool Okay = true;
+
+  // The collection of names defined by this compilation.
+  std::unordered_map<indirect_string, const definition *> Names{
+      Compilation.size()};
+  std::transform(Compilation.begin(), Compilation.end(),
+                 std::inserter(Names, std::begin(Names)),
+                 [&Db](const definition &D) {
+                   return std::make_pair(indirect_string::read(Db, D.name), &D);
+                 });
+
+  std::for_each(First, Last, [&](const StringRef &N) {
+    auto View = pstore::make_sstring_view(N.data(), N.size());
+    // If this name associated with a definition in this compilation?
+    const auto Pos = Names.find(indirect_string{Db, &View});
+    if (Pos != Names.end()) {
+      // Yes, dump it.
+      Dump(*Pos->second);
+    } else {
+      // The name was not found. Signal failure.
+      Okay = false;
+    }
+  });
+
+  return Okay;
 }
 
 namespace {
@@ -109,54 +151,43 @@ int main(int argc, char *argv[]) {
 
   const auto CompilationIndex =
       pstore::index::get_index<pstore::trailer::indices::compilation>(Db);
-  if (!CompilationIndex) {
-    errs() << "Error: compilation index was not found.\n";
-    return EXIT_FAILURE;
-  }
-
+  assert(CompilationIndex != nullptr &&
+         "get_index<> should not return nullptr!");
   const auto CompilationPos = CompilationIndex->find(Db, *DigestOrError);
   if (CompilationPos == CompilationIndex->end(Db)) {
     errs() << "Error: compilation " << *DigestOrError << " was not found.\n";
     return EXIT_FAILURE;
   }
 
-  // Copy CommandLineNames to a set. This both eliminates any duplicates and
-  // gives us a fast find() function which can quickly determine whether a name
-  // was requested by the user. (Unfortunately, DenseSet<> doesn't support
-  // std::inserter(), so this is a hand-coded loop rather than a call to
-  // std::copy().)
-  DenseSet<StringRef> CommandLineNames{clamp_to_unsigned(Names.size())};
-  for (const std::string &N : Names) {
-    CommandLineNames.insert(N);
-  }
-
-  // Is 'Name' present in the CommandLineNames set? If CommandLineNames is
-  // empty, then we consider this to be a set containing all names and always
-  // return true.
-  const auto IsRequestedName = [&CommandLineNames](const StringRef &Name) {
-    return CommandLineNames.empty() ||
-           CommandLineNames.find(Name) != std::end(CommandLineNames);
-  };
+  const auto Compilation =
+      pstore::repo::compilation::load(Db, CompilationPos->second);
 
   const auto *Sep = "";
   const auto *End = "";
-  auto const Compilation =
-      pstore::repo::compilation::load(Db, CompilationPos->second);
-  for (auto const &CM : *Compilation) {
-    // Convert the pstore indirect-string to a StringRef. We don't allocate any
-    // unnecessary memory in these steps.
+  const auto Dump = [&](const pstore::repo::definition &Definition) {
     pstore::shared_sstring_view Owner;
-    const auto MemberNameView =
-        pstore::indirect_string::read(Db, CM.name).as_db_string_view(&Owner);
-    StringRef MemberNameRef{MemberNameView.data(), MemberNameView.length()};
+    const auto View = pstore::indirect_string::read(Db, Definition.name)
+                          .as_db_string_view(&Owner);
+    outs() << Sep
+           << makeNameAndDigest(DigestOnly,
+                                StringRef{View.data(), View.length()},
+                                Definition.digest);
+    End = "\n";
+    Sep = UseComma ? "," : "\n";
+  };
 
-    // Dump this digest (and perhaps name) if it was requested by the user.
-    if (IsRequestedName(MemberNameRef)) {
-      outs() << Sep << makeNameAndDigest(DigestOnly, MemberNameRef, CM.digest);
-      End = "\n";
-      Sep = UseComma ? "," : "\n";
+  int ExitCode = EXIT_SUCCESS;
+  if (Names.empty()) {
+    // If no names are listed we just just dump the entire compilation.
+    std::for_each(Compilation->begin(), Compilation->end(), Dump);
+  } else {
+    // Dump just the names requested by the user. If one or more are not
+    // present, the tool returns failure.
+    if (!dumpSelected(Db, *Compilation, Names.begin(), Names.end(), Dump)) {
+      ExitCode = EXIT_FAILURE;
     }
   }
+
   outs() << End;
-  return EXIT_SUCCESS;
+  return ExitCode;
 }
