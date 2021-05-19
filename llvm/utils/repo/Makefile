@@ -7,7 +7,7 @@
 #
 
 # The path of the directory in which llvm-project-prepo sources is checked out from git.
-LLVM_REPO = ${HOME}/github/llvm-project-prepo
+LLVM_REPO = ${HOME}/llvm-project-prepo
 TOOLCHAIN_FILE=$(LLVM_REPO)/llvm/utils/repo/repo.cmake
 # The path of the llvm-project-prepo build directory.
 LLVM_BUILD = ${LLVM_REPO}/build
@@ -63,7 +63,7 @@ $(LLVM)/lib/linux/clang_rt.crtbegin-x86_64.o.elf: $(LLVM)/lib/linux/clang_rt.crt
 $(LLVM)/lib/linux/clang_rt.crtend-x86_64.o.elf: $(LLVM)/lib/linux/clang_rt.crtend-x86_64.o
 	repo2obj --repo=$(LLVM_REPO)/build_libcompiler-rt/lib/crt/clang.db $< -o $@
 
-libcxxabi.a:
+libcxxabi.a: libunwind.a libcompiler-rt.a
 	if [ -d "$(LLVM_REPO)/build_libcxxabi" ];then                               \
 		rm -rf $(LLVM_REPO)/build_libcxxabi;                                \
 	fi
