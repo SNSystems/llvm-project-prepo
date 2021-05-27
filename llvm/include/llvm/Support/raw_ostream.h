@@ -512,8 +512,6 @@ public:
   /// guarantee to detect all errors unless the stream has been closed.
   bool has_error() const { return bool(EC); }
 
-  int get_fd() const { return FD; }
-
   /// Set the flag read by has_error() to false. If the error flag is set at the
   /// time when this raw_ostream's destructor is called, report_fatal_error is
   /// called to report the error. Use clear_error() after handling the error to
