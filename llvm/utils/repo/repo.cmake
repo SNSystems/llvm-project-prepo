@@ -62,7 +62,7 @@ endif()
 # The user may use the MUSL libc.a by giving
 # '-Dmusl:BOOL=Yes' on the command line
 if (musl)
-	SET (musl_compile_flags "-nostdinc -nostdinc++ --sysroot ${musl_install} -isystem ${musl_install}/include ${libcxxabi_include}")
+	SET (musl_compile_flags "-D__MUSL__ -nostdinc -nostdinc++ --sysroot ${musl_install} -isystem ${musl_install}/include ${libcxxabi_include}")
 	SET (CMAKE_EXE_LINKER_FLAGS "-nostdlib -nodefaultlibs -static --sysroot ${musl_install} -L ${musl_install}/lib ${libcxxabi_lib} -lc_elf" CACHE STRING "toolchain_exelinkflags" FORCE)
 endif()
 
