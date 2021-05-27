@@ -200,8 +200,8 @@ void HashCalculator::hashType(Type *Ty) {
   case Type::FixedVectorTyID:
   case Type::ScalableVectorTyID: {
     auto *VTy = cast<VectorType>(Ty);
-    hashNumber(VTy->getElementCount().Scalable);
-    hashNumber(VTy->getElementCount().Min);
+    hashNumber(VTy->getElementCount().isScalable());
+    hashNumber(VTy->getElementCount().getKnownMinValue());
     hashType(VTy->getElementType());
     break;
   }
