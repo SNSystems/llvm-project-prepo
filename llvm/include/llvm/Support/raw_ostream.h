@@ -456,9 +456,6 @@ protected:
   /// Set the flag indicating that an output error has been encountered.
   void error_detected(std::error_code EC) { this->EC = EC; }
 
-  /// Return the file descriptor.
-  int get_fd() const { return FD; }
-
   // Update the file position by increasing \p Delta.
   void inc_pos(uint64_t Delta) { pos += Delta; }
 
@@ -511,6 +508,9 @@ public:
   /// This doesn't implicitly flush any pending output.  Also, it doesn't
   /// guarantee to detect all errors unless the stream has been closed.
   bool has_error() const { return bool(EC); }
+
+  /// Return the file descriptor.
+  int get_fd() const { return FD; }
 
   /// Set the flag read by has_error() to false. If the error flag is set at the
   /// time when this raw_ostream's destructor is called, report_fatal_error is

@@ -976,6 +976,7 @@ void MCObjectFileInfo::InitMCObjectFileInfo(const Triple &TheTriple, bool PIC,
   case Triple::Repo:
     Env = IsRepo;
     initRepoMCObjectFileInfo(TT);
+    break;
   case Triple::GOFF:
     report_fatal_error("Cannot initialize MC for GOFF object file format");
     break;
@@ -1000,7 +1001,6 @@ MCSection *MCObjectFileInfo::getDwarfComdatSection(const char *Name,
                                MCContext::GenericSectionID);
   case Triple::MachO:
   case Triple::COFF:
-  case Triple::Wasm:
   case Triple::Repo:
   case Triple::GOFF:
   case Triple::XCOFF:
