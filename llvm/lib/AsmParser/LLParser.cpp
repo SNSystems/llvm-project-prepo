@@ -4555,11 +4555,11 @@ bool LLParser::parseMDField(LocTy Loc, StringRef Name,
 }
 
 template <>
-bool LLParser::ParseMDField(LocTy Loc, StringRef Name, LinkageField &Result) {
+bool LLParser::parseMDField(LocTy Loc, StringRef Name, LinkageField &Result) {
   bool HasValidLinkage;
   unsigned Res = parseOptionalLinkageAux(Lex.getKind(), HasValidLinkage);
   if (!HasValidLinkage)
-    return TokError("Invalid linkage type!");
+    return tokError("Invalid linkage type!");
   assert(Res <= Result.Max && "Expected valid Linkage type");
 
   Result.assign(Res);
@@ -4568,22 +4568,22 @@ bool LLParser::ParseMDField(LocTy Loc, StringRef Name, LinkageField &Result) {
 }
 
 template <>
-bool LLParser::ParseMDField(LocTy Loc, StringRef Name, VisibilityField &Result) {
+bool LLParser::parseMDField(LocTy Loc, StringRef Name, VisibilityField &Result) {
   unsigned Res;
   const auto Kind = Lex.getKind();
   if (Kind != lltok::kw_default && Kind != lltok::kw_hidden &&
       Kind != lltok::kw_protected)
-    return TokError("Invalid visibility type!");
+    return tokError("Invalid visibility type!");
 
-  ParseOptionalVisibility(Res);
+  parseOptionalVisibility(Res);
   assert(Res <= Result.Max && "Expected valid visibility type");
   Result.assign(Res);
   return false;
 }
 
 template <>
-bool LLParser::ParseMDField(LocTy Loc, StringRef Name, PrunedField &Result) {
-  return ParseMDField(Loc, Name, static_cast<MDBoolField &>(Result));
+bool LLParser::parseMDField(LocTy Loc, StringRef Name, PrunedField &Result) {
+  return parseMDField(Loc, Name, static_cast<MDBoolField &>(Result));
 }
 
 } // end namespace llvm
@@ -5403,7 +5403,7 @@ bool LLParser::parseDIImportedEntity(MDNode *&Result, bool IsDistinct) {
 /// ParseRepoDefinition:
 ///   ::= !RepoDefinition(name: "foo", digest: !0, linkage: external,
 ///   visibility: hidden, pruned: false)
-bool LLParser::ParseRepoDefinition(MDNode *&Result, bool IsDistinct) {
+bool LLParser::parseRepoDefinition(MDNode *&Result, bool IsDistinct) {
 #define VISIT_MD_FIELDS(OPTIONAL, REQUIRED)                                    \
   REQUIRED(name, MDStringField, );                                             \
   REQUIRED(digest, MDField, );                                                 \
