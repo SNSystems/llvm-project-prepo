@@ -55,19 +55,20 @@ endif ()
 # The user may use the LLVM libc++.a by giving
 # '-Dlibcxx:BOOL=Yes' on the command line
 if (libcxx)
-	set (libcxx_flags "-stdlib=libc++")
-	set (libcxxabi_lib "-L ${llvm_install}/lib -stdlib=libc++ -lc++abi")
+	set (libcxx_flags "-stdlib=libc++ -isystem ${LLVM}/include/c++/v1")
+	set (libcxxabi_lib "-stdlib=libc++ -L ${llvm_install}/lib ${llvm_install}/lib/linux/clang_rt.crtbegin-x86_64.o.elf ${llvm_install}/lib/linux/clang_rt.crtend-x86_64.o.elf -lc++ -lc++abi -lunwind -L ${llvm_install}/lib/linux -lclang_rt.builtins-x86_64")
 endif()
 
 # The user may use the MUSL libc.a by giving
 # '-Dmusl:BOOL=Yes' on the command line
 if (musl)
 	SET (musl_compile_flags "-D__MUSL__ -nostdinc -nostdinc++ --sysroot ${musl_install} -isystem ${musl_install}/include ${libcxxabi_include}")
+	SET (musl_crt "${musl_install}/lib/crt1.t.o ${musl_install}/lib/crt1_asm.t.o")
 	SET (CMAKE_EXE_LINKER_FLAGS "-nostdlib -nodefaultlibs -static --sysroot ${musl_install} -L ${musl_install}/lib ${libcxxabi_lib} -lc_elf" CACHE STRING "toolchain_exelinkflags" FORCE)
 endif()
 
 SET (CMAKE_C_FLAGS "${musl_compile_flags} -fno-exceptions -fno-rtti" CACHE STRING "toolchain_cflags")
-SET (CMAKE_CXX_FLAGS "${musl_compile_flags} ${libcxx_flags} -fno-exceptions -fno-rtti" CACHE STRING "toolchain_cxxflags")
+SET (CMAKE_CXX_FLAGS "${libcxx_flags} ${musl_compile_flags} -fno-exceptions -fno-rtti" CACHE STRING "toolchain_cxxflags")
 
 SET (CMAKE_C_FLAGS_DEBUG " -O0 " CACHE STRING "Default C Flags Debug")
 SET (CMAKE_CXX_FLAGS_DEBUG " -O0 " CACHE STRING "Default CXX Flags Debug")
@@ -80,8 +81,8 @@ set (CMAKE_LINKER ${utils_dir}/link.py)
 set (CMAKE_C_LINKER ${CMAKE_LINKER})
 set (CMAKE_CXX_LINKER ${CMAKE_LINKER})
 
-set (CMAKE_C_LINK_EXECUTABLE "${utils_dir}/link.py <FLAGS> <CMAKE_C_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> <LINK_LIBRARIES>")
-set (CMAKE_CXX_LINK_EXECUTABLE "${utils_dir}/link.py <FLAGS> <CMAKE_CXX_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> <LINK_LIBRARIES>")
+set (CMAKE_C_LINK_EXECUTABLE "${utils_dir}/link.py <FLAGS> <CMAKE_C_LINK_FLAGS> ${musl_crt} <OBJECTS> <LINK_LIBRARIES> <LINK_FLAGS> -o <TARGET>")
+set (CMAKE_CXX_LINK_EXECUTABLE "${utils_dir}/link.py <FLAGS> <CMAKE_CXX_LINK_FLAGS> ${musl_crt} <OBJECTS> <LINK_LIBRARIES> <LINK_FLAGS> -o <TARGET>")
 
 set (CMAKE_C_CREATE_SHARED_LIBRARY   "${utils_dir}/link.py <FLAGS> <CMAKE_SHARED_LIBRARY_C_FLAGS> <LANGUAGE_COMPILE_FLAGS> <LINK_FLAGS> <CMAKE_SHARED_LIBRARY_CREATE_C_FLAGS> <SONAME_FLAG><TARGET_SONAME> -o <TARGET> <OBJECTS> <LINK_LIBRARIES>")
 set (CMAKE_CXX_CREATE_SHARED_LIBRARY "${utils_dir}/link.py <FLAGS> <CMAKE_SHARED_LIBRARY_CXX_FLAGS> <LANGUAGE_COMPILE_FLAGS> <LINK_FLAGS> <CMAKE_SHARED_LIBRARY_CREATE_CXX_FLAGS> <SONAME_FLAG><TARGET_SONAME> -o <TARGET> <OBJECTS> <LINK_LIBRARIES>")
