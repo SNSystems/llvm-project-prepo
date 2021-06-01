@@ -32,7 +32,7 @@ using ExternalFixup = pstore::repo::external_fixup;
 
 template <uint8_t Relocation>
 static void apply(uint8_t *const Out, const Contribution &Contribution,
-                  const Layout &Layout, const Symbol *const Sym,
+                  const Layout &Layout, const Symbol &Sym,
                   const ExternalFixup &XFixup) {
   llvm_unreachable("Relocation type is unsupported");
 }
@@ -40,16 +40,16 @@ static void apply(uint8_t *const Out, const Contribution &Contribution,
 template <>
 inline void apply<llvm::ELF::R_X86_64_NONE>(
     uint8_t *const /*Out*/, const Contribution & /*Contribution*/,
-    const Layout & /*Layout*/, const Symbol *const /*Sym*/,
+    const Layout & /*Layout*/, const Symbol & /*Sym*/,
     const ExternalFixup & /*XFixup*/) {}
 
 template <>
 inline void apply<llvm::ELF::R_X86_64_64>(uint8_t *const Out,
                                           const Contribution &Contribution,
                                           const Layout &Layout,
-                                          const Symbol *const Sym,
+                                          const Symbol &Sym,
                                           const ExternalFixup &XFixup) {
-  const auto S = Sym != nullptr ? Sym->value() : UINT64_C(0);
+  const auto S = Sym.value();
   const int64_t A = XFixup.addend;
   llvm::support::ulittle64_t::ref{Out} = S + A;
 }
@@ -64,9 +64,9 @@ template <>
 inline void apply<llvm::ELF::R_X86_64_32>(uint8_t *const Out,
                                           const Contribution &Contribution,
                                           const Layout &Layout,
-                                          const Symbol *const Sym,
+                                          const Symbol &Sym,
                                           const ExternalFixup &XFixup) {
-  const auto S = Sym != nullptr ? Sym->value() : UINT64_C(0);
+  const auto S = Sym.value();
   const int64_t A = XFixup.addend;
   llvm::support::ulittle32_t::ref{Out} = S + A;
 }
@@ -75,9 +75,9 @@ template <>
 inline void apply<llvm::ELF::R_X86_64_32S>(uint8_t *const Out,
                                            const Contribution &Contribution,
                                            const Layout &Layout,
-                                           const Symbol *const Sym,
+                                           const Symbol &Sym,
                                            const ExternalFixup &XFixup) {
-  const auto S = Sym != nullptr ? Sym->value() : UINT64_C(0);
+  const auto S = Sym.value();
   const int64_t A = XFixup.addend;
   llvm::support::little32_t::ref{Out} = S + A;
 }
@@ -86,9 +86,9 @@ template <>
 inline void apply<llvm::ELF::R_X86_64_PC32>(uint8_t *const Out,
                                             const Contribution &Contribution,
                                             const Layout &Layout,
-                                            const Symbol *const Sym,
+                                            const Symbol &Sym,
                                             const ExternalFixup &XFixup) {
-  const auto S = Sym != nullptr ? Sym->value() : UINT64_C(0);
+  const auto S = Sym.value();
   const int64_t A = XFixup.addend;
   assert(alignTo(Contribution.Offset, Contribution.Align) ==
          Contribution.Offset);
@@ -101,15 +101,15 @@ template <>
 inline void apply<llvm::ELF::R_X86_64_PLT32>(uint8_t *const Out,
                                              const Contribution &Contribution,
                                              const Layout &Layout,
-                                             const Symbol *const Sym,
+                                             const Symbol &Sym,
                                              const ExternalFixup &XFixup) {
-  if (Sym->hasDefinition()) {
+  if (Sym.hasDefinition()) {
     return apply<llvm::ELF::R_X86_64_PC32>(Out, Contribution, Layout, Sym,
                                            XFixup);
   }
 
-  const uint64_t L = Layout.Sections[SectionKind::plt].VirtualAddr +
-                     (Sym->pltIndex() + 1) * 16;
+  const uint64_t L =
+      Layout.Sections[SectionKind::plt].VirtualAddr + (Sym.pltIndex() + 1) * 16;
   const int64_t A = XFixup.addend;
   assert(alignTo(Contribution.Offset, Contribution.Align) ==
          Contribution.Offset);
@@ -165,29 +165,25 @@ uint8_t *copyContribution(uint8_t *Dest, Context &Ctxt,
   // The contribution's shadow memory contains an array of symbol pointers; one
   // for each external fixup.
 
-  const std::atomic<Symbol *> *XfxSymbol = Contribution.XfxSymbols;
+  const Symbol *const *XfxSymbols = Contribution.XfxSymbols;
   for (ExternalFixup const &XFixup : Section->xfixups()) {
-    const Symbol *const Sym = XfxSymbol->load();
-    assert((Sym != nullptr ||
-            XFixup.strength() == pstore::repo::reference_strength::weak) &&
-           "An xfixup symbol may only be unresolved if the reference is weak");
-
+    const Symbol *const Symbol = *XfxSymbols;
     llvmDebug(DebugType, Ctxt.IOMut, [&]() {
       llvm::dbgs() << "  xfx type:" << static_cast<unsigned>(XFixup.type)
-                   << " symbol: " << loadStdString(Ctxt.Db, Sym->name())
+                   << " symbol: " << loadStdString(Ctxt.Db, Symbol->name())
                    << '\n';
     });
 
     switch (XFixup.type) {
 #define ELF_RELOC(Name, Value)                                                 \
   case llvm::ELF::Name:                                                        \
-    apply<llvm::ELF::Name>(Dest + XFixup.offset, Contribution, Lout, Sym,      \
+    apply<llvm::ELF::Name>(Dest + XFixup.offset, Contribution, Lout, *Symbol,  \
                            XFixup);                                            \
     break;
 #include "llvm/BinaryFormat/ELFRelocs/x86_64.def"
 #undef ELF_RELOC
     }
-    ++XfxSymbol;
+    ++XfxSymbols;
   }
   return Dest + Size;
 }

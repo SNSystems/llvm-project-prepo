@@ -32,6 +32,11 @@ using pstore::repo::linkage;
 
 namespace {
 
+template <typename T1, typename T2>
+std::pair<T1 const *, T2> addConst(std::pair<T1 *, T2> const &p) {
+  return {p.first, p.second};
+}
+
 //*  ___            _         _ ___                             *
 //* / __|_  _ _ __ | |__  ___| / __| __ __ _ _ _  _ _  ___ _ _  *
 //* \__ \ || | '  \| '_ \/ _ \ \__ \/ _/ _` | ' \| ' \/ -_) '_| *
@@ -170,7 +175,7 @@ TEST_P(SingleSymbol, SingleSymbol) {
     ASSERT_EQ(C0Locals->size(), 1U);
     rld::LocalSymbolsContainer::value_type const &S = *C0Locals->begin();
     EXPECT_EQ(rld::loadStdString(this->Db(), S.first), "f0");
-    EXPECT_EQ(S.second, &*Globals.begin());
+    EXPECT_EQ(S.second, std::make_pair(&Globals.front(), true));
   }
 }
 
@@ -258,7 +263,7 @@ void TwoSymbols::checkCompilationLocalView(
   // compilation.
   ASSERT_TRUE(LocalView.hasValue());
   EXPECT_EQ(LocalView->size(), 1U);
-  EXPECT_EQ(LocalView->begin()->second, &S);
+  EXPECT_EQ(addConst(LocalView->begin()->second), std::make_pair(&S, true));
 }
 
 using TwoLinkages = std::tuple<linkage, linkage>;
@@ -277,7 +282,8 @@ protected:
   std::shared_ptr<pstore::repo::compilation const> CU0_;
   std::shared_ptr<pstore::repo::compilation const> CU1_;
 
-  void checkSuccess(ReturnType const &C0, ReturnType const &C1,
+  void checkSuccess(llvm::Optional<rld::LocalSymbolsContainer> const &C0,
+                    llvm::Optional<rld::LocalSymbolsContainer> const &C1,
                     rld::Symbol const &Symbol0) const;
 };
 
@@ -290,20 +296,22 @@ TwoCompilations::TwoCompilations() {
 
 // check success
 // ~~~~~~~~~~~~~
-void TwoCompilations::checkSuccess(ReturnType const &C0, ReturnType const &C1,
-                                   rld::Symbol const &Symbol0) const {
+void TwoCompilations::checkSuccess(
+    llvm::Optional<rld::LocalSymbolsContainer> const &C0,
+    llvm::Optional<rld::LocalSymbolsContainer> const &C1,
+    rld::Symbol const &Symbol0) const {
 
   // Now check the CU-local view of the symbols is correct for the first
   // compilation.
   ASSERT_TRUE(C0.hasValue());
-  EXPECT_EQ(C0->size(), 1U);
-  EXPECT_EQ(C0->begin()->second, &Symbol0);
+  ASSERT_EQ(C0->size(), 1U);
+  EXPECT_EQ(std::get<rld::Symbol *>(C0->begin()->second), &Symbol0);
 
   // Now check the CU-local view of the symbols is correct for the second
   // compilation.
   ASSERT_TRUE(C1.hasValue());
-  EXPECT_EQ(C1->size(), 1U);
-  EXPECT_EQ(C1->begin()->second, &Symbol0);
+  ASSERT_EQ(C1->size(), 1U);
+  EXPECT_EQ(std::get<rld::Symbol *>(C1->begin()->second), &Symbol0);
 }
 
 } // end anonymous namespace
@@ -329,12 +337,12 @@ TEST_P(LowestOrdinal, LowerOrdinalFirst) {
 
   // Define the symbol in the first compilation (Input0_) before the second
   // (Input1_).
-  ReturnType const C0 = Resolver_.defineSymbols(
+  llvm::Optional<rld::LocalSymbolsContainer> const C0 = Resolver_.defineSymbols(
       &Globals, &Undefs, *CU0_, Input0_, std::cref(ErrorCallback));
-  ASSERT_TRUE(C0.hasValue());
-  ReturnType const C1 = Resolver_.defineSymbols(
+  ASSERT_TRUE(C0.hasValue()) << "Expected defineSymbols to succeed";
+  llvm::Optional<rld::LocalSymbolsContainer> const C1 = Resolver_.defineSymbols(
       &Globals, &Undefs, *CU1_, Input1_, std::cref(ErrorCallback));
-  ASSERT_TRUE(C1.hasValue());
+  ASSERT_TRUE(C1.hasValue()) << "Expected defineSymbols to succeed";
 
   // Check that the resolver did the right thing. First that the global symbol
   // table is as expected.
@@ -361,12 +369,12 @@ TEST_P(LowestOrdinal, LowerOrdinalSecond) {
   rld::GlobalSymbolsContainer Globals;
   // Define the symbol in the second compilation (Input1_) before the first
   // (Input0_).
-  ReturnType C1 = Resolver_.defineSymbols(&Globals, &Undefs, *CU1_, Input1_,
-                                          std::cref(ErrorCallback));
-  ASSERT_TRUE(C1);
-  ReturnType C0 = Resolver_.defineSymbols(&Globals, &Undefs, *CU0_, Input0_,
-                                          std::cref(ErrorCallback));
-  ASSERT_TRUE(C0);
+  llvm::Optional<rld::LocalSymbolsContainer> C1 = Resolver_.defineSymbols(
+      &Globals, &Undefs, *CU1_, Input1_, std::cref(ErrorCallback));
+  ASSERT_TRUE(C1.hasValue()) << "Expected defineSymbols to succeed";
+  llvm::Optional<rld::LocalSymbolsContainer> C0 = Resolver_.defineSymbols(
+      &Globals, &Undefs, *CU0_, Input0_, std::cref(ErrorCallback));
+  ASSERT_TRUE(C0.hasValue()) << "Expected defineSymbols to succeed";
 
   // Check that the resolver did the right thing. First that the global symbol
   // table is as expected.
@@ -552,7 +560,7 @@ TEST_P(Collision, OtherHits) {
   // The first compilation should see a definition of Symbol0.
   ASSERT_TRUE(C0.hasValue());
   EXPECT_EQ(C0->size(), 1U);
-  EXPECT_EQ(C0->begin()->second, &Symbol0);
+  EXPECT_EQ(addConst(C0->begin()->second), std::make_pair(&Symbol0, true));
 
   // Now check that the second compilation had an error.
   EXPECT_FALSE(C1.hasValue());
@@ -664,13 +672,13 @@ void Append::checkLocalSymbolView(ReturnType const &C0, ReturnType const &C1,
   // compilation.
   ASSERT_TRUE(C0.hasValue());
   EXPECT_EQ(C0->size(), 1U);
-  EXPECT_EQ(C0->begin()->second, &Symbol);
+  EXPECT_EQ(addConst(C0->begin()->second), std::make_pair(&Symbol, true));
 
   // Now check the CU-local view of the symbols is correct for the second
   // compilation.
   ASSERT_TRUE(C1.hasValue());
   EXPECT_EQ(C1->size(), 1U);
-  EXPECT_EQ(C1->begin()->second, &Symbol);
+  EXPECT_EQ(addConst(C1->begin()->second), std::make_pair(&Symbol, true));
 }
 
 } // end anonymous namespace

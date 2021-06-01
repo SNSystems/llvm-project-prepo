@@ -226,10 +226,9 @@ OutputSection *LayoutBuilder::addToOutputSection(SectionKind SKind, size_t Size,
 // add section to layout
 // ~~~~~~~~~~~~~~~~~~~~~
 template <pstore::repo::section_kind SKind>
-Contribution *LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
-                                                const FragmentAddress FAddr,
-                                                const StringAddress Name,
-                                                const unsigned InputOrdinal) {
+Contribution *LayoutBuilder::addSectionToLayout(const Symbol::Body &Body,
+                                                const StringAddress Name) {
+  const FragmentPtr &F = Body.fragment();
   assert(F->has_section(SKind) &&
          "Layout can't contain a section that doesn't exist");
 
@@ -250,13 +249,18 @@ Contribution *LayoutBuilder::addSectionToLayout(const FragmentPtr &F,
   OutputSection *const OutputSection =
       this->addToOutputSection(ToRldSectionKind<SKind>::value, Size, Alignment);
 
+  Symbol const *const *XfxSymbol = nullptr;
+  const auto &RM = Body.resolveMap();
+  auto Pos = RM.find(static_cast<unsigned>(SKind));
+  if (Pos != RM.end()) {
+    XfxSymbol = Pos->second.data();
+  }
+
   OutputSection->Contributions.emplace_back(
-      &Section,
-      FragmentShadow::make(Ctx_, InputOrdinal, FAddr).xfxSymbols<SKind>(*F),
-      OutputSection,
+      &Section, XfxSymbol, OutputSection,
       alignTo(LayoutBuilder::prevSectionEnd(OutputSection->Contributions),
               Alignment),
-      Size, Alignment, Name, InputOrdinal);
+      Size, Alignment, Name, Body.inputOrdinal());
 
   llvmDebug(DebugType, Ctx_.IOMut, [&] {
     auto const &Entry = OutputSection->Contributions.back();
@@ -290,15 +294,14 @@ void LayoutBuilder::addSymbolBody(Symbol *const Sym, Symbol::Body const &Body,
     return;
   }
   llvmDebug(DebugType, Ctx_.IOMut, [&] {
-    llvm::dbgs() << "  " << loadStdString(Ctx_.Db, Name) << '\n';
+    llvm::dbgs() << "  Layout:" << loadStdString(Ctx_.Db, Name) << '\n';
   });
 
   Contribution *C = nullptr;
   for (pstore::repo::section_kind Section : *Body.fragment()) {
 #define X(a)                                                                   \
   case pstore::repo::section_kind::a:                                          \
-    C = this->addSectionToLayout<pstore::repo::section_kind::a>(               \
-        Body.fragment(), Body.fragmentAddress(), Name, Body.inputOrdinal());   \
+    C = this->addSectionToLayout<pstore::repo::section_kind::a>(Body, Name);   \
     break;
 
     switch (Section) {
@@ -366,7 +369,7 @@ void LayoutBuilder::run() {
     for (auto const &Definition :
          std::get<LocalSymbolsContainer>(PerCompilation)) {
       StringAddress const Name = Definition.first;
-      Symbol *const Sym = Definition.second;
+      auto *const Sym = std::get<Symbol *>(Definition.second);
 
       llvmDebug(DebugType, Ctx_.IOMut, [&] {
         llvm::dbgs() << "Examining symbol:" << loadStdString(Ctx_.Db, Name)

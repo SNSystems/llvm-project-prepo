@@ -69,13 +69,13 @@ public:
   using Container = llvm::simple_ilist<Symbol>;
 
   bool empty() const {
-    std::lock_guard<std::mutex> const Lock{Mut_};
+    const std::lock_guard<std::mutex> Lock{Mut_};
     return List_.empty();
   }
   // \returns The total number of undefined symbols. Note that this includes
   //   those symbols that are weakly referenced.
   size_t size() const {
-    std::lock_guard<std::mutex> const Lock{Mut_};
+    const std::lock_guard<std::mutex> Lock{Mut_};
     return List_.size();
   }
   /// \returns  The number of undefined symbols not including those that are
@@ -84,7 +84,7 @@ public:
   /// Call when we encounter a strong reference to an existing undefined symbol
   /// that was previously weakly referenced.
   void addStrongUndef() {
-    auto const Prev = StrongUndefCount_++;
+    const auto Prev = StrongUndefCount_++;
     (void)Prev;
     assert(Prev < std::numeric_limits<decltype(Prev)>::max());
   }
@@ -118,20 +118,40 @@ class Symbol : public llvm::ilist_node<Symbol> {
 public:
   class Body {
   public:
-    Body(const pstore::repo::definition *const Def,
-         const std::shared_ptr<const pstore::repo::fragment> &Fragment,
+    Body(const pstore::repo::definition *const Def, const FragmentPtr &Fragment,
          const FragmentAddress FAddr, const uint32_t InputOrdinal)
         : InputOrdinal_{InputOrdinal}, Def_{Def}, Fragment_{Fragment},
           FAddr_{FAddr} {}
+
+    Body(Body const &) = delete;
+    Body(Body &&Other) noexcept
+        : InputOrdinal_{Other.InputOrdinal_}, Def_{Other.Def_},
+          Fragment_{std::move(Other.Fragment_)}, FAddr_{std::move(
+                                                     Other.FAddr_)},
+          ResolveMap_{std::move(Other.ResolveMap_)} {}
+
+    Body &operator=(Body const &) = delete;
+    Body &operator=(Body &&Other) noexcept {
+      if (this != &Other) {
+        InputOrdinal_ = Other.InputOrdinal_;
+        Def_ = Other.Def_;
+        Fragment_ = std::move(Other.Fragment_);
+        FAddr_ = std::move(Other.FAddr_);
+        ResolveMap_ = std::move(Other.ResolveMap_);
+      }
+      return *this;
+    }
 
     pstore::repo::linkage linkage() const { return Def_->linkage(); }
     pstore::repo::visibility visibility() const { return Def_->visibility(); }
 
     uint32_t inputOrdinal() const { return InputOrdinal_; }
-    const std::shared_ptr<const pstore::repo::fragment> &fragment() const {
-      return Fragment_;
-    }
+    const FragmentPtr &fragment() const { return Fragment_; }
     FragmentAddress fragmentAddress() const { return FAddr_; }
+
+    using ResType = std::map<unsigned, llvm::SmallVector<Symbol *, 16>>;
+    ResType &resolveMap() { return ResolveMap_; }
+    const ResType &resolveMap() const { return ResolveMap_; }
 
   private:
     /// The index number of the object file which defined this symbol. Used to
@@ -140,15 +160,17 @@ public:
     /// are processed.
     uint32_t InputOrdinal_;
     /// The symbol's definition.
-    pstore::repo::definition const *Def_;
+    const pstore::repo::definition *Def_;
     /// The fragment which provides the definition of this symbol.
     FragmentPtr Fragment_;
     /// The fragment's address. Used to find its shadow memory offset.
     FragmentAddress FAddr_;
+
+    ResType ResolveMap_;
   };
 
-  static pstore::address stringBodyFromIndirect(pstore::database const &DB,
-                                                StringAddress Name) {
+  static pstore::address stringBodyFromIndirect(const pstore::database &DB,
+                                                const StringAddress Name) {
     return pstore::indirect_string::read(DB, Name).in_store_address();
   }
 
@@ -176,10 +198,13 @@ public:
   /// \param Definition The initial body (value) of the symbol.
   Symbol(pstore::address N, size_t NameLength, Body &&Definition)
       : Name_{N.absolute()}, WeakUndefined_{false}, NameLength_{NameLength},
-        Contribution_{nullptr}, HasPLT_{false},
-        Definition_{llvm::SmallVector<Body, 1>{std::move(Definition)}} {
+        Contribution_{nullptr}, HasPLT_{false} {
     assert(name() == N &&
            N.absolute() < (UINT64_C(1) << StringAddress::total_bits));
+
+    llvm::SmallVector<Body, 1> D;
+    D.emplace_back(std::move(Definition));
+    Definition_.emplace(std::move(D));
   }
 
   using Mutex = SpinLock;
@@ -265,12 +290,13 @@ public:
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
-  /// \returns  this on success or nullptr if there was an existing non-append
-  ///   definition of the symbol.
-  Symbol *updateAppendSymbol(const pstore::database &Db,
-                             const pstore::repo::definition &Def,
-                             const NotNull<UndefsContainer *> Undefs,
-                             uint32_t InputOrdinal);
+  /// \returns  A pair containing a pointer to the symbol (i.e. 'this') or null
+  ///   (if there was an existing incompatible definition of the symbol) and
+  ///   boolean indicating whether this definition was retained in the symbol
+  ///   table.
+  std::pair<Symbol *, bool> updateAppendSymbol(
+      const pstore::database &Db, const pstore::repo::definition &Def,
+      const NotNull<UndefsContainer *> Undefs, uint32_t InputOrdinal);
 
   /// Process the definition of a symbol with common linkage that "collides"
   /// with an existing definition.
@@ -281,12 +307,13 @@ public:
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
-  /// \returns  this on success or nullptr if there was an existing non-append
-  ///   definition of the symbol.
-  Symbol *updateCommonSymbol(const pstore::database &Db,
-                             const pstore::repo::definition &Def,
-                             const NotNull<UndefsContainer *> Undefs,
-                             uint32_t InputOrdinal);
+  /// \returns  A pair containing a pointer to the symbol (i.e. 'this') or null
+  ///   (if there was an existing incompatible definition of the symbol) and
+  ///   boolean indicating whether this definition was retained in the symbol
+  ///   table.
+  std::pair<Symbol *, bool> updateCommonSymbol(
+      const pstore::database &Db, const pstore::repo::definition &Def,
+      const NotNull<UndefsContainer *> Undefs, uint32_t InputOrdinal);
 
   /// Process the definition of a symbol with external linkage that "collides"
   /// with an existing definition.
@@ -297,12 +324,13 @@ public:
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
-  /// \returns  this on success or nullptr if there was an existing incompatible
-  ///   definition of the symbol.
-  Symbol *updateExternalSymbol(const pstore::database &Db,
-                               const pstore::repo::definition &Def,
-                               const NotNull<UndefsContainer *> Undefs,
-                               uint32_t InputOrdinal);
+  /// \returns  A pair containing a pointer to the symbol (i.e. 'this') or null
+  ///   (if there was an existing incompatible definition of the symbol) and
+  ///   boolean indicating whether this definition was retained in the symbol
+  ///   table.
+  std::pair<Symbol *, bool> updateExternalSymbol(
+      const pstore::database &Db, const pstore::repo::definition &Def,
+      const NotNull<UndefsContainer *> Undefs, uint32_t InputOrdinal);
 
   /// Process the definition of a symbol with link-once linkage that "collides"
   /// with an existing definition.
@@ -313,12 +341,13 @@ public:
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
-  /// \returns  this on success or nullptr if there was an existing incompatible
-  ///   definition of the symbol.
-  Symbol *updateLinkOnceSymbol(const pstore::database &Db,
-                               const pstore::repo::definition &Def,
-                               const NotNull<UndefsContainer *> Undefs,
-                               uint32_t InputOrdinal);
+  /// \returns  A pair containing a pointer to the symbol (i.e. 'this') or null
+  ///   (if there was an existing incompatible definition of the symbol) and
+  ///   boolean indicating whether this definition was retained in the symbol
+  ///   table.
+  std::pair<Symbol *, bool> updateLinkOnceSymbol(
+      const pstore::database &Db, const pstore::repo::definition &Def,
+      const NotNull<UndefsContainer *> Undefs, uint32_t InputOrdinal);
 
   /// Process the definition of a symbol with weak linkage that "collides" with
   /// an existing definition.
@@ -329,12 +358,13 @@ public:
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
-  /// \returns  this on success or nullptr if there was an existing incompatible
-  ///   definition of the symbol.
-  Symbol *updateWeakSymbol(const pstore::database &Db,
-                           const pstore::repo::definition &Def,
-                           const NotNull<UndefsContainer *> Undefs,
-                           uint32_t InputOrdinal);
+  /// \returns  A pair containing a pointer to the symbol (i.e. 'this') or null
+  ///   (if there was an existing incompatible definition of the symbol) and
+  ///   boolean indicating whether this definition was retained in the symbol
+  ///   table.
+  std::pair<Symbol *, bool> updateWeakSymbol(
+      const pstore::database &Db, const pstore::repo::definition &Def,
+      const NotNull<UndefsContainer *> Undefs, uint32_t InputOrdinal);
 
 private:
   /// If we're an earlier input file than the one which was responsible
@@ -347,11 +377,11 @@ private:
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
-  /// \returns this.
-  Symbol *replaceIfLowerOrdinal(const std::unique_lock<Mutex> &Lock,
-                                const pstore::database &Db,
-                                const pstore::repo::definition &Def,
-                                uint32_t InputOrdinal);
+  /// \returns A pair containing a pointer to the symbol (i.e. 'this') and a
+  ///   boolean true indicating whether the existing definition was replaced.
+  std::pair<Symbol *, bool> replaceIfLowerOrdinal(
+      const std::unique_lock<Mutex> &Lock, const pstore::database &Db,
+      const pstore::repo::definition &Def, uint32_t InputOrdinal);
 
   /// Associates a body with the symbol which must not already have one.
   ///
@@ -362,11 +392,13 @@ private:
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
-  /// \returns this.
-  Symbol *defineImpl(std::unique_lock<Mutex> &&Lock, const pstore::database &Db,
-                     const pstore::repo::definition &Def,
-                     const NotNull<UndefsContainer *> Undefs,
-                     uint32_t InputOrdinal);
+  /// \returns A pair containing a pointer to the symbol (i.e. 'this') and a
+  ///   boolean true indicating whether the existing definition was replaced.
+  std::pair<Symbol *, bool> defineImpl(std::unique_lock<Mutex> &&Lock,
+                                       const pstore::database &Db,
+                                       const pstore::repo::definition &Def,
+                                       const NotNull<UndefsContainer *> Undefs,
+                                       uint32_t InputOrdinal);
 
   /// Associates a body with the symbol which must already have one.
   ///
@@ -376,11 +408,12 @@ private:
   /// \param InputOrdinal  The command-line index of the defining ticket file.
   ///   Used to impose an order on the symbol definitions that is not related to
   ///   the order in which the files are scanned.
-  /// \returns this.
-  Symbol *replaceImpl(const std::unique_lock<Mutex> &Lock,
-                      const pstore::database &Db,
-                      const pstore::repo::definition &Def,
-                      uint32_t InputOrdinal);
+  /// \returns A pair containing a pointer to the symbol (i.e. 'this') and a
+  ///   boolean true indicating whether the existing definition was replaced.
+  std::pair<Symbol *, bool> replaceImpl(const std::unique_lock<Mutex> &Lock,
+                                        const pstore::database &Db,
+                                        const pstore::repo::definition &Def,
+                                        uint32_t InputOrdinal);
 
   /// Associates a body with the symbol which must already have one.
   ///
@@ -392,11 +425,13 @@ private:
   ///   the order in which the files are scanned.
   /// \param Fragment  The symbol's fragment. This is the data that is
   ///   associated with the symbol.
-  /// \returns this.
-  Symbol *replaceImpl(const std::unique_lock<Mutex> &Lock,
-                      const pstore::database &Db,
-                      const pstore::repo::definition &Def,
-                      uint32_t InputOrdinal, const FragmentPtr &Fragment);
+  /// \returns A pair containing a pointer to the symbol (i.e. 'this') and a
+  ///   boolean true indicating whether the existing definition was replaced.
+  std::pair<Symbol *, bool> replaceImpl(const std::unique_lock<Mutex> &Lock,
+                                        const pstore::database &Db,
+                                        const pstore::repo::definition &Def,
+                                        uint32_t InputOrdinal,
+                                        const FragmentPtr &Fragment);
 
   void setName(StringAddress N);
 
@@ -438,7 +473,7 @@ inline size_t Symbol::nameLength() const {
 // set name
 // ~~~~~~~~
 inline void Symbol::setName(StringAddress N) {
-  std::uint64_t const NAbs = N.absolute();
+  const std::uint64_t NAbs = N.absolute();
   assert(NAbs < (UINT64_C(1) << StringAddress::total_bits));
   Name_ = NAbs;
 }
@@ -467,18 +502,18 @@ inline bool Symbol::addReference(pstore::repo::reference_strength Strength) {
 inline void UndefsContainer::remove(Symbol *const Sym,
                                     pstore::repo::reference_strength Strength) {
   if (Strength != pstore::repo::reference_strength::weak) {
-    auto const Prev = StrongUndefCount_--;
+    const auto Prev = StrongUndefCount_--;
     (void)Prev;
     assert(Prev > 0U);
   }
-  std::lock_guard<std::mutex> const Lock{Mut_};
+  const std::lock_guard<std::mutex> Lock{Mut_};
   List_.remove(*Sym); // remove this symbol from the undef list.
 }
 
 // insert
 // ~~~~~~
 inline Symbol *UndefsContainer::insert(Symbol *const Sym) {
-  std::lock_guard<std::mutex> const Lock{Mut_};
+  const std::lock_guard<std::mutex> Lock{Mut_};
   if (!Sym->allReferencesAreWeak()) {
     this->addStrongUndef();
   }
@@ -505,7 +540,7 @@ template <typename T>
 inline const std::atomic<const Symbol *> *
 symbolShadow(const Context &Ctx, pstore::typed_address<T> Addr) {
   assert(Addr.absolute() % alignof(std::atomic<Symbol *>) == 0);
-  return reinterpret_cast<const std::atomic<Symbol const *> *>(Ctx.shadow() +
+  return reinterpret_cast<const std::atomic<const Symbol *> *>(Ctx.shadow() +
                                                                Addr.absolute());
 }
 
@@ -524,11 +559,12 @@ symbolShadow(const Context &Ctx, pstore::typed_address<T> Addr) {
 /// \param Update A function which is called if this is an occurrence of a
 ///   previously encountered symbol. It should return the symbol to be used
 ///   (normally the function's input value).
-/// \return A symbol instance or null if a "duplicate symbol" error message
-///   should be issued.
+/// \returns  A pair containing a pointer to the symbol (i.e. 'this') or null
+///   (if there was an existing incompatible definition of the symbol) and
+///   a boolean indicating whether this symbol was retained in the symbol table.
 template <typename CreateOp, typename UpdateOp>
-Symbol *setSymbolShadow(std::atomic<Symbol *> *Sptr, CreateOp Create,
-                        UpdateOp Update) {
+std::pair<Symbol *, bool> setSymbolShadow(std::atomic<Symbol *> *Sptr,
+                                          CreateOp Create, UpdateOp Update) {
   static auto *const Busy =
       reinterpret_cast<Symbol *>(std::numeric_limits<std::uintptr_t>::max());
   // Is it defined (or in the process of being defined) by another module?
@@ -540,7 +576,7 @@ Symbol *setSymbolShadow(std::atomic<Symbol *> *Sptr, CreateOp Create,
     Symbol = Create();
     assert(Symbol != Busy);
     Sptr->store(Symbol, std::memory_order_release);
-    return Symbol;
+    return {Symbol, true};
   }
 
   // We've previously seen either a reference or a definition of this symbol.
@@ -557,14 +593,15 @@ Symbol *setSymbolShadow(std::atomic<Symbol *> *Sptr, CreateOp Create,
   return Update(Symbol);
 }
 
-using LocalSymbolsContainer = llvm::DenseMap<StringAddress, Symbol *>;
+using LocalSymbolsContainer =
+    llvm::DenseMap<StringAddress, std::pair<Symbol *, bool>>;
 using LocalPLTsContainer = llvm::SmallVector<Symbol *, 256>;
 /// The Global symbols are allocated in chunks of 4MiB.
 using GlobalSymbolsContainer =
     pstore::chunked_vector<Symbol, (4 * 1024 * 1024) / sizeof(Symbol)>;
 
-void debugDumpSymbols(Context const &Ctx,
-                      GlobalSymbolsContainer const &Globals);
+void debugDumpSymbols(const Context &Ctx,
+                      const GlobalSymbolsContainer &Globals);
 
 //*   ___ _     _          _    ___ _                          *
 //*  / __| |___| |__  __ _| |__/ __| |_ ___ _ _ __ _ __ _ ___  *
@@ -645,12 +682,12 @@ public:
                pstore::repo::reference_strength Strength);
 
 private:
-  Symbol *defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
-                       const NotNull<UndefsContainer *> Undefs,
-                       const pstore::repo::definition &Def,
-                       uint32_t InputCount);
+  std::pair<Symbol *, bool>
+  defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
+               const NotNull<UndefsContainer *> Undefs,
+               const pstore::repo::definition &Def, uint32_t InputCount);
 
-  Symbol *add(NotNull<GlobalSymbolsContainer *> const Globals,
+  Symbol *add(const NotNull<GlobalSymbolsContainer *> Globals,
               pstore::address Name, size_t Length,
               const pstore::repo::definition &Def, uint32_t InputOrdinal);
 
@@ -671,11 +708,11 @@ SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
   LocalSymbolsContainer Locals{Compilation.size()};
 
   // Define the symbols in this module.
-  for (pstore::repo::definition const &Def : Compilation) {
-    if (Symbol *const Symbol =
-            this->defineSymbol(Globals, Undefs, Def, InputOrdinal)) {
-
-      Locals.insert({Def.name, Symbol});
+  for (const pstore::repo::definition &Def : Compilation) {
+    const std::pair<Symbol *, bool> SymDef =
+        this->defineSymbol(Globals, Undefs, Def, InputOrdinal);
+    if (SymDef.first != nullptr) {
+      Locals.insert({Def.name, SymDef});
     } else {
       Error = true;
       ErrorFn(Def.name); // Allow the error to be reported to the user.
@@ -703,9 +740,9 @@ SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
 ///   the creation of this symbol.
 /// \return  A pointer to the referenced symbol.
 NotNull<Symbol *>
-referenceSymbol(Context &Ctxt, LocalSymbolsContainer const &Locals,
-                NotNull<GlobalSymbolsContainer *> const Globals,
-                NotNull<UndefsContainer *> const Undefs, StringAddress Name,
+referenceSymbol(Context &Ctxt, const LocalSymbolsContainer &Locals,
+                const NotNull<GlobalSymbolsContainer *> Globals,
+                const NotNull<UndefsContainer *> Undefs, StringAddress Name,
                 pstore::repo::reference_strength Strength);
 
 } // end namespace rld

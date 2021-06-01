@@ -48,21 +48,22 @@ struct State {
 // ~~~~~~~
 template <pstore::repo::section_kind Kind>
 void resolve(State &S, const pstore::repo::fragment &Fragment,
-             FragmentShadow FS,
+             NotNull<Symbol::Body::ResType::value_type::second_type *> Resolved,
              const NotNull<LocalPLTsContainer *> PLTSymbols) {
-  std::atomic<Symbol *> *ShadowXfx = FS.xfxSymbols<Kind>(Fragment);
   const auto *const Section = Fragment.atp<Kind>();
 
-  for (pstore::repo::external_fixup const &Xfx : Section->xfixups()) {
+  pstore::repo::container<pstore::repo::external_fixup> const XFixups =
+      Section->xfixups();
+  Resolved->reserve(XFixups.size());
+  for (pstore::repo::external_fixup const &Xfx : XFixups) {
     llvmDebug(DebugType, S.Ctxt.IOMut, [&]() {
-      llvm::dbgs() << "-> " << loadStdString(S.Ctxt.Db, Xfx.name) << '\n';
+      llvm::dbgs() << "  " << Kind << '+' << Xfx.offset << " -> "
+                   << loadStdString(S.Ctxt.Db, Xfx.name) << '\n';
     });
-
-    assert(ShadowXfx->load(std::memory_order_seq_cst) == nullptr &&
-           "An xfixup has already been resolved");
 
     Symbol *const Sym = referenceSymbol(S.Ctxt, S.Locals, S.Globals, S.Undefs,
                                         Xfx.name, Xfx.strength());
+    assert(Sym != nullptr && "referenceSymbol must not return nullptr");
 
     if (Xfx.type == llvm::ELF::R_X86_64_PLT32) {
       // Note that there's currently no consideration given to whether this PLT
@@ -73,15 +74,14 @@ void resolve(State &S, const pstore::repo::fragment &Fragment,
       }
     }
 
-    ShadowXfx->store(Sym, std::memory_order_seq_cst);
-    ++ShadowXfx;
+    Resolved->push_back(Sym);
   }
 }
 
 template <>
 inline void resolve<pstore::repo::section_kind::linked_definitions>(
     State & /*S*/, const pstore::repo::fragment & /*Fragment*/,
-    FragmentShadow /*FS*/,
+    NotNull<Symbol::Body::ResType::value_type::second_type *> /*Resolved*/,
     const NotNull<LocalPLTsContainer *> /* PLTSymbols*/) {}
 
 } // end anonymous namespace
@@ -97,8 +97,9 @@ rld::resolveXfixups(Context &Context, const LocalSymbolsContainer &Locals,
   LocalPLTsContainer PLTSymbols;
   State S{Context, Locals, Globals, Undefs};
 
-  for (auto const &NS : Locals) {
-    Symbol const *const Sym = NS.second;
+  for (auto &NS : Locals) {
+    std::pair<Symbol *, bool> const &SymDef = NS.second;
+    Symbol *const Sym = SymDef.first;
     assert(Sym && "All local definitions must have an associated symbol");
 
     llvmDebug(DebugType, S.Ctxt.IOMut, [&]() {
@@ -106,41 +107,46 @@ rld::resolveXfixups(Context &Context, const LocalSymbolsContainer &Locals,
                    << "\"\n";
     });
 
+    assert(SymDef.second);
+    if (!SymDef.second) {
+      // We re-used a definition from another compilation. No need to redo the
+      // symbol resolution for its fixups.
+      llvmDebug(DebugType, S.Ctxt.IOMut,
+                [&]() { llvm::dbgs() << "  skipped\n"; });
+      continue;
+    }
+
     Sym->checkInvariants();
 
     auto BodiesAndLock = Sym->definition();
-    llvm::Optional<Symbol::BodyContainer> const &OptionalBodies =
+    llvm::Optional<Symbol::BodyContainer> &OptionalBodies =
         std::get<Symbol::DefinitionIndex>(BodiesAndLock);
     assert(OptionalBodies.hasValue() &&
            "All local symbol definitions must have a body");
-    auto const &Bodies = OptionalBodies.getValue();
+    auto &Bodies = OptionalBodies.getValue();
     const auto BodiesEnd = std::end(Bodies);
     // Find the symbol body that is associated with this compilation.
-    const auto Pos =
-        std::lower_bound(std::begin(Bodies), BodiesEnd, InputOrdinal,
-                         [](Symbol::Body const &A, uint32_t Ord) {
-                           return A.inputOrdinal() < Ord;
-                         });
-    if (Pos == BodiesEnd) {
-      return PLTSymbols;
+    auto Pos = std::lower_bound(std::begin(Bodies), BodiesEnd, InputOrdinal,
+                                [](Symbol::Body const &A, uint32_t Ord) {
+                                  return A.inputOrdinal() < Ord;
+                                });
+    if (Pos == BodiesEnd || Pos->inputOrdinal() != InputOrdinal) {
+      assert(false && "We found no associated body");
+      continue;
     }
 
-    Symbol::Body const &Def = *Pos;
-    assert(Def.inputOrdinal() == InputOrdinal);
+    Symbol::Body &Def = *Pos;
 
-    FragmentShadow FS =
-        FragmentShadow::make(Context, InputOrdinal, Def.fragmentAddress());
-    // Have we processed this fragment already?
-    if (!FS.markDone()) {
-      return PLTSymbols; // FIXME: not sure that bailing out at this point
-                         // correct?
-    }
-    const std::shared_ptr<const pstore::repo::fragment> &Fragment =
-        Def.fragment();
+    const FragmentPtr &Fragment = Def.fragment();
+    Symbol::Body::ResType &ResolveMap =
+        Def.resolveMap(); // = std::map<unsigned, llvm::SmallVector<Symbol *,
+                          // 16>>;
     for (const pstore::repo::section_kind Kind : *Fragment) {
+      auto &Resolved = ResolveMap[static_cast<unsigned>(Kind)];
 #define X(a)                                                                   \
   case pstore::repo::section_kind::a:                                          \
-    resolve<pstore::repo::section_kind::a>(S, *Fragment, FS, &PLTSymbols);     \
+    resolve<pstore::repo::section_kind::a>(S, *Fragment, &Resolved,            \
+                                           &PLTSymbols);                       \
     break;
 
       switch (Kind) {

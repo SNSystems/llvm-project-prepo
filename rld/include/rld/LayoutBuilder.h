@@ -252,15 +252,13 @@ private:
 
   /// \tparam SKind The section kind to be added. This must exist within
   ///   fragment \p F.
-  /// \param F  The fragment which owns the section to be added.
-  /// \param FAddr The pstore address of fragment \p F.
-  /// \param Name
-  /// \param InputOrdinal
+  /// \param Body  The symbol body which defines the data to be added.
+  /// \param Name  The name of the associated symbol.
   /// \returns The contribution representing the newly added section data. This
-  /// is nullptr if the section is not copied to the output file.
+  ///   is nullptr if the section is not copied to the output file.
   template <pstore::repo::section_kind SKind>
-  Contribution *addSectionToLayout(FragmentPtr const &F, FragmentAddress FAddr,
-                                   StringAddress Name, unsigned InputOrdinal);
+  Contribution *addSectionToLayout(const Symbol::Body &Body,
+                                   StringAddress Name);
 
   /// \param SKind The kind of the section to be added.
   /// \param Size  The number of bytes required for the section data.

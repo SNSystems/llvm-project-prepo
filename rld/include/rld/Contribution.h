@@ -28,15 +28,15 @@ struct Contribution {
   /// \param S  The contribution's fragment section.
   /// \param XfxSymbols_  An array of symbol pointers, one for each external
   ///   fixup.
-  //  \param OScn_  The output section to which this contribution belongs.
+  /// \param OScn_  The output section to which this contribution belongs.
   /// \param Offset_  The offset of this section within the output section.
   /// \param Size_  The number of bytes occupied by this contribution's
   ///   section data.
   /// \param Align_  The alignment of this contribution's section data.
   Contribution(pstore::repo::section_base const *const S,
-               const std::atomic<Symbol *> *const XfxSymbols_,
-               OutputSection *OScn_, uint64_t Offset_, uint64_t Size_,
-               unsigned Align_, StringAddress Name_, unsigned InputOrdinal_)
+               Symbol const *const *XfxSymbols_, OutputSection *OScn_,
+               uint64_t Offset_, uint64_t Size_, unsigned Align_,
+               StringAddress Name_, unsigned InputOrdinal_)
       : Section{S}, XfxSymbols{XfxSymbols_}, OScn{OScn_}, Offset{Offset_},
         Size{Size_}, Align{Align_}, InputOrdinal{InputOrdinal_}, Name{Name_} {}
 
@@ -47,7 +47,7 @@ struct Contribution {
   Contribution &operator=(Contribution &&) noexcept = delete;
 
   const pstore::repo::section_base *const Section;
-  const std::atomic<Symbol *> *XfxSymbols;
+  Symbol const *const *XfxSymbols;
   OutputSection *const OScn;
 
   /// The offset from the first section of this type in the owning output

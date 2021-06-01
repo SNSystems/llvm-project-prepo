@@ -1,0 +1,65 @@
+// This test verifies that rld correctly resolves a re-used fragment which contains
+// external fixups that reference symbols with internal linkage.
+
+// RUN: rm -rf %t && mkdir -p %t
+// RUN: pstore-import %t/db.db %s
+// RUN: repo-create-ticket --repo %t/db.db -o %t/t0.o 44444444444444444444444444444444
+// RUN: repo-create-ticket --repo %t/db.db -o %t/t1.o 55555555555555555555555555555555
+// RUN: rld --repo=%t/db.db -o %t/rld.out %t/t0.o %t/t1.o
+// RUN: llvm-readelf --hex-dump=.data %t/rld.out | FileCheck %s
+
+// CHECK: Hex dump of section '.data':
+// CHECK-NEXT: 0x00200000 04002000 22222222 0c002000 33333333
+
+{
+  "version": 1,
+  "id": "2D75D4DE-5B22-4618-8851-474C42FBF339",
+  "transactions": [
+    {
+      "names": [
+        "x86_64-pc-linux-gnu-repo", // 0
+        "external1", // 1
+        "external2", // 2
+        "internal"  // 3
+      ],
+
+      "fragments": {
+        "11111111111111111111111111111111": {
+          "data": {
+            "data": "AAAAAA==", // 0x00 0x00 0x00 0x00
+            "xfixups": [
+              {
+                "name"  : 3,  // "internal"
+                "type"  : 10, // R_X86_64_32
+                "offset": 0,
+                "addend": 0
+              }
+            ]
+          }
+        },
+
+        "22222222222222222222222222222222": { "data": { "data": "IiIiIg==" } }, // 0x22 0x22 0x22 0x22
+        "33333333333333333333333333333333": { "data": { "data": "MzMzMw==" } }  // 0x33 0x33 0x33 0x33
+      },
+
+
+      "compilations": {
+        "44444444444444444444444444444444": {
+          "triple": 0, // "x86_64-pc-linux-gnu-repo"
+          "definitions": [
+            { "digest": "11111111111111111111111111111111", "name": 1, "linkage": "external" }, // "external1"
+            { "digest": "22222222222222222222222222222222", "name": 3, "linkage": "internal" }  // "internal"
+          ]
+        },
+
+        "55555555555555555555555555555555": {
+          "triple": 0, // "x86_64-pc-linux-gnu-repo"
+          "definitions": [
+            { "digest": "11111111111111111111111111111111", "name": 2, "linkage": "external" }, // "external2"
+            { "digest": "33333333333333333333333333333333", "name": 3, "linkage": "internal" }  // "internal"
+          ]
+        }
+      }
+    }
+  ]
+}
