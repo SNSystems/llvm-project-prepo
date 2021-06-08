@@ -15,10 +15,6 @@
 #ifndef RLD_SYMBOL_H
 #define RLD_SYMBOL_H
 
-#include <atomic>
-#include <memory>
-#include <mutex>
-
 #include "rld/SectionArray.h"
 #include "rld/context.h"
 
@@ -33,6 +29,8 @@
 #include "pstore/mcrepo/compilation.hpp"
 
 #include <atomic>
+#include <memory>
+#include <mutex>
 #include <thread>
 
 namespace rld {
