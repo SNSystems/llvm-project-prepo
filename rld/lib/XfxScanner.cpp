@@ -25,6 +25,8 @@
 
 using namespace rld;
 
+using SymbolPtrContainer = pstore::chunked_vector<Symbol *>;
+
 namespace {
 
 constexpr auto DebugType = "rld-xfx-scanner";
@@ -47,14 +49,15 @@ struct State {
 // resolve
 // ~~~~~~~
 template <pstore::repo::section_kind Kind>
-void resolve(State &S, const pstore::repo::fragment &Fragment,
-             NotNull<Symbol::Body::ResType::value_type::second_type *> Resolved,
-             const NotNull<LocalPLTsContainer *> PLTSymbols) {
+Symbol **resolve(State &S, const pstore::repo::fragment &Fragment,
+                 const NotNull<SymbolPtrContainer *> ResolvedFixups,
+                 const NotNull<LocalPLTsContainer *> PLTSymbols) {
   const auto *const Section = Fragment.atp<Kind>();
 
   pstore::repo::container<pstore::repo::external_fixup> const XFixups =
       Section->xfixups();
-  Resolved->reserve(XFixups.size());
+  Symbol **Result = reserveContiguous(ResolvedFixups.get(), XFixups.size());
+  Symbol **Resolved = Result;
   for (pstore::repo::external_fixup const &Xfx : XFixups) {
     llvmDebug(DebugType, S.Ctxt.IOMut, [&]() {
       llvm::dbgs() << "  " << Kind << '+' << Xfx.offset << " -> "
@@ -74,15 +77,19 @@ void resolve(State &S, const pstore::repo::fragment &Fragment,
       }
     }
 
-    Resolved->push_back(Sym);
+    *(Resolved++) = Sym;
   }
+  return Result;
 }
 
 template <>
-inline void resolve<pstore::repo::section_kind::linked_definitions>(
+inline Symbol **resolve<pstore::repo::section_kind::linked_definitions>(
     State & /*S*/, const pstore::repo::fragment & /*Fragment*/,
-    NotNull<Symbol::Body::ResType::value_type::second_type *> /*Resolved*/,
-    const NotNull<LocalPLTsContainer *> /* PLTSymbols*/) {}
+    const NotNull<SymbolPtrContainer *> ResolvedFixups,
+    const NotNull<LocalPLTsContainer *> /* PLTSymbols*/) {
+
+  return nullptr;
+}
 
 } // end anonymous namespace
 
@@ -92,6 +99,7 @@ LocalPLTsContainer
 rld::resolveXfixups(Context &Context, const LocalSymbolsContainer &Locals,
                     const NotNull<rld::GlobalSymbolsContainer *> Globals,
                     const NotNull<UndefsContainer *> Undefs,
+                    const NotNull<SymbolPtrContainer *> ResolvedFixups,
                     uint32_t InputOrdinal) {
 
   LocalPLTsContainer PLTSymbols;
@@ -138,15 +146,13 @@ rld::resolveXfixups(Context &Context, const LocalSymbolsContainer &Locals,
     Symbol::Body &Def = *Pos;
 
     const FragmentPtr &Fragment = Def.fragment();
-    Symbol::Body::ResType &ResolveMap =
-        Def.resolveMap(); // = std::map<unsigned, llvm::SmallVector<Symbol *,
-                          // 16>>;
+    Symbol::Body::ResType &ResolveMap = Def.resolveMap();
     for (const pstore::repo::section_kind Kind : *Fragment) {
-      auto &Resolved = ResolveMap[static_cast<unsigned>(Kind)];
 #define X(a)                                                                   \
   case pstore::repo::section_kind::a:                                          \
-    resolve<pstore::repo::section_kind::a>(S, *Fragment, &Resolved,            \
-                                           &PLTSymbols);                       \
+    ResolveMap[pstore::repo::section_kind::a] =                                \
+        resolve<pstore::repo::section_kind::a>(S, *Fragment, ResolvedFixups,   \
+                                               &PLTSymbols);                   \
     break;
 
       switch (Kind) {

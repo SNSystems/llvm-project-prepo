@@ -49,12 +49,25 @@ constexpr auto DebugType = "rld-scanner";
 
 namespace rld {
 
+// get thread storage
+// ~~~~~~~~~~~~~~~~~~
+auto XfxStorage::getThreadStorage() -> NotNull<StorageType *> {
+  static thread_local char tls = 0;
+  auto *const ptr = &tls;
+  const std::lock_guard<std::mutex> _{Mut_};
+  return &S_.try_emplace(ptr).first->second;
+}
+
+// std::mutex ResOutputMut;
+// static pstore::chunked_vector<Symbol *> ResOutput;
+
 // run
 // ~~~
 void Scanner::run(
-    std::string const &Path,
-    NotNull<rld::GlobalSymbolsContainer *> const GlobalSymbols,
-    pstore::extent<pstore::repo::compilation> const &CompilationExtent,
+    const llvm::StringRef &Path,
+    const NotNull<rld::GlobalSymbolsContainer *> GlobalSymbols,
+    const NotNull<XfxStorage::StorageType *> ResolvedXfxs,
+    const pstore::extent<pstore::repo::compilation> &CompilationExtent,
     uint32_t InputOrdinal) {
 
   llvmDebug(DebugType, Context_.IOMut, [&]() {
@@ -87,7 +100,8 @@ void Scanner::run(
 
   assert(Locals->size() == Compilation.size());
   LocalPLTsContainer PLTSymbols =
-      resolveXfixups(Context_, *Locals, GlobalSymbols, Undefs_, InputOrdinal);
+      resolveXfixups(Context_, *Locals, GlobalSymbols, Undefs_,
+                     ResolvedXfxs.get(), InputOrdinal);
 
   // Notify layout that we've completed work on the item at 'index' and tell it
   // about its definitions.

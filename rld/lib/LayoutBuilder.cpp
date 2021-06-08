@@ -249,15 +249,10 @@ Contribution *LayoutBuilder::addSectionToLayout(const Symbol::Body &Body,
   OutputSection *const OutputSection =
       this->addToOutputSection(ToRldSectionKind<SKind>::value, Size, Alignment);
 
-  Symbol const *const *XfxSymbol = nullptr;
   const auto &RM = Body.resolveMap();
-  auto Pos = RM.find(static_cast<unsigned>(SKind));
-  if (Pos != RM.end()) {
-    XfxSymbol = Pos->second.data();
-  }
 
   OutputSection->Contributions.emplace_back(
-      &Section, XfxSymbol, OutputSection,
+      &Section, RM[SKind], OutputSection,
       alignTo(LayoutBuilder::prevSectionEnd(OutputSection->Contributions),
               Alignment),
       Size, Alignment, Name, Body.inputOrdinal());

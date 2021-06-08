@@ -433,9 +433,9 @@ void debugDumpSymbols(Context const &Ctx,
 //*  \___|_\___/_.__/\__,_|_/__/___/\__\___/_| \__,_\__, \___| *
 //*                                                 |___/      *
 //-MARK: GlobalsStorage
-// get thread symbols
+// get thread storage
 // ~~~~~~~~~~~~~~~~~~
-NotNull<GlobalSymbolsContainer *> GlobalsStorage::getThreadSymbols() {
+NotNull<GlobalSymbolsContainer *> GlobalsStorage::getThreadStorage() {
   static thread_local char tls = 0;
   auto *const ptr = &tls;
   std::lock_guard<std::mutex> const _{Mut_};

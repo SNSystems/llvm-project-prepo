@@ -26,6 +26,84 @@ using pstore::repo::reference_strength;
 using testing::_;
 using testing::UnorderedElementsAre;
 
+TEST(ReserveContiguous, TwoElementsTwice) {
+  pstore::chunked_vector<int *, 3> cv;
+  int a = 3;
+  int b = 5;
+  int c = 7;
+  int d = 11;
+  {
+    int **p1 = rld::reserveContiguous(&cv, 2);
+    *p1 = &a;
+    ++p1;
+    *p1 = &b;
+  }
+  {
+    int **p2 = rld::reserveContiguous(&cv, 2);
+    *p2 = &c;
+    ++p2;
+    *p2 = &d;
+  }
+  EXPECT_EQ(cv.size(), 5U);
+  auto it = cv.begin();
+  // chunk 0
+  EXPECT_EQ(*it, &a);
+  std::advance(it, 1);
+  EXPECT_EQ(*it, &b);
+  std::advance(it, 1);
+  EXPECT_EQ(*it, nullptr);
+  // chunk 1
+  std::advance(it, 1);
+  EXPECT_EQ(*it, &c);
+  std::advance(it, 1);
+  EXPECT_EQ(*it, &d);
+
+  std::advance(it, 1);
+  EXPECT_EQ(it, cv.end());
+}
+
+TEST(ReserveContiguous, OneElementThenThree) {
+  pstore::chunked_vector<int *, 3> cv;
+  int a = 3;
+  int b = 5;
+  int c = 7;
+  int d = 11;
+  {
+    int **p1 = rld::reserveContiguous(&cv, 1);
+    *p1 = &a;
+  }
+  {
+    // A request for three contiguous elements when the container. These should
+    // occupy the second chunk, with the remaining unoccupied elements of the
+    // first chunk being filled with nullptr.
+    int **p2 = rld::reserveContiguous(&cv, 3);
+    *p2 = &b;
+    ++p2;
+    *p2 = &c;
+    ++p2;
+    *p2 = &d;
+  }
+
+  EXPECT_EQ(cv.size(), 6U);
+  auto it = cv.begin();
+  // chunk 0.
+  EXPECT_EQ(*it, &a);
+  std::advance(it, 1);
+  EXPECT_EQ(*it, nullptr);
+  std::advance(it, 1);
+  EXPECT_EQ(*it, nullptr);
+  std::advance(it, 1);
+  // chunk 1.
+  EXPECT_EQ(*it, &b);
+  std::advance(it, 1);
+  EXPECT_EQ(*it, &c);
+  std::advance(it, 1);
+  EXPECT_EQ(*it, &d);
+
+  std::advance(it, 1);
+  EXPECT_EQ(it, cv.end());
+}
+
 // create fragment with reference to
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 static pstore::index::fragment_index::value_type
@@ -112,9 +190,10 @@ XfxScannerTest::defineSymbols(CompilationPtr const &Compilation,
 
 TEST_F(XfxScannerTest, Empty) {
   rld::LocalSymbolsContainer Locals;
+  pstore::chunked_vector<rld::Symbol *> ResolvedFixups;
   constexpr auto InputOrdinal = uint32_t{0};
-  const rld::LocalPLTsContainer PLTSymbols =
-      resolveXfixups(Context_, Locals, &Globals_, &Undefs_, InputOrdinal);
+  const rld::LocalPLTsContainer PLTSymbols = resolveXfixups(
+      Context_, Locals, &Globals_, &Undefs_, &ResolvedFixups, InputOrdinal);
   EXPECT_TRUE(PLTSymbols.empty());
   EXPECT_TRUE(Undefs_.empty());
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U);
@@ -137,8 +216,9 @@ TEST_F(XfxScannerTest, StrongRefToUndefined) {
   ASSERT_TRUE(Locals.hasValue()) << "Expected defineSymbols to succeed";
 
   // Resolve the external fixups in our compilation.
-  const rld::LocalPLTsContainer PLTSymbols =
-      resolveXfixups(Context_, *Locals, &Globals_, &Undefs_, InputOrdinal);
+  pstore::chunked_vector<rld::Symbol *> ResolvedFixups;
+  const rld::LocalPLTsContainer PLTSymbols = resolveXfixups(
+      Context_, *Locals, &Globals_, &Undefs_, &ResolvedFixups, InputOrdinal);
   EXPECT_TRUE(PLTSymbols.empty());
 
   EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
@@ -180,8 +260,9 @@ TEST_F(XfxScannerTest, WeakRefToUndefined) {
   ASSERT_TRUE(Locals.hasValue()) << "Expected defineSymbols to succeed";
 
   // Resolve the external fixups in our compilation.
-  const rld::LocalPLTsContainer PLTSymbols =
-      resolveXfixups(Context_, *Locals, &Globals_, &Undefs_, InputOrdinal);
+  pstore::chunked_vector<rld::Symbol *> ResolvedFixups;
+  const rld::LocalPLTsContainer PLTSymbols = resolveXfixups(
+      Context_, *Locals, &Globals_, &Undefs_, &ResolvedFixups, InputOrdinal);
   EXPECT_TRUE(PLTSymbols.empty());
 
   EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
@@ -214,6 +295,7 @@ TEST_F(XfxScannerTest, WeakRefToUndefined) {
 TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
   constexpr auto InputOrdinal1 = uint32_t{7};
   constexpr auto InputOrdinal2 = InputOrdinal1 + 1U;
+  pstore::chunked_vector<rld::Symbol *> ResolvedFixups;
   {
     // Create a compilation containing a single symbol ("f") with external
     // linkage. The sole fragment contains an external fixup with a weak
@@ -227,7 +309,8 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
     EXPECT_EQ(Locals1->size(), 1U);
     // Resolve the external fixups in compilation #1.
     const rld::LocalPLTsContainer PLTSymbols1 =
-        resolveXfixups(Context_, *Locals1, &Globals_, &Undefs_, InputOrdinal1);
+        resolveXfixups(Context_, *Locals1, &Globals_, &Undefs_, &ResolvedFixups,
+                       InputOrdinal1);
     EXPECT_TRUE(PLTSymbols1.empty());
   }
 
@@ -252,7 +335,8 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
     EXPECT_EQ(Locals2->size(), 1U);
     // Resolve the external fixups in compilation #2.
     const rld::LocalPLTsContainer PLTSymbols2 =
-        resolveXfixups(Context_, *Locals2, &Globals_, &Undefs_, InputOrdinal2);
+        resolveXfixups(Context_, *Locals2, &Globals_, &Undefs_, &ResolvedFixups,
+                       InputOrdinal2);
     EXPECT_TRUE(PLTSymbols2.empty());
   }
 
@@ -266,6 +350,7 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
 
 TEST_F(XfxScannerTest, StrongRefToExternalDef) {
   constexpr auto InputOrdinal = uint32_t{11};
+  pstore::chunked_vector<rld::Symbol *> ResolvedFixups;
 
   // Create a compilation containing a single symbol ("f") with external
   // linkage. The sole fragment contains an external fixup referencing "f".
@@ -277,8 +362,8 @@ TEST_F(XfxScannerTest, StrongRefToExternalDef) {
   ASSERT_TRUE(Locals.hasValue()) << "Expected defineSymbols to succeed";
 
   // Resolve the external fixups in our compilation.
-  const rld::LocalPLTsContainer PLTSymbols =
-      resolveXfixups(Context_, *Locals, &Globals_, &Undefs_, InputOrdinal);
+  const rld::LocalPLTsContainer PLTSymbols = resolveXfixups(
+      Context_, *Locals, &Globals_, &Undefs_, &ResolvedFixups, InputOrdinal);
   EXPECT_TRUE(PLTSymbols.empty());
 
   EXPECT_TRUE(Undefs_.empty());
@@ -297,6 +382,7 @@ TEST_F(XfxScannerTest, StrongRefToExternalDef) {
 TEST_F(XfxScannerTest, RefToAppendDef) {
   constexpr auto InputOrdinal0 = uint32_t{13};
   constexpr auto InputOrdinal1 = uint32_t{17};
+  pstore::chunked_vector<rld::Symbol *> ResolvedFixups;
 
   // Create two compilations each containing a definition ("f") with append
   // linkage. Each contains a single fragment which contains an external fixup
@@ -308,14 +394,14 @@ TEST_F(XfxScannerTest, RefToAppendDef) {
 
   auto const L0 = this->defineSymbols(C0, InputOrdinal0);
   ASSERT_TRUE(L0.hasValue()) << "Expected defineSymbols for C0 to succeed";
-  const rld::LocalPLTsContainer PLTSymbols0 =
-      resolveXfixups(Context_, *L0, &Globals_, &Undefs_, InputOrdinal0);
+  const rld::LocalPLTsContainer PLTSymbols0 = resolveXfixups(
+      Context_, *L0, &Globals_, &Undefs_, &ResolvedFixups, InputOrdinal0);
   EXPECT_TRUE(PLTSymbols0.empty());
 
   auto const L1 = this->defineSymbols(C1, InputOrdinal1);
   ASSERT_TRUE(L1.hasValue()) << "Expected defineSymbols for C1 to succeed";
-  const rld::LocalPLTsContainer PLTSymbols1 =
-      resolveXfixups(Context_, *L1, &Globals_, &Undefs_, InputOrdinal1);
+  const rld::LocalPLTsContainer PLTSymbols1 = resolveXfixups(
+      Context_, *L1, &Globals_, &Undefs_, &ResolvedFixups, InputOrdinal1);
   EXPECT_TRUE(PLTSymbols1.empty());
 
   EXPECT_TRUE(Undefs_.empty());

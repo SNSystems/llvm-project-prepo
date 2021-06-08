@@ -19,6 +19,9 @@
 #include <memory>
 #include <mutex>
 
+#include "rld/SectionArray.h"
+#include "rld/context.h"
+
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/simple_ilist.h"
@@ -28,7 +31,6 @@
 #include "pstore/core/address.hpp"
 #include "pstore/core/indirect_string.hpp"
 #include "pstore/mcrepo/compilation.hpp"
-#include "rld/context.h"
 
 #include <atomic>
 #include <thread>
@@ -149,7 +151,13 @@ public:
     const FragmentPtr &fragment() const { return Fragment_; }
     FragmentAddress fragmentAddress() const { return FAddr_; }
 
-    using ResType = std::map<unsigned, llvm::SmallVector<Symbol *, 16>>;
+    // TODO: using an section_kind array of pointers here is wasteful. Most
+    // fragments don't contain a large number of sections so we're burning a lot
+    // of unnecessary space. Could move this to a separate container and
+    // use something like pstore::spare_array<> instead.
+    using ResType =
+        EnumIndexedArray<pstore::repo::section_kind,
+                         pstore::repo::section_kind::last, Symbol **>;
     ResType &resolveMap() { return ResolveMap_; }
     const ResType &resolveMap() const { return ResolveMap_; }
 
@@ -616,7 +624,7 @@ public:
 
   /// Returns the global symbol memory block associated with the current thread,
   /// creating it if necessary.
-  NotNull<GlobalSymbolsContainer *> getThreadSymbols();
+  NotNull<GlobalSymbolsContainer *> getThreadStorage();
   /// Splices the collection of global symbol memory blocks into a single
   /// container and returns it. The contents of this object are released in the
   /// process.

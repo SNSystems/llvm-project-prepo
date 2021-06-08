@@ -35,6 +35,19 @@ namespace rld {
 
 class LayoutBuilder;
 
+/// Provides per-worker thread storage for symbol pointers yielded by
+/// external-fixup resolution.
+class XfxStorage {
+public:
+  explicit XfxStorage(unsigned NumWorkerThreads) : S_{NumWorkerThreads} {}
+  using StorageType = pstore::chunked_vector<Symbol *>;
+  NotNull<StorageType *> getThreadStorage();
+
+private:
+  llvm::DenseMap<char *, StorageType> S_;
+  std::mutex Mut_;
+};
+
 class Scanner {
 public:
   Scanner(Context &Ctx, LayoutBuilder &Layout,
@@ -43,9 +56,10 @@ public:
   Scanner(Scanner const &) = delete;
   Scanner &operator=(Scanner const &) = delete;
 
-  void run(std::string const &Path,
-           NotNull<rld::GlobalSymbolsContainer *> const GlobalSymbols,
-           pstore::extent<pstore::repo::compilation> const &CompilationExtent,
+  void run(const llvm::StringRef &Path,
+           const NotNull<rld::GlobalSymbolsContainer *> GlobalSymbols,
+           const NotNull<XfxStorage::StorageType *> ResolvedXfxs,
+           const pstore::extent<pstore::repo::compilation> &CompilationExtent,
            uint32_t InputOrdinal);
 
 private:

@@ -17,6 +17,7 @@
 
 #include "pstore/mcrepo/section.hpp"
 #include "rld/AdvanceEnum.h"
+#include "llvm/Support/ErrorHandling.h"
 
 namespace rld {
 
