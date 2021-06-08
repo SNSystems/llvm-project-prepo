@@ -15,7 +15,7 @@
 ; RUN: repo-fragments -repo=%t.db -c %t.o f | FileCheck --check-prefix=NAME --match-full-lines --strict-whitespace %s
 ;
 ; Try a name that is not present in the compilation.
-; RUN: NOT repo-fragments -repo=%t.db %t.o missing
+; RUN: not repo-fragments -repo=%t.db %t.o missing
 ;
 ; BASIC: f: {{([[:xdigit:]]{32})}}
 ; BASIC: v: {{([[:xdigit:]]{32})}}
