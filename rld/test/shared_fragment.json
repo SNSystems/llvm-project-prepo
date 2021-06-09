@@ -5,11 +5,11 @@
 // RUN: pstore-import %t/db.db %s
 // RUN: repo-create-ticket --repo %t/db.db -o %t/t0.o 072e60601c5545ca9e6d759ab9d7484f
 // RUN: repo-create-ticket --repo %t/db.db -o %t/t1.o cdbabbba384d4f12a6c6656eada97d72
-// RUN: rld --debug --repo=%t/db.db -o %t/rld.out %t/t0.o %t/t1.o
-//
+// RUN: rld --repo=%t/db.db -o %t/rld.out %t/t0.o %t/t1.o
+// RUN: llvm-readelf --hex-dump=.rodata %t/rld.out | FileCheck %s
 
-// TODO: verify that the output is correct. Originally an assertion tripped in rld with
-// this input.
+// CHECK: Hex dump of section '.rodata':
+// CHECK-NEXT: 0x00200000 64617461 64617461 52454144 64617461 datadataREADdata
 
 {
   "version": 1,
@@ -27,13 +27,13 @@
       "fragments": {
         // Used for definition h.
         "75dc28989269433bb972a59f17403dab": {
-          "read_only": { "data": "ZGF0YQ==" }
+          "read_only": { "data": "UkVBRA==" } // payload is "READ" (0x52, 0x45, 0x41, 0x44).
         },
 
         // Used for definitions f, g, and j.
         "8cda64e4d658472f885f58d331025fbd": {
           "read_only": {
-            "data" : "ZGF0YQ==",
+            "data" : "ZGF0YQ==", // payload is "data" (0x64, 0x61, 0x74, 0x61).
             "xfixups": [
               { "name": 3, "type": 0, "offset": 0, "addend": 0 } // "h"
             ]
@@ -60,7 +60,7 @@
           ]
         }
       } // compilations
-    } // transaction
+    } // transaction #1
   ] // transactions
 }
 
