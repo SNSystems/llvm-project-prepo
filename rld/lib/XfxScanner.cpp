@@ -97,7 +97,7 @@ inline Symbol **resolve<pstore::repo::section_kind::linked_definitions>(
 // ~~~~~~~~~~~~~~~
 LocalPLTsContainer
 rld::resolveXfixups(Context &Context, const LocalSymbolsContainer &Locals,
-                    const NotNull<rld::GlobalSymbolsContainer *> Globals,
+                    const NotNull<GlobalSymbolsContainer *> Globals,
                     const NotNull<UndefsContainer *> Undefs,
                     const NotNull<SymbolPtrContainer *> ResolvedFixups,
                     uint32_t InputOrdinal) {
@@ -115,7 +115,6 @@ rld::resolveXfixups(Context &Context, const LocalSymbolsContainer &Locals,
                    << "\"\n";
     });
 
-    assert(SymDef.second);
     if (!SymDef.second) {
       // We re-used a definition from another compilation. No need to redo the
       // symbol resolution for its fixups.
