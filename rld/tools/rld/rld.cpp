@@ -419,7 +419,11 @@ int main(int Argc, char *Argv[]) {
 #endif
     }
     LayoutThread.join();
-    std::tie(LO, PLTs) = Layout.flattenSegments();
+
+    std::tie(LO, PLTs) = Layout.flattenSegments(
+        Ctxt.baseAddress(),
+        Layout.elfHeaderBlockSize<
+            llvm::object::ELFType<llvm::support::little, true>>());
 
     if (ExitCode != EXIT_SUCCESS) {
       return ExitCode;

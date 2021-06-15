@@ -118,13 +118,14 @@ OStream &operator<<(OStream &OS, ElfSegmentFlags<ELFT> const &Flags) {
 template <typename ELFT>
 auto rld::elf::emitProgramHeaders(
     typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr, rld::Context &Ctxt,
-    const rld::FileRegion &TargetDataRegion, const rld::Layout &Lout,
+    const rld::FileRegion &TargetDataRegion,
+    const rld::FileRegion &SegmentTableRegion, const rld::Layout &Lout,
     const rld::SegmentIndexedArray<llvm::Optional<int64_t>> &SegmentDataOffsets)
     -> typename llvm::object::ELFFile<ELFT>::Elf_Phdr * {
 
   auto DebugHeading =
       makeOnce([](llvm::raw_ostream &OS) { OS << "ELF Program Headers\n"; });
-
+  auto *const Start = Phdr;
   Lout.forEachSegment([&](const SegmentKind Kind, const Segment &Segment) {
     if (!Segment.shouldEmit()) {
       return;
@@ -134,6 +135,13 @@ auto rld::elf::emitProgramHeaders(
     if (Segment.VirtualSize > 0) {
       SegmentDataOffset += TargetDataRegion.offset();
     }
+
+    // FIXME: rather than special-case code here, fold this into
+    // SegmentDataOffsets.
+    if (Kind == SegmentKind::rodata) {
+      SegmentDataOffset = 0;
+    }
+
     assert(SegmentDataOffset >= 0);
     Phdr->p_type = elfSegmentKind<ELFT>(Kind);
     Phdr->p_flags = elfSegmentFlags<ELFT>(Kind);
@@ -174,6 +182,9 @@ auto rld::elf::emitProgramHeaders(
 
     ++Phdr;
   });
+  assert(Phdr >= Start &&
+         (Phdr - Start) * sizeof(*Phdr) == SegmentTableRegion.size() &&
+         "The segment table did not fill its allocated space");
   return Phdr;
 }
 
@@ -202,28 +213,28 @@ getLinkSections(const rld::Layout &Lout) {
 template auto rld::elf::emitProgramHeaders<llvm::object::ELF64LE>(
     typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Phdr *Phdr,
     Context &Ctxt, const rld::FileRegion &TargetDataRegion,
-    const rld::Layout &Lout,
+    const rld::FileRegion &SegmentTableRegion, const rld::Layout &Lout,
     const rld::SegmentIndexedArray<llvm::Optional<int64_t>> &SegmentDataOffsets)
     -> typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Phdr *;
 
 template auto rld::elf::emitProgramHeaders<llvm::object::ELF64BE>(
     typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Phdr *Phdr,
     Context &Ctxt, const rld::FileRegion &TargetDataRegion,
-    const rld::Layout &Lout,
+    const rld::FileRegion &SegmentTableRegion, const rld::Layout &Lout,
     const rld::SegmentIndexedArray<llvm::Optional<int64_t>> &SegmentDataOffsets)
     -> typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Phdr *;
 
 template auto rld::elf::emitProgramHeaders<llvm::object::ELF32LE>(
     typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Phdr *Phdr,
     Context &Ctxt, const rld::FileRegion &TargetDataRegion,
-    const rld::Layout &Lout,
+    const rld::FileRegion &SegmentTableRegion, const rld::Layout &Lout,
     const rld::SegmentIndexedArray<llvm::Optional<int64_t>> &SegmentDataOffsets)
     -> typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Phdr *;
 
 template auto rld::elf::emitProgramHeaders<llvm::object::ELF32BE>(
     typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Phdr *Phdr,
     Context &Ctxt, const rld::FileRegion &TargetDataRegion,
-    const rld::Layout &Lout,
+    const rld::FileRegion &SegmentTableRegion, const rld::Layout &Lout,
     const rld::SegmentIndexedArray<llvm::Optional<int64_t>> &SegmentDataOffsets)
     -> typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Phdr *;
 

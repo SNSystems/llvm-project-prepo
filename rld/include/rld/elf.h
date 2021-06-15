@@ -392,7 +392,8 @@ elfSectionNameAndLength(rld::SectionKind SKind) {
 template <typename ELFT>
 auto emitProgramHeaders(
     typename llvm::object::ELFFile<ELFT>::Elf_Phdr *Phdr, Context &Ctxt,
-    const rld::FileRegion &TargetDataRegion, const rld::Layout &Lout,
+    const rld::FileRegion &TargetDataRegion,
+    const rld::FileRegion &SegmentTableRegion, const rld::Layout &Lout,
     const rld::SegmentIndexedArray<llvm::Optional<int64_t>> &SegmentDataOffsets)
     -> typename llvm::object::ELFFile<ELFT>::Elf_Phdr *;
 

@@ -127,6 +127,8 @@ public:
   pstore::repo::compilation const &recordCompilation(
       pstore::extent<pstore::repo::compilation> const &CompilationExtent);
 
+  uint64_t baseAddress() const { return BaseAddress_; }
+
 private:
   class MmapDeleter {
   public:
@@ -147,6 +149,8 @@ private:
 
   std::mutex CompilationsMut_;
   std::list<std::shared_ptr<pstore::repo::compilation const>> Compilations_;
+
+  uint64_t BaseAddress_ = 0x0000000000400000;
 };
 
 } // namespace rld

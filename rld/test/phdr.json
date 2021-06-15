@@ -6,21 +6,23 @@
 // RUN: llvm-readelf --program-headers %t/rld.out | FileCheck %s
 
 // CHECK: Elf file type is EXEC (Executable file)
-// CHECK: Entry point 0x200000
-// CHECK: There are 3 program headers, starting at offset 64
+// CHECK: Entry point 0x401000
+// CHECK: There are 4 program headers, starting at offset 64
 //
 // CHECK: Program Headers:
-// CHECK:   Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
-// CHECK:   LOAD           0x001000 0x0000000000200000 0x0000000000200000 0x000038 0x000038 R   0x1000
-// CHECK:   LOAD           0x002000 0x0000000000201000 0x0000000000201000 0x0000c6 0x0000c6 R E 0x1000
-// CHECK:   GNU_STACK      0x000000 0x0000000000000000 0x0000000000000000 0x000000 0x000000 RW  0x0
+// CHECK-NEXT:   Type      Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
+// CHECK-NEXT:   PHDR      0x000000 0x0000000000400000 0x0000000000400000 0x000120 0x000120 R 0x1
+// CHECK-NEXT:   LOAD      0x000000 0x0000000000400000 0x0000000000400000 0x000158 0x000158 R 0x1000
+// CHECK-NEXT:   LOAD      0x001000 0x0000000000401000 0x0000000000401000 0x0000c6 0x0000c6 R E 0x1000
+// CHECK-NEXT:   GNU_STACK 0x000000 0x0000000000000000 0x0000000000000000 0x000000 0x000000 RW  0x0
 //
-// CHECK:  Section to Segment mapping:
-// CHECK:   Segment Sections...
-// CHECK:    00     .rodata.str1.1 .rodata
-// CHECK:    01     .text
-// CHECK:    02
-// CHECK:    None   .shstrtab .strtab .symtab
+// CHECK:      Section to Segment mapping:
+// CHECK-NEXT:  Segment Sections...
+// CHECK-NEXT:   00
+// CHECK-NEXT:   01     .rodata.str1.1 .rodata
+// CHECK-NEXT:   02     .text
+// CHECK-NEXT:   03
+// CHECK-NEXT:   None   .shstrtab .strtab .symtab
 
 
 {

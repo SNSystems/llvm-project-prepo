@@ -67,7 +67,8 @@ Symbol **resolve(State &S, const pstore::repo::fragment &Fragment,
     Symbol *const Sym = referenceSymbol(S.Ctxt, S.Locals, S.Globals, S.Undefs,
                                         Xfx.name, Xfx.strength());
     assert(Sym != nullptr && "referenceSymbol must not return nullptr");
-
+    // FIXME: PLT relocation handling is currently disabled.
+#if 0
     if (Xfx.type == llvm::ELF::R_X86_64_PLT32) {
       // Note that there's currently no consideration given to whether this PLT
       // relocation can be relaxed.
@@ -76,7 +77,7 @@ Symbol **resolve(State &S, const pstore::repo::fragment &Fragment,
         S.Ctxt.PLTEntries.fetch_add(1U, std::memory_order_relaxed);
       }
     }
-
+#endif
     *(Resolved++) = Sym;
   }
   return Result;

@@ -16,6 +16,8 @@
 #define RLD_LAYOUT_BUILDER_H
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/Object/ELF.h"
+#include "llvm/Object/ELFTypes.h"
 
 #include "rld/AdvanceEnum.h"
 #include "rld/Contribution.h"
@@ -139,7 +141,7 @@ struct Segment {
   bool AlwaysEmit = false;
   bool HasOutputSections = false;
 
-  bool shouldEmit() const { return AlwaysEmit || VirtualSize > 0; }
+  bool shouldEmit() const { return AlwaysEmit || HasOutputSections; }
 };
 
 template <typename Value>
@@ -151,6 +153,7 @@ class Layout {
 public:
   Layout();
 
+  uint64_t HeaderBlockSize = 0;
   SectionIndexedArray<OutputSection> Sections;
   SegmentIndexedArray<Segment> Segments;
 
@@ -159,6 +162,21 @@ public:
   }
   template <typename Function> void forEachSegment(Function F) {
     forEachSegmentImpl(*this, F);
+  }
+
+  unsigned numberOfSections(unsigned NumImplicitSections) const {
+    return std::accumulate(
+        std::begin(Sections), std::end(Sections), NumImplicitSections,
+        [](const unsigned Acc, const rld::OutputSection &OutScn) {
+          return Acc + static_cast<unsigned>(OutScn.shouldEmit());
+        });
+  }
+  unsigned numberOfSegments() const {
+    return std::accumulate(std::begin(Segments), std::end(Segments), 0U,
+                           [](const unsigned Acc, const rld::Segment &Segment) {
+                             return Acc +
+                                    static_cast<unsigned>(Segment.shouldEmit());
+                           });
   }
 
 private:
@@ -190,8 +208,13 @@ public:
   /// The main layout thread entry point.
   void run();
 
+  /// Takes the two-dimensional layout produced by the main layout thread where
+  /// each segment starts at address 0 and flattens it into a single-dimensional
+  /// structure where each segment follows the previous in memory.
   std::tuple<std::unique_ptr<Layout>, std::unique_ptr<LocalPLTsContainer>>
-  flattenSegments();
+  flattenSegments(uint64_t Base, uint64_t HeaderBlockSize);
+
+  template <typename ELFT> uint64_t elfHeaderBlockSize() const;
 
 private:
   Context &Ctx_;
@@ -279,6 +302,19 @@ private:
 
   void debugDumpLayout() const;
 };
+
+// elf header block size
+// ~~~~~~~~~~~~~~~~~~~~~
+template <typename ELFT> uint64_t LayoutBuilder::elfHeaderBlockSize() const {
+  using Elf_Ehdr = typename llvm::object::ELFFile<ELFT>::Elf_Ehdr;
+  using Elf_Phdr = typename llvm::object::ELFFile<ELFT>::Elf_Phdr;
+
+  Layout_->Segments[SegmentKind::phdr].AlwaysEmit = true;
+  Layout_->Segments[SegmentKind::rodata].AlwaysEmit = true;
+  Layout_->Segments[SegmentKind::gnu_stack].AlwaysEmit = true;
+
+  return sizeof(Elf_Ehdr) + sizeof(Elf_Phdr) * Layout_->numberOfSegments();
+}
 
 class FileRegion {
 public:

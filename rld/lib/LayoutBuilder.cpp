@@ -239,6 +239,8 @@ Contribution *LayoutBuilder::addSectionToLayout(const Symbol::Body &Body,
     return nullptr;
   }
 
+  Layout_->Segments[SegmentK].HasOutputSections = true;
+
   auto const & Section = F->at<SKind>();
   assert(reinterpret_cast<std::uint8_t const *>(&Section) >
          reinterpret_cast<std::uint8_t const *>(F.get()));
@@ -343,13 +345,13 @@ void LayoutBuilder::debugDumpLayout() const {
   });
 }
 
+using ELFT = llvm::object::ELFType<llvm::support::little, true>;
+using Elf_Rela = llvm::object::ELFFile<ELFT>::Elf_Rela;
+
 // run
 // ~~~
 void LayoutBuilder::run() {
   llvm::set_thread_name("LayoutBuilder");
-
-  // Produce a GNU_STACK segment even though it will contain no data.
-  Layout_->Segments[SegmentKind::gnu_stack].AlwaysEmit = true;
 
   for (auto Ordinal = uint32_t{0}; Ordinal < NumCompilations_; ++Ordinal) {
     CompilationWaiter_.waitFor(Ordinal);
@@ -439,8 +441,6 @@ void LayoutBuilder::run() {
     this->addToOutputSection(rld::SectionKind::plt, PLTSize, 8U);
     this->addToOutputSection(rld::SectionKind::gotplt, PLTSize, 8U);
 
-    using ELFT = llvm::object::ELFType<llvm::support::little, true>;
-    using Elf_Rela = llvm::object::ELFFile<ELFT>::Elf_Ehdr;
     OutputSection *const rela_plt = this->addToOutputSection(
         rld::SectionKind::rela_plt, PLTEntries * sizeof(Elf_Rela), 8U);
     rela_plt->Link = rld::SectionKind::symtab;
@@ -448,46 +448,81 @@ void LayoutBuilder::run() {
   }
 }
 
+static uint64_t positionOutputSections(uint64_t Base, Segment *const Seg,
+                                       uint64_t VirtualSize,
+                                       uint64_t FileSize) {
+  auto A = Base;
+  forEachSectionKind(
+      [Seg, &A, &VirtualSize, &FileSize](const SectionKind SectionK) {
+        if (OutputSection *const Scn = Seg->Sections[SectionK]) {
+          const auto Alignment = Scn->MaxAlign;
+          assert(Alignment <= Seg->MaxAlign);
+          assert(Seg->HasOutputSections && "Segment HasOutputSections must be "
+                                           "true if there are output sections");
+          assert(Scn->VirtualAddr == 0);
+          A = alignTo(A, Alignment);
+          Scn->VirtualAddr = A;
+          A += Scn->VirtualSize;
+          VirtualSize = alignTo(VirtualSize, Alignment) + Scn->VirtualSize;
+          if (hasFileData(SectionK)) {
+            FileSize = alignTo(FileSize, Alignment) + Scn->FileSize;
+          }
+        }
+      });
+
+  assert(Seg->VirtualSize == 0);
+  Seg->VirtualSize = VirtualSize;
+  assert(Seg->FileSize == 0);
+  Seg->FileSize = FileSize;
+  return VirtualSize;
+}
+
+namespace {
+
+template <SegmentKind SegmentK>
+uint64_t positionSegment(uint64_t Base, Layout *const Layout) {
+  Segment &Seg = Layout->Segments[SegmentK];
+  assert(Seg.MaxAlign >= PageSize);
+  Base = alignTo(Base, Seg.MaxAlign);
+  assert(Seg.VirtualAddr == 0);
+  Seg.VirtualAddr = Base;
+  return Base + positionOutputSections(Base, &Seg, 0U, 0U);
+}
+
+template <>
+uint64_t positionSegment<SegmentKind::phdr>(uint64_t Base,
+                                            Layout *const Layout) {
+  Segment &Seg = Layout->Segments[SegmentKind::phdr];
+  Seg.VirtualAddr = Base;
+  Seg.VirtualSize = Layout->HeaderBlockSize;
+  Seg.FileSize = Layout->HeaderBlockSize;
+  Seg.MaxAlign = 1;
+  return Base;
+}
+
+template <>
+uint64_t positionSegment<SegmentKind::rodata>(uint64_t Base,
+                                              Layout *const Layout) {
+  Segment &Seg = Layout->Segments[SegmentKind::rodata];
+  assert(Base == alignTo(Base, Seg.MaxAlign));
+  assert(Seg.MaxAlign >= PageSize);
+  Seg.VirtualAddr = Base;
+  return Base + positionOutputSections(Base + Layout->HeaderBlockSize, &Seg,
+                                       Layout->HeaderBlockSize,
+                                       Layout->HeaderBlockSize);
+}
+
+} // end anonymous namespace
+
 // flatten segments
 // ~~~~~~~~~~~~~~~~
 std::tuple<std::unique_ptr<Layout>, std::unique_ptr<LocalPLTsContainer>>
-LayoutBuilder::flattenSegments() {
-  auto Base = uint64_t{0x0000000000200000};
+LayoutBuilder::flattenSegments(uint64_t Base, const uint64_t HeaderBlockSize) {
   assert(Base % PageSize == 0U);
-
-  Layout_->forEachSegment([&Base](SegmentKind SegmentK, Segment &Seg) {
-    assert(Seg.MaxAlign >= PageSize);
-    Base = alignTo(Base, Seg.MaxAlign);
-    assert(Seg.VirtualAddr == 0);
-    Seg.VirtualAddr = Base;
-
-    uint64_t VirtualSize = 0;
-    uint64_t FileSize = 0;
-
-    auto A = Seg.VirtualAddr;
-    forEachSectionKind([&](const SectionKind SectionK) {
-      if (OutputSection *const Scn = Seg.Sections[SectionK]) {
-        const auto Alignment = Scn->MaxAlign;
-        assert(Alignment <= Seg.MaxAlign);
-        Seg.HasOutputSections = true;
-        assert(Scn->VirtualAddr == 0);
-        A = alignTo(A, Alignment);
-        Scn->VirtualAddr = A;
-        A += Scn->VirtualSize;
-        VirtualSize = alignTo(VirtualSize, Alignment) + Scn->VirtualSize;
-        if (hasFileData(SectionK)) {
-          FileSize = alignTo(FileSize, Alignment) + Scn->FileSize;
-        }
-      }
-    });
-
-    assert(Seg.VirtualSize == 0);
-    Seg.VirtualSize = VirtualSize;
-    assert(Seg.FileSize == 0);
-    Seg.FileSize = FileSize;
-    Base += VirtualSize;
-  });
-
+  Layout_->HeaderBlockSize = HeaderBlockSize;
+#define X(SegK) Base = positionSegment<SegmentKind::SegK>(Base, Layout_.get());
+  RLD_SEGMENT_KIND
+#undef X
   llvmDebug("rld-Layout", Ctx_.IOMut, [this] { debugDumpLayout(); });
   return {std::move(Layout_), std::move(PLTs_)};
 }

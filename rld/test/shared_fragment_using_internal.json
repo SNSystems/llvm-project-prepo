@@ -9,8 +9,7 @@
 // RUN: llvm-readelf --hex-dump=.data %t/rld.out | FileCheck %s
 
 // CHECK: Hex dump of section '.data':
-// CHECK-NEXT: 0x00200000 04002000 22222222 0c002000 33333333
-
+// CHECK-NEXT: 0x00401000 04104000 22222222 0c104000 33333333
 {
   "version": 1,
   "id": "2D75D4DE-5B22-4618-8851-474C42FBF339",
