@@ -246,7 +246,8 @@ template <typename ELFT, rld::SectionKind SKind> struct ShInfoValue {
   Elf_Word operator()(
       const rld::Layout &Lout, const rld::SectionIndexedArray<unsigned> &Links,
       const std::vector<const rld::Symbol *> & /*OrderedGlobals*/) const {
-    return Elf_Word{Links[Lout.Sections[SKind].Info]};
+    const rld::SectionKind L = Lout.Sections[SKind].Info;
+    return Elf_Word{L == rld::SectionKind::last ? 0 : Links[L]};
   }
 };
 
