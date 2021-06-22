@@ -9,14 +9,14 @@
 // be in the output (it should be merged into .rodata).
 
 // CHECK: There are 7 section headers
-// CHECK:      [Nr] Name           Type     Address          Off    Size   ES Flg Lk Inf Al
-// CHECK-NEXT: [ 0]                NULL     0000000000000000 000000 000000 00      0   0  0
-// CHECK-NEXT:      .text          PROGBITS 0000000000401000 001000 0000c6 00  AX  0   0 16
-// CHECK-NEXT:      .rodata.str1.1 PROGBITS 0000000000400120 000120 000013 01  AM  0   0  1
-// CHECK-NEXT:      .rodata        PROGBITS 0000000000400138 000138 000020 00   A  0   0  8
-// CHECK-NEXT:      .shstrtab      STRTAB   0000000000000000 002000 000038 00      0   0  1
-// CHECK-NEXT:      .strtab        STRTAB   0000000000000000 002038 000026 00      0   0  1
-// CHECK-NEXT:      .symtab        SYMTAB   0000000000000000 00205e 000078 18      5   0  1
+// CHECK: [Nr] Name           Type     Address          Off    Size   ES Flg Lk Inf Al
+// CHECK: [ 0]                NULL     0000000000000000 000000 000000 00      0   0  0
+// CHECK: [ 1] .text          PROGBITS 0000000000401000 001000 0000c6 00  AX  0   0 16
+// CHECK: [ 2] .rodata.str1.1 PROGBITS 0000000000400120 000120 000013 01  AM  0   0  1
+// CHECK: [ 3] .rodata        PROGBITS 0000000000400138 000138 000020 00   A  0   0  8
+// CHECK: [ 4] .shstrtab      STRTAB   0000000000000000 002000 000038 00      0   0  1
+// CHECK: [ 5] .strtab        STRTAB   0000000000000000 002038 000026 00      0   0  1
+// CHECK: [ 6] .symtab        SYMTAB   0000000000000000 00205e 000090 18      5   3  1
 
 
 {

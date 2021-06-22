@@ -89,13 +89,16 @@ buildSectionNameStringTable(Layout *const Lout) {
 
 // prepare string table
 // ~~~~~~~~~~~~~~~~~~~~
+using OrderedSymbolsContainer = std::vector<const Symbol *>;
+
 uint64_t prepareStringTable(rld::Context &Ctxt, rld::Layout *const Lout,
-                            const GlobalSymbolsContainer &Globals) {
+                            const OrderedSymbolsContainer &Globals) {
+  (void)Globals;
   const auto StringTableSize = Ctxt.ELFStringTableSize.load();
   assert(StringTableSize ==
          std::accumulate(std::begin(Globals), std::end(Globals), uint64_t{1},
-                         [&Ctxt](const uint64_t Acc, const Symbol &Sym) {
-                           return Acc + stringLength(Ctxt.Db, Sym.name()) + 1U;
+                         [&Ctxt](const uint64_t Acc, const Symbol *const Sym) {
+                           return Acc + stringLength(Ctxt.Db, Sym->name()) + 1U;
                          }));
 
   OutputSection &StrTab = Lout->Sections[SectionKind::strtab];
@@ -106,14 +109,35 @@ uint64_t prepareStringTable(rld::Context &Ctxt, rld::Layout *const Lout,
   return StringTableSize;
 }
 
-// prepare symbol table
-// ~~~~~~~~~~~~~~~~~~~~
+// build ordered symbol table
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~
+static OrderedSymbolsContainer
+buildOrderedSymbolTable(const GlobalSymbolsContainer &Globals) {
+  OrderedSymbolsContainer OrderedSymbols;
+  OrderedSymbols.reserve(Globals.size());
+  std::transform(std::begin(Globals), std::end(Globals),
+                 std::back_inserter(OrderedSymbols),
+                 [](const Symbol &S) { return &S; });
+
+  const auto SortPair = [](const Symbol &S) {
+    return std::make_pair(!S.hasLocalLinkage(), S.name());
+  };
+  std::sort(std::begin(OrderedSymbols), std::end(OrderedSymbols),
+            [&SortPair](Symbol const *const A, Symbol const *const B) {
+              return SortPair(*A) < SortPair(*B);
+            });
+  return OrderedSymbols;
+}
+
+// prepare symbol table section
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 template <typename ELFT>
-static uint64_t prepareSymbolTable(rld::Layout *const Lout,
-                                   const GlobalSymbolsContainer &Globals) {
+static uint64_t
+prepareSymbolTableSection(rld::Layout *const Lout,
+                          const OrderedSymbolsContainer &Globals) {
   using Elf_Sym = typename llvm::object::ELFFile<ELFT>::Elf_Sym;
   // FIXME: this shouldn't include the symbols with internal_no_symbol linkage.
-  const uint64_t NumSymbols = Globals.size();
+  const uint64_t NumSymbols = Globals.size() + 1;
 
   OutputSection &StrTab = Lout->Sections[SectionKind::symtab];
   StrTab.AlwaysEmit = true;
@@ -319,8 +343,13 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName,
   llvm::NamedRegionTimer Timer("ELF Output", "Binary Output Phase",
                                rld::TimerGroupName, rld::TimerGroupDescription);
 
-  const uint64_t StringTableSize = prepareStringTable(Context, Layout, Globals);
-  const uint64_t SymbolTableSize = prepareSymbolTable<ELFT>(Layout, Globals);
+  const OrderedSymbolsContainer OrderedGlobals =
+      buildOrderedSymbolTable(Globals);
+
+  const uint64_t StringTableSize =
+      prepareStringTable(Context, Layout, OrderedGlobals);
+  const uint64_t SymbolTableSize =
+      prepareSymbolTableSection<ELFT>(Layout, OrderedGlobals);
   const SectionIndexedArray<uint64_t> NameOffsets =
       buildSectionNameStringTable(Layout);
 
@@ -412,7 +441,7 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName,
   });
 
   WorkPool.async([Layout, BufferStart, &SectionFileOffsets, &NameOffsets,
-                  &FileRegions
+                  &FileRegions, &OrderedGlobals
 #ifndef NDEBUG
                   ,
                   NumSections
@@ -422,7 +451,7 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName,
     auto *const Start = reinterpret_cast<Elf_Shdr *>(
         BufferStart + FileRegions[Region::SectionTable].offset());
     auto *const End = elf::emitSectionHeaders<ELFT>(
-        Start, *Layout, SectionFileOffsets, NameOffsets,
+        Start, *Layout, SectionFileOffsets, NameOffsets, OrderedGlobals,
         FileRegions[Region::SectionData].offset());
 
     (void)End;
@@ -443,7 +472,7 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName,
         Context, Layout->Sections[SectionKind::shstrtab], Data, *Layout);
   });
 
-  WorkPool.async([&Context, &FileRegions, BufferStart, &Globals,
+  WorkPool.async([&Context, &FileRegions, BufferStart, &OrderedGlobals,
                   StringTableSize, &SectionFileOffsets]() {
     // Produce the string table.
     llvm::NamedRegionTimer StringTableTimer(
@@ -459,10 +488,10 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName,
     auto *StringOut = StringData;
     *(StringOut++) = '\0'; // The string table's initial null entry.
     pstore::shared_sstring_view Owner;
-    for (const Symbol &Sym : Globals) {
+    for (const Symbol *const Sym : OrderedGlobals) {
       // Copy a string.
       const pstore::raw_sstring_view Str = pstore::get_sstring_view(
-          Context.Db, Sym.name(), Sym.nameLength(), &Owner);
+          Context.Db, Sym->name(), Sym->nameLength(), &Owner);
       StringOut = std::copy(std::begin(Str), std::end(Str), StringOut);
       *(StringOut++) = '\0';
     }
@@ -471,7 +500,7 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName,
            static_cast<size_t>(StringOut - StringData) == StringTableSize);
   });
 
-  WorkPool.async([&SectionToIndex, &FileRegions, BufferStart, &Globals,
+  WorkPool.async([&SectionToIndex, &FileRegions, BufferStart, &OrderedGlobals,
                   SymbolTableSize, &SectionFileOffsets]() {
     llvm::NamedRegionTimer StringTableTimer(
         "Symbol Table", "Write the symbol table", rld::TimerGroupName,
@@ -489,21 +518,30 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName,
         Elf_Word::value_type{1}; // 1 to allow for the initial '\0'.
     static_assert(std::is_unsigned<Elf_Word::value_type>::value,
                   "Expected ELF_Word to be unsigned");
-    for (const Symbol &Sym : Globals) {
+    // The initial null symbol.
+    std::memset(SymbolOut, 0, sizeof(*SymbolOut));
+    ++SymbolOut;
+
+    for (const Symbol *const Sym : OrderedGlobals) {
       // Build a symbol.
       const std::tuple<const Symbol::OptionalBodies &,
                        std::unique_lock<Symbol::Mutex>>
-          Def = Sym.definition();
-      const Symbol::OptionalBodies &Bodies = std::get<0>(Def);
-      SymbolOut->st_name = Elf_Word{NameOffset};
+          Def = Sym->definition();
+      const Symbol::OptionalBodies &Bodies =
+          std::get<const Symbol::OptionalBodies &>(Def);
       if (!Bodies) {
-        // this is an undefined symbol.
+        // This is an undefined symbol.
         std::memset(SymbolOut, 0, sizeof(*SymbolOut));
+        assert(
+            Sym->allReferencesAreWeak(
+                std::get<std::unique_lock<Symbol::Mutex>>(Def)) &&
+            "Undefined entries in the symbol table must be weakly referenced");
+        SymbolOut->setBinding(llvm::ELF::STB_WEAK);
       } else {
         // If there are multiple bodies associated with a symbol then the ELF
         // symbol simply points to the first.
         const Symbol::Body &B = Bodies->front();
-        const Contribution *const C = Sym.contribution();
+        const Contribution *const C = Sym->contribution();
         assert(C != nullptr);
 
         SymbolOut->st_value = C->OScn->VirtualAddr + C->Offset;
@@ -514,11 +552,12 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName,
         SymbolOut->setBindingAndType(linkageToELFBinding(B.linkage()),
                                      sectionToSymbolType(C->OScn->SectionK));
       }
+      SymbolOut->st_name = Elf_Word{NameOffset};
 
       ++SymbolOut;
       // Pass our lock to nameLength() so that it doesn't try to take one of its
       // own.
-      NameOffset += Sym.nameLength(std::get<1>(Def)) +
+      NameOffset += Sym->nameLength(std::get<1>(Def)) +
                     1U; // +1 to allow for the final '\0'.
     }
 

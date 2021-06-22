@@ -403,6 +403,7 @@ auto emitSectionHeaders(
     const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t>
         &NameOffsets,
+    const std::vector<const Symbol *> &OrderedGlobals,
     uint64_t TargetDataOffset) ->
     typename llvm::object::ELFFile<ELFT>::Elf_Shdr *;
 

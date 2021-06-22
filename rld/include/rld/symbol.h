@@ -245,6 +245,17 @@ public:
     return NameLength_;
   }
 
+  bool hasLocalLinkage() const {
+    const auto Def = this->definition();
+    const auto &Bodies = std::get<rld::Symbol::OptionalBodies const &>(Def);
+    if (!Bodies) {
+      return false;
+    }
+    auto const Linkage = Bodies->front().linkage();
+    return Linkage == pstore::repo::linkage::internal ||
+           Linkage == pstore::repo::linkage::internal_no_symbol;
+  }
+
   /// \returns The value of the symbol. Available once layout is complete.
   uint64_t value() const;
 
@@ -276,6 +287,15 @@ public:
   /// weak.
   bool allReferencesAreWeak() const {
     std::lock_guard<Mutex> Lock{Mut_};
+    return this->allReferencesAreWeak(Lock);
+  }
+
+  bool allReferencesAreWeak(std::unique_lock<Mutex> const &) const {
+    assert((!WeakUndefined_ || !Definition_.hasValue()) &&
+           "A weakly undefined symbol must not have a definition");
+    return WeakUndefined_;
+  }
+  bool allReferencesAreWeak(std::lock_guard<Mutex> const &) const {
     assert((!WeakUndefined_ || !Definition_.hasValue()) &&
            "A weakly undefined symbol must not have a definition");
     return WeakUndefined_;

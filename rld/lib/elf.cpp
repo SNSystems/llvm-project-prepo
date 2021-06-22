@@ -238,12 +238,66 @@ template auto rld::elf::emitProgramHeaders<llvm::object::ELF32BE>(
     const rld::SegmentIndexedArray<llvm::Optional<int64_t>> &SegmentDataOffsets)
     -> typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Phdr *;
 
+namespace {
+
+template <typename ELFT, rld::SectionKind SKind> struct ShInfoValue {
+  using Elf_Word = typename llvm::object::ELFFile<ELFT>::Elf_Word;
+
+  Elf_Word operator()(
+      const rld::Layout &Lout, const rld::SectionIndexedArray<unsigned> &Links,
+      const std::vector<const rld::Symbol *> & /*OrderedGlobals*/) const {
+    return Elf_Word{Links[Lout.Sections[SKind].Info]};
+  }
+};
+
+template <typename ELFT> struct ShInfoValue<ELFT, rld::SectionKind::symtab> {
+  using Elf_Word = typename llvm::object::ELFFile<ELFT>::Elf_Word;
+
+  Elf_Word
+  operator()(const rld::Layout & /*Lout*/,
+             const rld::SectionIndexedArray<unsigned> & /*Links*/,
+             const std::vector<const rld::Symbol *> &OrderedGlobals) const {
+    if (OrderedGlobals.empty()) {
+      return Elf_Word{0};
+    }
+    auto const Pos = std::partition_point(
+        std::begin(OrderedGlobals), std::end(OrderedGlobals),
+        [](const rld::Symbol *const S) { return S->hasLocalLinkage(); });
+    // (plus one to allow for the initial null symbol).
+    return static_cast<Elf_Word>(
+        std::distance(std::begin(OrderedGlobals), Pos) + 1);
+  }
+};
+
+} // end anonymous namespace
+
+template <typename ELFT>
+static typename llvm::object::ELFFile<ELFT>::Elf_Word
+getShInfoValue(rld::SectionKind SectionK, const rld::Layout &Lout,
+               const rld::SectionIndexedArray<unsigned> &Links,
+               const std::vector<const rld::Symbol *> &OrderedGlobals) {
+  switch (SectionK) {
+#define X(a)                                                                   \
+  case rld::SectionKind::a:                                                    \
+    return ShInfoValue<ELFT, rld::SectionKind::a>{}(Lout, Links,               \
+                                                    OrderedGlobals);
+#define RLD_X(a) X(a)
+    PSTORE_MCREPO_SECTION_KINDS
+    RLD_SECTION_KINDS
+#undef RLD_X
+#undef X
+  case rld::SectionKind::last:
+    llvm_unreachable("We should not process the last value");
+  }
+}
+
 template <typename ELFT>
 auto rld::elf::emitSectionHeaders(
     typename llvm::object::ELFFile<ELFT>::Elf_Shdr *Shdr, const Layout &Lout,
     const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t>
         &NameOffsets,
+    const std::vector<const Symbol *> &OrderedGlobals,
     uint64_t TargetDataOffset) ->
     typename llvm::object::ELFFile<ELFT>::Elf_Shdr * {
 
@@ -272,7 +326,8 @@ auto rld::elf::emitSectionHeaders(
           TargetDataOffset; // File offset of section data, in bytes
       Shdr->sh_size = OScn.FileSize;
       Shdr->sh_link = linkSection(OScn.Link);
-      Shdr->sh_info = linkSection(OScn.Info);
+      Shdr->sh_info =
+          getShInfoValue<ELFT>(SectionK, Lout, Links, OrderedGlobals);
       Shdr->sh_addralign = OScn.MaxAlign;
       Shdr->sh_entsize = elfSectionEntSize<ELFT>(SectionK);
 
@@ -289,6 +344,7 @@ template auto rld::elf::emitSectionHeaders<llvm::object::ELF64LE>(
     const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t>
         &NameOffsets,
+    const std::vector<const Symbol *> &OrderedGlobals,
     uint64_t TargetDataOffset) ->
     typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Shdr *;
 
@@ -298,6 +354,7 @@ template auto rld::elf::emitSectionHeaders<llvm::object::ELF64BE>(
     const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t>
         &NameOffsets,
+    const std::vector<const Symbol *> &OrderedGlobals,
     uint64_t TargetDataOffset) ->
     typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Shdr *;
 
@@ -307,6 +364,7 @@ template auto rld::elf::emitSectionHeaders<llvm::object::ELF32LE>(
     const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t>
         &NameOffsets,
+    const std::vector<const Symbol *> &OrderedGlobals,
     uint64_t TargetDataOffset) ->
     typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Shdr *;
 
@@ -316,5 +374,6 @@ template auto rld::elf::emitSectionHeaders<llvm::object::ELF32BE>(
     const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     const EnumIndexedArray<SectionKind, SectionKind::last, uint64_t>
         &NameOffsets,
+    const std::vector<const Symbol *> &OrderedGlobals,
     uint64_t TargetDataOffset) ->
     typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Shdr *;
