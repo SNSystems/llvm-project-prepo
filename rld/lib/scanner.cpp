@@ -58,9 +58,6 @@ auto XfxStorage::getThreadStorage() -> NotNull<StorageType *> {
   return &S_.try_emplace(ptr).first->second;
 }
 
-// std::mutex ResOutputMut;
-// static pstore::chunked_vector<Symbol *> ResOutput;
-
 // run
 // ~~~
 void Scanner::run(
