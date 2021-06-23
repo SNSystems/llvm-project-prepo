@@ -40,7 +40,7 @@ class LayoutBuilder;
 class XfxStorage {
 public:
   explicit XfxStorage(unsigned NumWorkerThreads) : S_{NumWorkerThreads} {}
-  using StorageType = pstore::chunked_vector<Symbol *>;
+  using StorageType = pstore::chunked_sequence<Symbol *>;
   NotNull<StorageType *> getThreadStorage();
 
 private:

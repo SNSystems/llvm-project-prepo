@@ -25,7 +25,7 @@
 
 using namespace rld;
 
-using SymbolPtrContainer = pstore::chunked_vector<Symbol *>;
+using SymbolPtrContainer = pstore::chunked_sequence<Symbol *>;
 
 namespace {
 

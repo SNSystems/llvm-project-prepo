@@ -24,7 +24,7 @@
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/Format.h"
 
-#include "pstore/adt/chunked_vector.hpp"
+#include "pstore/adt/chunked_sequence.hpp"
 
 #include <functional>
 #include <memory>

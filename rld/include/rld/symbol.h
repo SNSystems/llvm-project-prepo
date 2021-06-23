@@ -624,7 +624,7 @@ using LocalSymbolsContainer =
 using LocalPLTsContainer = llvm::SmallVector<Symbol *, 256>;
 /// The Global symbols are allocated in chunks of 4MiB.
 using GlobalSymbolsContainer =
-    pstore::chunked_vector<Symbol, (4 * 1024 * 1024) / sizeof(Symbol)>;
+    pstore::chunked_sequence<Symbol, (4 * 1024 * 1024) / sizeof(Symbol)>;
 
 void debugDumpSymbols(const Context &Ctx,
                       const GlobalSymbolsContainer &Globals);

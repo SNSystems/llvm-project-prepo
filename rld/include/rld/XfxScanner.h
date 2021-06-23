@@ -59,12 +59,12 @@ ValueType *reserveContiguous(ChunkedVector *const Storage,
 /// \param ResolvedFixups  A container for the results of resolving external
 /// fixups.
 
-LocalPLTsContainer
-resolveXfixups(Context &Context, const LocalSymbolsContainer &Locals,
-               const NotNull<rld::GlobalSymbolsContainer *> Globals,
-               const NotNull<UndefsContainer *> Undefs,
-               const NotNull<pstore::chunked_vector<Symbol *> *> ResolvedFixups,
-               uint32_t InputOrdinal);
+LocalPLTsContainer resolveXfixups(
+    Context &Context, const LocalSymbolsContainer &Locals,
+    const NotNull<rld::GlobalSymbolsContainer *> Globals,
+    const NotNull<UndefsContainer *> Undefs,
+    const NotNull<pstore::chunked_sequence<Symbol *> *> ResolvedFixups,
+    uint32_t InputOrdinal);
 
 } // end namespace rld
 

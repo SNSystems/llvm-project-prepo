@@ -17,7 +17,7 @@
 
 #include "rld/SectionKind.h"
 
-#include "pstore/adt/chunked_vector.hpp"
+#include "pstore/adt/chunked_sequence.hpp"
 
 namespace rld {
 
@@ -28,8 +28,8 @@ struct OutputSection {
   explicit OutputSection(SectionKind Kind) : SectionK{Kind} {}
 
   using ContributionVector =
-      pstore::chunked_vector<Contribution,
-                             (32 * 1024 * 1024) / sizeof(Contribution)>;
+      pstore::chunked_sequence<Contribution,
+                               (32 * 1024 * 1024) / sizeof(Contribution)>;
   SectionKind const SectionK;
 
   ContributionVector Contributions;
