@@ -49,7 +49,6 @@ class Context;
   X(data)                                                                      \
   X(tls)                                                                       \
   /* non-loaded segments */                                                    \
-  X(interp)                                                                    \
   X(gnu_stack)                                                                 \
   X(discard)
 

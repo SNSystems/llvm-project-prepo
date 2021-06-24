@@ -36,14 +36,30 @@ constexpr auto DebugType = "rld-LayoutBuilder";
 // has file data
 // ~~~~~~~~~~~~~
 static constexpr bool hasFileData(pstore::repo::section_kind Kind) {
+  using pstore::repo::section_kind;
   switch (Kind) {
-  case pstore::repo::section_kind::bss:
-  case pstore::repo::section_kind::thread_bss:
-  case pstore::repo::section_kind::linked_definitions:
-  case pstore::repo::section_kind::last:
-    return false;
-  default:
+  case section_kind::text:
+  case section_kind::data:
+  case section_kind::rel_ro:
+  case section_kind::mergeable_1_byte_c_string:
+  case section_kind::mergeable_2_byte_c_string:
+  case section_kind::mergeable_4_byte_c_string:
+  case section_kind::mergeable_const_4:
+  case section_kind::mergeable_const_8:
+  case section_kind::mergeable_const_16:
+  case section_kind::mergeable_const_32:
+  case section_kind::read_only:
+  case section_kind::thread_data:
+  case section_kind::debug_line:
+  case section_kind::debug_string:
+  case section_kind::debug_ranges:
     return true;
+
+  case section_kind::bss:
+  case section_kind::thread_bss:
+  case section_kind::linked_definitions:
+  case section_kind::last:
+    return false;
   }
 }
 
@@ -121,7 +137,6 @@ LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
     {SectionKind::debug_line, SegmentKind::discard},
     {SectionKind::debug_string, SegmentKind::discard},
     {SectionKind::debug_ranges, SegmentKind::discard},
-    {SectionKind::interp, SegmentKind::interp},
     {SectionKind::linked_definitions, SegmentKind::discard},
     {SectionKind::gotplt, SegmentKind::data},
     {SectionKind::plt, SegmentKind::text},

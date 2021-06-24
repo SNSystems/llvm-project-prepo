@@ -157,128 +157,6 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, rld::SectionKind SKind) {
   return OS;
 }
 
-#if ADD_IDENT_SEGMENT
-constexpr pstore::index::digest interp_fragment_digest{
-    0x31415926,
-    0x53589793,
-};
-constexpr pstore::index::digest interp_compilation{
-    0x31415926,
-    0x53589793,
-};
-
-static auto
-makeInterpFragment(pstore::transaction<pstore::transaction_lock> &Transaction,
-                   std::shared_ptr<pstore::index::fragment_index> const &Index)
-    -> pstore::extent<pstore::repo::fragment> {
-
-  using pstore::repo::fragment;
-  using pstore::repo::section_content;
-  using pstore::repo::section_kind;
-
-  static constexpr char Interp[] = "/lib/ld-linux.so.2";
-
-  section_content Content{section_kind::interp, std::uint8_t{1} /*alignment*/};
-  std::copy(Interp, Interp + pstore::array_elements(Interp),
-            std::back_inserter(Content.data));
-
-  std::array<pstore::repo::generic_section_creation_dispatcher, 1> Dispatchers{
-      {{section_kind::interp, &Content}}};
-
-  pstore::extent<fragment> const FragmentExtent = fragment::alloc(
-      Transaction, std::begin(Dispatchers), std::end(Dispatchers));
-  Index->insert(Transaction,
-                std::make_pair(interp_fragment_digest, FragmentExtent));
-  return FragmentExtent;
-}
-
-static auto makeInterpCompilation(
-    pstore::transaction<pstore::transaction_lock> &Transaction,
-    llvm::Triple const &Triple,
-    std::shared_ptr<pstore::index::compilation_index> const &Compilations,
-    std::shared_ptr<pstore::index::name_index> const &Names,
-    pstore::extent<pstore::repo::fragment> const &FragmentDxtent)
-    -> pstore::extent<pstore::repo::compilation> {
-
-  using pstore::indirect_string;
-  using pstore::typed_address;
-  using pstore::repo::compilation;
-  using pstore::repo::definition;
-  using pstore::repo::linkage;
-
-  // Use the string adder to insert a string into the index and flush it to the
-  // store.
-  pstore::indirect_string_adder adder;
-
-  std::string const NormTriple = Triple.normalize();
-  auto const TripleView = pstore::make_sstring_view(NormTriple);
-  auto const TripleAddr = typed_address<indirect_string>::make(
-      adder.add(Transaction, Names, &TripleView).first.get_address());
-
-  auto const SymbolNameView = pstore::make_sstring_view("/ident");
-  auto const SymbolAddr = typed_address<indirect_string>::make(
-      adder.add(Transaction, Names, &SymbolNameView).first.get_address());
-
-  auto const PathNameView = pstore::make_sstring_view("/ident/");
-  auto const PathAddr = typed_address<indirect_string>::make(
-      adder.add(Transaction, Names, &PathNameView).first.get_address());
-
-  definition Symbol{interp_fragment_digest, FragmentDxtent, SymbolAddr,
-                    linkage::internal_no_symbol};
-  pstore::extent<compilation> const CompilationExtent = compilation::alloc(
-      Transaction, PathAddr, TripleAddr, &Symbol, &Symbol + 1);
-
-  Compilations->insert(Transaction,
-                       std::make_pair(interp_compilation, CompilationExtent));
-
-  adder.flush(Transaction);
-  return CompilationExtent;
-}
-
-static auto generateFixedContent(pstore::database &Db,
-                                 llvm::Triple const &Triple)
-    -> llvm::ErrorOr<pstore::extent<pstore::repo::compilation>> {
-  auto Compilations =
-      pstore::index::get_index<pstore::trailer::indices::compilation>(Db);
-  if (Compilations == nullptr) {
-    return rld::ErrorCode::CompilationIndexNotFound;
-  }
-
-  auto Fragments =
-      pstore::index::get_index<pstore::trailer::indices::fragment>(Db);
-  if (Fragments == nullptr) {
-    return rld::ErrorCode::FragmentIndexNotFound;
-  }
-
-  auto names = pstore::index::get_index<pstore::trailer::indices::name>(Db);
-  if (Compilations == nullptr) {
-    return rld::ErrorCode::NamesIndexNotFound;
-  }
-
-  auto const InterpFragmentPos = Fragments->find(Db, interp_fragment_digest);
-  auto const InterpCompilationPos = Compilations->find(Db, interp_compilation);
-  auto const HaveInterpFragment = InterpFragmentPos != Fragments->end(Db);
-  auto const HaveInterpCompilation =
-      InterpCompilationPos != Compilations->end(Db);
-  if (HaveInterpFragment && HaveInterpCompilation) {
-    return InterpCompilationPos->second;
-  }
-
-  auto Transaction = pstore::begin(Db);
-  auto const FragmentExtent = HaveInterpFragment
-                                  ? InterpFragmentPos->second
-                                  : makeInterpFragment(Transaction, Fragments);
-  pstore::extent<pstore::repo::compilation> const CompilationExtent =
-      HaveInterpCompilation
-          ? InterpCompilationPos->second
-          : makeInterpCompilation(Transaction, Triple, Compilations, names,
-                                  FragmentExtent);
-  Transaction.commit();
-
-  return CompilationExtent;
-}
-#endif
-
 static llvm::ErrorOr<std::unique_ptr<pstore::database>> openRepository() {
   std::string const FilePath = getRepoPath();
   if (!llvm::sys::fs::exists(FilePath)) {
@@ -332,12 +210,7 @@ int main(int Argc, char *Argv[]) {
                                        rld::TimerGroupName,
                                        rld::TimerGroupDescription);
 
-    // The plus one here allows for the linker-generated /interp/ file.
-#if ADD_IDENT_SEGMENT
-    auto const NumCompilations = InputPaths.size() + std::size_t{1};
-#else
     auto const NumCompilations = InputPaths.size();
-#endif
     if (NumCompilations > std::numeric_limits<uint32_t>::max()) {
       std::lock_guard<decltype(Ctxt.IOMut)> Lock{Ctxt.IOMut};
       llvm::errs() << "Error: Too many input files\n";
@@ -399,24 +272,6 @@ int main(int Argc, char *Argv[]) {
           ExitCode = EXIT_FAILURE;
         }
       }
-
-#if ADD_IDENT_SEGMENT
-      if (ExitCode == EXIT_SUCCESS) {
-        auto const FixedCompilationExtent =
-            generateFixedContent(Ctxt.Db, *Triple);
-        if (!FixedCompilationExtent) {
-          std::lock_guard<decltype(Ctxt.IOMut)> Lock{Ctxt.IOMut};
-          llvm::errs() << "Error: "
-                       << FixedCompilationExtent.getError().message() << '\n';
-          return EXIT_FAILURE;
-        }
-        Scan.run("/ident/", // path
-                 GlobalSymbs->getThreadSymbols(),
-                 *FixedCompilationExtent,        // compilation extent
-                 Identified->Compilations.size() // input ordinal
-        );
-      }
-#endif
     }
     LayoutThread.join();
 

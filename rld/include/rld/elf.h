@@ -115,9 +115,6 @@ constexpr auto elfSegmentKind(rld::SegmentKind Kind) ->
   case rld::SegmentKind::phdr:
     return Elf_Word{llvm::ELF::PT_PHDR};
 
-  case rld::SegmentKind::interp:
-    return Elf_Word{llvm::ELF::PT_INTERP};
-
   case rld::SegmentKind::data:
   case rld::SegmentKind::rodata:
   case rld::SegmentKind::text:
@@ -147,7 +144,6 @@ constexpr auto elfSegmentFlags(rld::SegmentKind const Kind) ->
     return Elf_Word{llvm::ELF::PF_R | llvm::ELF::PF_W};
 
   case rld::SegmentKind::phdr:
-  case rld::SegmentKind::interp:
   case rld::SegmentKind::rodata:
   case rld::SegmentKind::tls:
     return Elf_Word{llvm::ELF::PF_R};
@@ -170,7 +166,6 @@ inline constexpr bool hasPhysicalAddress(rld::SegmentKind const Kind) {
     return true;
 
   case rld::SegmentKind::gnu_stack:
-  case rld::SegmentKind::interp:
   case rld::SegmentKind::discard:
   case rld::SegmentKind::last:
     return false;
@@ -198,7 +193,6 @@ template <typename ELFT> constexpr auto elfSectionType(rld::SectionKind Kind) {
   case SectionKind::debug_line:
   case SectionKind::debug_ranges:
   case SectionKind::debug_string:
-  case SectionKind::interp:
   case SectionKind::mergeable_1_byte_c_string:
   case SectionKind::mergeable_2_byte_c_string:
   case SectionKind::mergeable_4_byte_c_string:
@@ -276,7 +270,6 @@ template <typename ELFT> constexpr auto elfSectionFlags(SectionKind Kind) {
   case SectionKind::debug_line:
   case SectionKind::debug_string:
   case SectionKind::debug_ranges:
-  case SectionKind::interp:
   case SectionKind::strtab:
   case SectionKind::shstrtab:
   case SectionKind::symtab:
@@ -319,7 +312,6 @@ template <typename ELFT> constexpr auto elfSectionEntSize(SectionKind Kind) {
   case SectionKind::debug_line:
   case SectionKind::debug_ranges:
   case SectionKind::debug_string:
-  case SectionKind::interp:
   case SectionKind::linked_definitions:
   case SectionKind::read_only:
   case SectionKind::rel_ro:
@@ -328,11 +320,11 @@ template <typename ELFT> constexpr auto elfSectionEntSize(SectionKind Kind) {
   case SectionKind::text:
   case SectionKind::thread_bss:
   case SectionKind::thread_data:
-    break;
+    return Elf_Word{0};
   case SectionKind::last:
-    llvm_unreachable("an impossible section kind");
+    break;
   }
-  return Elf_Word{0};
+  llvm_unreachable("an impossible section kind");
 }
 
 #define RLD_ELF_SECTION_NAMES                                                  \
@@ -342,7 +334,6 @@ template <typename ELFT> constexpr auto elfSectionEntSize(SectionKind Kind) {
   ELF_SECTION_NAME(debug_ranges, ".debug_ranges")                              \
   ELF_SECTION_NAME(debug_string, ".debug_str")                                 \
   ELF_SECTION_NAME(linked_definitions, "")                                     \
-  ELF_SECTION_NAME(interp, ".interp")                                          \
   ELF_SECTION_NAME(mergeable_1_byte_c_string, ".rodata.str1.1")                \
   ELF_SECTION_NAME(mergeable_2_byte_c_string, ".rodata.str2.2")                \
   ELF_SECTION_NAME(mergeable_4_byte_c_string, ".rodata.str4.4")                \
