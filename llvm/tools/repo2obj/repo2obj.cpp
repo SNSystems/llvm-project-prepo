@@ -464,7 +464,8 @@ int main(int argc, char *argv[]) {
       Prefixes;
   {
     std::vector<OutputSection<ELFT>::SectionInfo> OutputSections;
-    OutputSections.resize(::pstore::repo::fragment::member_array::max_size());
+    OutputSections.resize(
+        static_cast<std::size_t>(pstore::repo::section_kind::last));
 
     Optional<pstore::extent<std::uint8_t>> DebugLineHeaderExtent;
     auto Compilation =
