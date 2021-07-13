@@ -27,8 +27,10 @@ libunwind.a:
 		-D LLVM_PATH=../                                              \
 		-D LIBUNWIND_ENABLE_SHARED=No                                 \
 		-D LIBUNWIND_ENABLE_STATIC=Yes                                \
+		-D LLVM_ENABLE_UNWIND_TABLES=OFF                              \
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                     \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                               \
+		-D musl_install=$(MUSL)                                       \
 		../libunwind &&                                               \
 	make -j 8 &&                                                          \
 	make install
@@ -48,8 +50,10 @@ libcompiler-rt.a:
 		-D COMPILER_RT_BUILD_XRAY=OFF                                 \
 		-D COMPILER_RT_BUILD_LIBFUZZER=OFF                            \
 		-D COMPILER_RT_BUILD_PROFILE=OFF                              \
+		-D LLVM_ENABLE_UNWIND_TABLES=OFF                              \
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                     \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                               \
+		-D musl_install=$(MUSL)                                       \
 		../compiler-rt &&                                             \
 	make -j 8 &&                                                          \
 	make install
@@ -63,7 +67,9 @@ $(LLVM)/lib/linux/clang_rt.crtbegin-x86_64.o.elf: $(LLVM)/lib/linux/clang_rt.crt
 $(LLVM)/lib/linux/clang_rt.crtend-x86_64.o.elf: $(LLVM)/lib/linux/clang_rt.crtend-x86_64.o
 	repo2obj --repo=$(LLVM_REPO)/build_libcompiler-rt/lib/crt/clang.db $< -o $@
 
-libcxxabi.a: libunwind.a libcompiler-rt.a
+libcxxabi.a: libunwind.a libcompiler-rt.a                                          \
+             $(LLVM)/lib/linux/clang_rt.crtbegin-x86_64.o.elf                      \
+             $(LLVM)/lib/linux/clang_rt.crtend-x86_64.o.elf
 	if [ -d "$(LLVM_REPO)/build_libcxxabi" ];then                               \
 		rm -rf $(LLVM_REPO)/build_libcxxabi;                                \
 	fi
@@ -78,7 +84,9 @@ libcxxabi.a: libunwind.a libcompiler-rt.a
 		-D LIBCXXABI_ENABLE_SHARED=No                                       \
 		-D LIBCXXABI_ENABLE_STATIC=Yes                                      \
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                           \
+		-D LLVM_ENABLE_UNWIND_TABLES=OFF                                    \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                                     \
+		-D musl_install=$(MUSL)                                             \
 		../libcxxabi &&                                                     \
 	make -j 8 &&                                                                \
 	make install
@@ -89,15 +97,17 @@ libcxx.a: libcxxabi.a
 	fi
 	cd $(LLVM_REPO)  &&                                                   \
 	mkdir build_libcxx && cd build_libcxx  &&                             \
-	cmake -D musl=Yes  -D libcxx=Yes                                      \
+	cmake -D musl=Yes                                                     \
 		-D CMAKE_BUILD_TYPE=Release                                   \
 		-D LIBCXX_ENABLE_SHARED=No                                    \
 		-D LIBCXX_ENABLE_STATIC=Yes                                   \
 		-D LIBCXX_CXX_ABI=libcxxabi                                   \
 		-D LIBCXX_CXX_ABI_INCLUDE_PATHS=../libcxxabi/include          \
 		-D LIBCXX_HAS_MUSL_LIBC=ON                                    \
+		-D LLVM_ENABLE_UNWIND_TABLES=OFF                              \
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                     \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                               \
+		-D musl_install=$(MUSL)                                       \
 		../libcxx &&                                                  \
 	make -j 8 &&                                                          \
 	make install
@@ -107,9 +117,7 @@ all :
 	$(MAKE) libunwind.a \
 		libcompiler-rt.a \
 		libcxxabi.a \
-		libcxx.a \
-		$(LLVM)/lib/linux/clang_rt.crtbegin-x86_64.o.elf \
-		$(LLVM)/lib/linux/clang_rt.crtend-x86_64.o.elf
+		libcxx.a
 
 .PHONY: clean
 clean:

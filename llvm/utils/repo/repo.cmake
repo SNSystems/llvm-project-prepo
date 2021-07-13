@@ -55,8 +55,8 @@ endif ()
 # The user may use the LLVM libc++.a by giving
 # '-Dlibcxx:BOOL=Yes' on the command line
 if (libcxx)
-	set (libcxx_flags "-stdlib=libc++ -isystem ${LLVM}/include/c++/v1")
-	set (libcxxabi_lib "-stdlib=libc++ -L ${llvm_install}/lib ${llvm_install}/lib/linux/clang_rt.crtbegin-x86_64.o.elf ${llvm_install}/lib/linux/clang_rt.crtend-x86_64.o.elf -lc++ -lc++abi -lunwind -L ${llvm_install}/lib/linux -lclang_rt.builtins-x86_64")
+	set (libcxx_flags "-stdlib=libc++ -isystem ${llvm_install}/include/c++/v1 -isystem ${llvm_install}/lib/clang/11.0.0/include")
+	set (libcxxabi_lib "-stdlib=libc++ -L ${llvm_install}/lib ${llvm_install}/lib/linux/clang_rt.crtbegin-x86_64.o.elf ${llvm_install}/lib/linux/clang_rt.crtend-x86_64.o.elf -lc++ -lc++abi -L ${llvm_install}/lib/linux -lclang_rt.builtins-x86_64")
 endif()
 
 # The user may use the MUSL libc.a by giving
