@@ -8,7 +8,12 @@
 
 # The path of the directory in which llvm-project-prepo sources is checked out from git.
 LLVM_REPO = ${HOME}/llvm-project-prepo
-TOOLCHAIN_FILE=$(LLVM_REPO)/llvm/utils/repo/repo.cmake
+# Choose the toolchina file to be used. By default, repo.cmake is used.
+ifdef FULL_REPO
+	TOOLCHAIN_FILE=$(LLVM_REPO)/llvm/utils/repo/full_repo.cmake
+else
+	TOOLCHAIN_FILE=$(LLVM_REPO)/llvm/utils/repo/repo.cmake
+endif
 # The path of the llvm-project-prepo build directory.
 LLVM_BUILD = ${LLVM_REPO}/build
 # The path of the directory in which llvm libraries are installed.
@@ -22,6 +27,7 @@ libunwind.a:
 	fi
 	cd $(LLVM_REPO)  &&                                                   \
 	mkdir build_libunwind && cd build_libunwind  &&                       \
+	export REPOFILE=$(LLVM_REPO)/build_libunwind/libunwind.db &&          \
 	cmake -D musl=Yes                                                     \
 		-D CMAKE_BUILD_TYPE=Release                                   \
 		-D LLVM_PATH=../                                              \
@@ -31,6 +37,7 @@ libunwind.a:
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                     \
 		-D CMAKE_CXX_COMPILER=$(LLVM_BUILD)/bin/clang++               \
 		-D CMAKE_C_COMPILER=$(LLVM_BUILD)/bin/clang                   \
+		-D utils_dir=$(LLVM_REPO)/llvm/utils/repo                     \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                               \
 		-D musl_install=$(MUSL)                                       \
 		../libunwind &&                                               \
@@ -43,6 +50,7 @@ libcompiler-rt.a:
 	fi
 	cd $(LLVM_REPO)  &&                                                   \
 	mkdir build_libcompiler-rt && cd build_libcompiler-rt  &&             \
+	export REPOFILE=$(LLVM_REPO)/build_libcompiler-rt/libcompiler-rt.db &&\
 	cmake  -D musl=Yes                                                    \
 		-D CMAKE_BUILD_TYPE=Release                                   \
 		-D LLVM_CONFIG_PATH=$(LLVM_BUILD)/bin/llvm-config             \
@@ -56,6 +64,7 @@ libcompiler-rt.a:
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                     \
 		-D CMAKE_CXX_COMPILER=$(LLVM_BUILD)/bin/clang++               \
 		-D CMAKE_C_COMPILER=$(LLVM_BUILD)/bin/clang                   \
+		-D utils_dir=$(LLVM_REPO)/llvm/utils/repo                     \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                               \
 		-D musl_install=$(MUSL)                                       \
 		../compiler-rt &&                                             \
@@ -66,10 +75,10 @@ $(LLVM)/lib/linux/clang_rt.crtbegin-x86_64.o: libcompiler-rt.a
 $(LLVM)/lib/linux/clang_rt.crtend-x86_64.o: libcompiler-rt.a
 
 $(LLVM)/lib/linux/clang_rt.crtbegin-x86_64.o.elf: $(LLVM)/lib/linux/clang_rt.crtbegin-x86_64.o
-	repo2obj --repo=$(LLVM_REPO)/build_libcompiler-rt/lib/crt/clang.db $< -o $@
+	repo2obj --repo=$(LLVM_REPO)/build_libcompiler-rt/libcompiler-rt.db $< -o $@
 
 $(LLVM)/lib/linux/clang_rt.crtend-x86_64.o.elf: $(LLVM)/lib/linux/clang_rt.crtend-x86_64.o
-	repo2obj --repo=$(LLVM_REPO)/build_libcompiler-rt/lib/crt/clang.db $< -o $@
+	repo2obj --repo=$(LLVM_REPO)/build_libcompiler-rt/libcompiler-rt.db $< -o $@
 
 libcxxabi.a: libunwind.a libcompiler-rt.a                                          \
              $(LLVM)/lib/linux/clang_rt.crtbegin-x86_64.o.elf                      \
@@ -79,6 +88,7 @@ libcxxabi.a: libunwind.a libcompiler-rt.a                                       
 	fi
 	cd $(LLVM_REPO) &&                                                          \
 	mkdir build_libcxxabi && cd build_libcxxabi  &&                             \
+	export REPOFILE=$(LLVM_REPO)/build_libcxxabi/libc++abi.db &&                \
 	cmake -D musl=Yes                                                           \
 		-D CMAKE_BUILD_TYPE=Release                                         \
 		-D libcxxabi_include=-I$(LLVM_BUILD)/lib/clang/11.0.0/include/      \
@@ -91,6 +101,7 @@ libcxxabi.a: libunwind.a libcompiler-rt.a                                       
 		-D CMAKE_CXX_COMPILER=$(LLVM_BUILD)/bin/clang++                     \
 		-D CMAKE_C_COMPILER=$(LLVM_BUILD)/bin/clang                         \
 		-D LLVM_ENABLE_UNWIND_TABLES=OFF                                    \
+		-D utils_dir=$(LLVM_REPO)/llvm/utils/repo                           \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                                     \
 		-D musl_install=$(MUSL)                                             \
 		../libcxxabi &&                                                     \
@@ -103,6 +114,7 @@ libcxx.a: libcxxabi.a
 	fi
 	cd $(LLVM_REPO)  &&                                                   \
 	mkdir build_libcxx && cd build_libcxx  &&                             \
+	export REPOFILE=$(LLVM_REPO)/build_libcxx/libc++.db &&                \
 	cmake -D musl=Yes                                                     \
 		-D CMAKE_BUILD_TYPE=Release                                   \
 		-D LIBCXX_ENABLE_SHARED=No                                    \
@@ -114,26 +126,46 @@ libcxx.a: libcxxabi.a
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                     \
 		-D CMAKE_CXX_COMPILER=$(LLVM_BUILD)/bin/clang++               \
 		-D CMAKE_C_COMPILER=$(LLVM_BUILD)/bin/clang                   \
+		-D utils_dir=$(LLVM_REPO)/llvm/utils/repo                     \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                               \
 		-D musl_install=$(MUSL)                                       \
 		../libcxx &&                                                  \
 	make -j 8 &&                                                          \
 	make install
 
-.PHONY: all
-all :
-	$(MAKE) libunwind.a \
-		libcompiler-rt.a \
-		libcxxabi.a \
-		libcxx.a
+$(LLVM)/lib/libunwind.db: libunwind.a
+	cp $(LLVM_REPO)/build_libunwind/libunwind.db $@
+
+$(LLVM)/lib/linux/libcompiler-rt.db: libcompiler-rt.a
+	cp $(LLVM_REPO)/build_libcompiler-rt/libcompiler-rt.db $@
+
+$(LLVM)/lib/libc++abi.db: libcxxabi.a
+	cp $(LLVM_REPO)/build_libcxxabi/libc++abi.db $@
+
+$(LLVM)/lib/libc++.db: libcxx.a
+	cp $(LLVM_REPO)/build_libcxx/libc++.db $@
+
+install-libs: libunwind.a \
+	libcompiler-rt.a \
+	libcxxabi.a \
+	libcxx.a
+
+install-repo-libs-dbs: $(LLVM)/lib/libunwind.db \
+	$(LLVM)/lib/linux/libcompiler-rt.db \
+	$(LLVM)/lib/libc++abi.db \
+	$(LLVM)/lib/libc++.db
+
+.PHONY: install
+install:
+ifdef FULL_REPO
+	$(MAKE) install-repo-libs-dbs
+else
+	$(MAKE) install-libs
+endif
 
 .PHONY: clean
 clean:
 	-rm -rf "$(LLVM_REPO)/build_libunwind"                \
 			"$(LLVM_REPO)/build_libcompiler-rt"   \
-			"$(LLVM_REPO)/build_libcxx"           \
+			"$(LLVM_REPO)/build_libcxxabi"        \
 			"$(LLVM_REPO)/build_libcxx"
-
-.PHONY: distclean
-distclean: clean
-	-rm -f clang.db
