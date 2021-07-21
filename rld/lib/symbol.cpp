@@ -91,14 +91,14 @@ uint64_t Symbol::value() const {
 // ~~~~~~~~~~~~~~~~
 #ifndef NDEBUG
 void Symbol::checkInvariants() const {
-  auto BodiesAndLock = this->definition();
-  llvm::Optional<Symbol::BodyContainer> const &OptionalBodies =
-      std::get<Symbol::DefinitionIndex>(BodiesAndLock);
-  if (!OptionalBodies) {
+  std::tuple<const OptionalBodies &, std::unique_lock<Mutex>> BodiesAndLock =
+      this->definition();
+  auto const &OptBodies = std::get<const OptionalBodies &>(BodiesAndLock);
+  if (!OptBodies) {
     return;
   }
 
-  auto const &Bodies = OptionalBodies.getValue();
+  auto const &Bodies = OptBodies.getValue();
 
   assert((Bodies.size() == 1U ||
           (Bodies.size() >= 1U &&
@@ -409,7 +409,7 @@ void debugDumpSymbols(Context const &Ctx,
       // both will try to acquire the same lock.
       auto const Name = S.name();
       auto const X = S.definition();
-      auto const &Def = std::get<Symbol::DefinitionIndex>(X);
+      auto const &Def = std::get<const Symbol::OptionalBodies &>(X);
 
       auto const IsDefined = Def.hasValue();
       pstore::shared_sstring_view Owner;
@@ -591,7 +591,7 @@ referenceSymbol(Context &Ctxt, LocalSymbolsContainer const &Locals,
   auto const NamePos = Locals.find(Name);
   if (NamePos != Locals.end()) {
     // Yes, the symbol was defined by this module. Use it.
-    return NamePos->second.first;
+    return std::get<Symbol *>(NamePos->second);
   }
 
   return setSymbolShadow(

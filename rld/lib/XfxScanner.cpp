@@ -14,25 +14,30 @@
 //===----------------------------------------------------------------------===//
 #include "rld/XfxScanner.h"
 
+// pstore
 #include "pstore/mcrepo/section.hpp"
+#include "pstore/mcrepo/section_sparray.hpp"
 
+// LLVM
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/Support/Endian.h"
 
+// rld
+#include "rld/CSAlloc.h"
 #include "rld/context.h"
 
+// Standard library
 #include <array>
 
 using namespace rld;
 
-using SymbolPtrContainer = pstore::chunked_sequence<Symbol *>;
 
 namespace {
 
 constexpr auto DebugType = "rld-xfx-scanner";
 
 struct State {
-  State(Context &C, LocalSymbolsContainer const &L,
+  State(Context &C, const NotNull<LocalSymbolsContainer *> L,
         NotNull<GlobalSymbolsContainer *> const G,
         NotNull<UndefsContainer *> const U)
       : Ctxt{C}, Locals{L}, Globals{G}, Undefs{U} {}
@@ -41,22 +46,22 @@ struct State {
   State &operator=(State const &) = delete;
 
   Context &Ctxt;
-  LocalSymbolsContainer const &Locals;
-  NotNull<GlobalSymbolsContainer *> const Globals;
-  NotNull<UndefsContainer *> const Undefs;
+  const NotNull<LocalSymbolsContainer *> Locals;
+  const NotNull<GlobalSymbolsContainer *> Globals;
+  const NotNull<UndefsContainer *> Undefs;
 };
 
 // resolve
 // ~~~~~~~
 template <pstore::repo::section_kind Kind>
 Symbol **resolve(State &S, const pstore::repo::fragment &Fragment,
-                 const NotNull<SymbolPtrContainer *> ResolvedFixups,
+                 const NotNull<FixupStorage::Container *> ResolvedFixups,
                  const NotNull<LocalPLTsContainer *> PLTSymbols) {
   const auto *const Section = Fragment.atp<Kind>();
 
   pstore::repo::container<pstore::repo::external_fixup> const XFixups =
       Section->xfixups();
-  Symbol **Result = reserveContiguous(ResolvedFixups.get(), XFixups.size());
+  Symbol **Result = csAlloc<Symbol *>(ResolvedFixups.get(), XFixups.size());
   Symbol **Resolved = Result;
   for (pstore::repo::external_fixup const &Xfx : XFixups) {
     llvmDebug(DebugType, S.Ctxt.IOMut, [&]() {
@@ -64,7 +69,7 @@ Symbol **resolve(State &S, const pstore::repo::fragment &Fragment,
                    << loadStdString(S.Ctxt.Db, Xfx.name) << '\n';
     });
 
-    Symbol *const Sym = referenceSymbol(S.Ctxt, S.Locals, S.Globals, S.Undefs,
+    Symbol *const Sym = referenceSymbol(S.Ctxt, *S.Locals, S.Globals, S.Undefs,
                                         Xfx.name, Xfx.strength());
     assert(Sym != nullptr && "referenceSymbol must not return nullptr");
     // FIXME: PLT relocation handling is currently disabled.
@@ -86,7 +91,7 @@ Symbol **resolve(State &S, const pstore::repo::fragment &Fragment,
 template <>
 inline Symbol **resolve<pstore::repo::section_kind::linked_definitions>(
     State & /*S*/, const pstore::repo::fragment & /*Fragment*/,
-    const NotNull<SymbolPtrContainer *> ResolvedFixups,
+    const NotNull<FixupStorage::Container *> ResolvedFixups,
     const NotNull<LocalPLTsContainer *> /* PLTSymbols*/) {
 
   return nullptr;
@@ -94,41 +99,35 @@ inline Symbol **resolve<pstore::repo::section_kind::linked_definitions>(
 
 } // end anonymous namespace
 
-// resolve xfixups
-// ~~~~~~~~~~~~~~~
-LocalPLTsContainer
-rld::resolveXfixups(Context &Context, const LocalSymbolsContainer &Locals,
-                    const NotNull<GlobalSymbolsContainer *> Globals,
-                    const NotNull<UndefsContainer *> Undefs,
-                    const NotNull<SymbolPtrContainer *> ResolvedFixups,
-                    uint32_t InputOrdinal) {
+namespace {
 
-  LocalPLTsContainer PLTSymbols;
-  State S{Context, Locals, Globals, Undefs};
-
-  for (auto &NS : Locals) {
-    std::pair<Symbol *, bool> const &SymDef = NS.second;
-    Symbol *const Sym = SymDef.first;
+/// \tparam NewFragmentFunction A function with signature compatible with
+/// `void(Symbol::Body &)`.
+template <typename NewFragmentFunction>
+void forEachNewFragment(Context &Context,
+                        const NotNull<LocalSymbolsContainer *> Locals,
+                        const uint32_t InputOrdinal, NewFragmentFunction f) {
+  for (auto &NS : *Locals) {
+    std::tuple<Symbol *, bool, ContributionSpArrayPtr> const &SymDef =
+        NS.second;
+    Symbol *const Sym = std::get<Symbol *>(SymDef);
     assert(Sym && "All local definitions must have an associated symbol");
 
-    llvmDebug(DebugType, S.Ctxt.IOMut, [&]() {
-      llvm::dbgs() << "xfx for def \"" << loadStdString(S.Ctxt.Db, Sym->name())
-                   << "\"\n";
+    llvmDebug(DebugType, Context.IOMut, [&]() {
+      llvm::dbgs() << "fixups for def \""
+                   << loadStdString(Context.Db, Sym->name()) << "\"\n";
     });
 
-    if (!SymDef.second) {
-      // We re-used a definition from another compilation. No need to redo the
-      // symbol resolution for its fixups.
-      llvmDebug(DebugType, S.Ctxt.IOMut,
+    if (!std::get<bool>(SymDef)) {
+      // Symbol resolution discarded this definition. No need for any further
+      // work on it.
+      llvmDebug(DebugType, Context.IOMut,
                 [&]() { llvm::dbgs() << "  skipped\n"; });
       continue;
     }
 
-    Sym->checkInvariants();
-
     auto BodiesAndLock = Sym->definition();
-    llvm::Optional<Symbol::BodyContainer> &OptionalBodies =
-        std::get<Symbol::DefinitionIndex>(BodiesAndLock);
+    auto &OptionalBodies = std::get<Symbol::OptionalBodies &>(BodiesAndLock);
     assert(OptionalBodies.hasValue() &&
            "All local symbol definitions must have a body");
     auto &Bodies = OptionalBodies.getValue();
@@ -143,27 +142,76 @@ rld::resolveXfixups(Context &Context, const LocalSymbolsContainer &Locals,
       continue;
     }
 
-    Symbol::Body &Def = *Pos;
+    f(NS, *Pos);
+  }
+}
 
-    const FragmentPtr &Fragment = Def.fragment();
-    Symbol::Body::ResType &ResolveMap = Def.resolveMap();
-    for (const pstore::repo::section_kind Kind : *Fragment) {
+} // end anonymous namespace
+
+// externals
+// ~~~~~~~~~
+static void externals(State &S, Symbol::Body &Def,
+                      const NotNull<FixupStorage::Container *> ResolvedFixups,
+                      uint32_t InputOrdinal,
+                      const NotNull<LocalPLTsContainer *> PLTSymbols) {
+
+  const FragmentPtr &Fragment = Def.fragment();
+  Symbol::Body::ResType &ResolveMap = Def.resolveMap();
+  for (const pstore::repo::section_kind Kind : *Fragment) {
 #define X(a)                                                                   \
   case pstore::repo::section_kind::a:                                          \
     ResolveMap[pstore::repo::section_kind::a] =                                \
         resolve<pstore::repo::section_kind::a>(S, *Fragment, ResolvedFixups,   \
-                                               &PLTSymbols);                   \
+                                               PLTSymbols);                    \
     break;
 
-      switch (Kind) {
-        PSTORE_MCREPO_SECTION_KINDS
-      case pstore::repo::section_kind::last:
-        llvm_unreachable("Bad section kind");
-        break;
-      }
-#undef X
+    switch (Kind) {
+      PSTORE_MCREPO_SECTION_KINDS
+    case pstore::repo::section_kind::last:
+      llvm_unreachable("Bad section kind");
+      break;
     }
+#undef X
   }
+}
 
+// internals
+// ~~~~~~~~~
+static ContributionSpArrayPtr
+internals(Symbol::Body &Def, const NotNull<FixupStorage::Container *> Storage) {
+  const FragmentPtr &Fragment = Def.fragment();
+  const size_t NumSections = Fragment->size();
+  // FIXME: correct this space optimization
+  //  if (NumSections < 2U && the sole section has no internal fixups) {
+  //    return nullptr;
+  //  }
+
+  using T = pstore::repo::section_sparray<Contribution const *>;
+  auto *const Ptr =
+      csAlloc(Storage.get(), T::size_bytes(NumSections), alignof(T));
+  assert(reinterpret_cast<std::uintptr_t>(Ptr) % alignof(T) == 0 &&
+         "Storage must be aligned correctly");
+  //  return makePlacementUniquePtr<ContributionSpArray> (Ptr, std::begin
+  //  (*Fragment), std::end (*Fragment));
+  return new (Ptr) T(std::begin(*Fragment), std::end(*Fragment));
+}
+
+// resolve fixups
+// ~~~~~~~~~~~~~~
+LocalPLTsContainer rld::resolveFixups(
+    Context &Context, const NotNull<LocalSymbolsContainer *> Locals,
+    const NotNull<GlobalSymbolsContainer *> Globals,
+    const NotNull<UndefsContainer *> Undefs, uint32_t InputOrdinal,
+    const NotNull<FixupStorage::Container *> Storage) {
+
+  LocalPLTsContainer PLTSymbols;
+  State S{Context, Locals, Globals, Undefs};
+
+  forEachNewFragment(
+      Context, Locals, InputOrdinal,
+      [&](LocalSymbolsContainer::value_type &NS, Symbol::Body &Def) {
+        externals(S, Def, Storage, InputOrdinal, &PLTSymbols);
+        std::get<ContributionSpArrayPtr>(NS.second) = internals(Def, Storage);
+      });
   return PLTSymbols;
 }

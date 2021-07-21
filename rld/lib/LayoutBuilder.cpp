@@ -119,31 +119,43 @@ void LayoutBuilder::Visited::resize(uint32_t NumCompilations) {
   }
 }
 
+// Note that a target segment-kind of 'last' indicates that we don't expecting
+// to be emitting output sections of this type.
 LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
-    SectionToSegmentArray::value_type{SectionKind::text, SegmentKind::text},
-    {SectionKind::data, SegmentKind::data},
-    {SectionKind::bss, SegmentKind::data},
-    {SectionKind::rel_ro, SegmentKind::data},
-    {SectionKind::mergeable_1_byte_c_string, SegmentKind::rodata},
-    {SectionKind::mergeable_2_byte_c_string, SegmentKind::rodata},
-    {SectionKind::mergeable_4_byte_c_string, SegmentKind::rodata},
-    {SectionKind::mergeable_const_4, SegmentKind::rodata},
-    {SectionKind::mergeable_const_8, SegmentKind::rodata},
-    {SectionKind::mergeable_const_16, SegmentKind::rodata},
-    {SectionKind::mergeable_const_32, SegmentKind::rodata},
-    {SectionKind::read_only, SegmentKind::rodata},
-    {SectionKind::thread_data, SegmentKind::tls},
-    {SectionKind::thread_bss, SegmentKind::tls},
-    {SectionKind::debug_line, SegmentKind::discard},
-    {SectionKind::debug_string, SegmentKind::discard},
-    {SectionKind::debug_ranges, SegmentKind::discard},
-    {SectionKind::linked_definitions, SegmentKind::discard},
-    {SectionKind::gotplt, SegmentKind::data},
-    {SectionKind::plt, SegmentKind::text},
-    {SectionKind::rela_plt, SegmentKind::rodata},
-    {SectionKind::shstrtab, SegmentKind::discard},
-    {SectionKind::strtab, SegmentKind::discard},
-    {SectionKind::symtab, SegmentKind::discard},
+    SectionMapping{SectionKind::text, SectionKind::text, SegmentKind::text},
+    {SectionKind::data, SectionKind::data, SegmentKind::data},
+    {SectionKind::bss, SectionKind::bss, SegmentKind::data},
+    {SectionKind::rel_ro, SectionKind::rel_ro, SegmentKind::data},
+    {SectionKind::mergeable_1_byte_c_string, SectionKind::read_only,
+     SegmentKind::rodata},
+    {SectionKind::mergeable_2_byte_c_string, SectionKind::read_only,
+     SegmentKind::rodata},
+    {SectionKind::mergeable_4_byte_c_string, SectionKind::read_only,
+     SegmentKind::rodata},
+    {SectionKind::mergeable_const_4, SectionKind::read_only,
+     SegmentKind::rodata},
+    {SectionKind::mergeable_const_8, SectionKind::read_only,
+     SegmentKind::rodata},
+    {SectionKind::mergeable_const_16, SectionKind::read_only,
+     SegmentKind::rodata},
+    {SectionKind::mergeable_const_32, SectionKind::read_only,
+     SegmentKind::rodata},
+    {SectionKind::read_only, SectionKind::read_only, SegmentKind::rodata},
+    {SectionKind::thread_data, SectionKind::thread_data, SegmentKind::tls},
+    {SectionKind::thread_bss, SectionKind::thread_bss, SegmentKind::tls},
+    {SectionKind::debug_line, SectionKind::debug_line, SegmentKind::discard},
+    {SectionKind::debug_string, SectionKind::debug_string,
+     SegmentKind::discard},
+    {SectionKind::debug_ranges, SectionKind::debug_ranges,
+     SegmentKind::discard},
+    {SectionKind::linked_definitions, SectionKind::linked_definitions,
+     SegmentKind::discard},
+    {SectionKind::gotplt, SectionKind::gotplt, SegmentKind::data},
+    {SectionKind::plt, SectionKind::plt, SegmentKind::text},
+    {SectionKind::rela_plt, SectionKind::rela_plt, SegmentKind::rodata},
+    {SectionKind::shstrtab, SectionKind::shstrtab, SegmentKind::discard},
+    {SectionKind::strtab, SectionKind::strtab, SegmentKind::discard},
+    {SectionKind::symtab, SectionKind::symtab, SegmentKind::discard},
 }};
 
 // (ctor)
@@ -159,14 +171,17 @@ Layout::Layout() : Sections{{PSTORE_MCREPO_SECTION_KINDS RLD_SECTION_KINDS}} {}
 void LayoutBuilder::checkSectionToSegmentArray() {
 #ifndef NDEBUG
   auto Index = 0;
-  std::for_each(
-      std::begin(SectionToSegment_), std::end(SectionToSegment_),
-      [&Index](const SectionToSegmentArray::value_type &v) {
-        auto const Section = v.first;
-        assert(static_cast<std::underlying_type<decltype(Section)>::type>(
-                   Section) == Index);
-        ++Index;
-      });
+  for (auto It = std::cbegin(SectionToSegment_),
+            End = std::cend(SectionToSegment_);
+       It != End; ++It, ++Index) {
+    const SectionMapping &v = *It;
+    const SectionKind Section = v.InputSection;
+    assert(static_cast<std::underlying_type<SectionKind>::type>(Section) ==
+               Index &&
+           "SectionToSegmentArray order is not correct");
+    assert(v.Segment == SectionToSegment_[v.OutputSection].Segment &&
+           "Segment mapping is not consistent");
+  }
 #endif
 }
 
@@ -187,7 +202,7 @@ LayoutBuilder::LayoutBuilder(Context &Ctx,
     Layout_->Segments[SegmentK].MaxAlign = PageSize;
   }
 
-  checkSectionToSegmentArray();
+  this->checkSectionToSegmentArray();
 }
 
 // visited
@@ -223,7 +238,19 @@ std::uint64_t LayoutBuilder::prevSectionEnd(
 // ~~~~~~~~~~~~~~~~~~~~~
 OutputSection *LayoutBuilder::addToOutputSection(SectionKind SKind, size_t Size,
                                                  unsigned Alignment) {
-  Segment &Seg = Layout_->Segments[SectionToSegment_[SKind].second];
+  assert(SectionToSegment_[SKind].InputSection == SKind &&
+         "InputSection->OutputSection table error");
+  assert(SectionToSegment_[SKind].Segment ==
+         SectionToSegment_[SectionToSegment_[SKind].OutputSection].Segment);
+
+  // Map from the input-section to segment.
+  Segment &Seg = Layout_->Segments[SectionToSegment_[SKind].Segment];
+
+  // Map from the input-section to the output-section. For most this has no
+  // effect but sections such as mergeable_const_4 are translated to the
+  // read_only section.
+  SKind = SectionToSegment_[SKind].OutputSection;
+
   Seg.MaxAlign = std::max(Seg.MaxAlign, Alignment);
 
   OutputSection *const OutputSection = &Layout_->Sections[SKind];
@@ -241,13 +268,17 @@ OutputSection *LayoutBuilder::addToOutputSection(SectionKind SKind, size_t Size,
 // add section to layout
 // ~~~~~~~~~~~~~~~~~~~~~
 template <pstore::repo::section_kind SKind>
-Contribution *LayoutBuilder::addSectionToLayout(const Symbol::Body &Body,
-                                                const StringAddress Name) {
+Contribution *LayoutBuilder::addSectionToLayout(
+    const StringAddress Name, const Symbol::Body &Body,
+    pstore::repo::section_sparray<Contribution const *> const
+        *const IfxContributions) {
   const FragmentPtr &F = Body.fragment();
   assert(F->has_section(SKind) &&
          "Layout can't contain a section that doesn't exist");
 
-  SegmentKind const SegmentK = SectionToSegment_[ToRldSectionKind<SKind>::value].second;
+  const SegmentKind SegmentK =
+      SectionToSegment_[ToRldSectionKind<SKind>::value].Segment;
+  assert(SegmentK != SegmentKind::last);
   if (SegmentK == SegmentKind::discard) {
     llvmDebug(DebugType, Ctx_.IOMut,
               [&] { llvm::dbgs() << "    Discarding " << SKind << '\n'; });
@@ -256,12 +287,12 @@ Contribution *LayoutBuilder::addSectionToLayout(const Symbol::Body &Body,
 
   Layout_->Segments[SegmentK].HasOutputSections = true;
 
-  auto const & Section = F->at<SKind>();
-  assert(reinterpret_cast<std::uint8_t const *>(&Section) >
-         reinterpret_cast<std::uint8_t const *>(F.get()));
+  const auto &Section = F->at<SKind>();
+  assert(reinterpret_cast<const uint8_t *>(&Section) >
+         reinterpret_cast<const uint8_t *>(F.get()));
 
-  auto const Size = pstore::repo::section_size(Section);
-  auto const Alignment = pstore::repo::section_alignment(Section);
+  const auto Size = pstore::repo::section_size(Section);
+  const auto Alignment = pstore::repo::section_alignment(Section);
 
   OutputSection *const OutputSection =
       this->addToOutputSection(ToRldSectionKind<SKind>::value, Size, Alignment);
@@ -269,13 +300,17 @@ Contribution *LayoutBuilder::addSectionToLayout(const Symbol::Body &Body,
   const auto &RM = Body.resolveMap();
 
   OutputSection->Contributions.emplace_back(
-      &Section, RM[SKind], OutputSection,
+      &Section,  // the contribution's fragment section
+      RM[SKind], // the array of external fixups to be applied when copying the
+                 // contribution
+      IfxContributions, // The contributions for the sections of fragment 'F'
+      OutputSection,    // The output section to which the contribution belongs.
       alignTo(LayoutBuilder::prevSectionEnd(OutputSection->Contributions),
-              Alignment),
+              Alignment), // Offset
       Size, Alignment, Name, Body.inputOrdinal());
 
   llvmDebug(DebugType, Ctx_.IOMut, [&] {
-    auto const &Entry = OutputSection->Contributions.back();
+    const auto &Entry = OutputSection->Contributions.back();
     llvm::dbgs() << "    Adding " << SKind << " section to " << SegmentK
                  << " segment (" << Entry << ")\n";
   });
@@ -299,8 +334,9 @@ auto LayoutBuilder::recoverDefinitionsFromCUMap(const std::size_t Ordinal)
 
 // add symbol body
 // ~~~~~~~~~~~~~~~
-void LayoutBuilder::addSymbolBody(Symbol *const Sym, Symbol::Body const &Body,
-                                  uint32_t Ordinal, StringAddress const Name) {
+void LayoutBuilder::addSymbolBody(
+    Symbol *const Sym, const Symbol::Body &Body, const uint32_t Ordinal,
+    const StringAddress Name, ContributionSpArrayPtr const IfxContributions) {
   // Record this symbol's fragment if it was defined by this compilation.
   if (Body.inputOrdinal() != Ordinal) {
     return;
@@ -313,15 +349,24 @@ void LayoutBuilder::addSymbolBody(Symbol *const Sym, Symbol::Body const &Body,
   for (pstore::repo::section_kind Section : *Body.fragment()) {
 #define X(a)                                                                   \
   case pstore::repo::section_kind::a:                                          \
-    C = this->addSectionToLayout<pstore::repo::section_kind::a>(Body, Name);   \
+    C = this->addSectionToLayout<pstore::repo::section_kind::a>(               \
+        Name, Body, IfxContributions);                                         \
     break;
-
     switch (Section) {
       PSTORE_MCREPO_SECTION_KINDS
     case pstore::repo::section_kind::last:
       llvm_unreachable("Unknown fragment section kind");
     }
 #undef X
+    if (IfxContributions != nullptr) {
+      // Now that we've got a contribution record for this section, we can
+      // record it in the fragment's sparse array.
+      assert(IfxContributions->has_index(Section) &&
+             "The array does not have an index for one of the fragment's "
+             "sections");
+      (*IfxContributions)[Section] = C;
+    }
+
     Sym->setFirstContribution(C);
   }
 }
@@ -382,6 +427,8 @@ void LayoutBuilder::run() {
          std::get<LocalSymbolsContainer>(PerCompilation)) {
       StringAddress const Name = Definition.first;
       auto *const Sym = std::get<Symbol *>(Definition.second);
+      auto *const IfxContributions =
+          std::get<ContributionSpArrayPtr>(Definition.second);
 
       llvmDebug(DebugType, Ctx_.IOMut, [&] {
         llvm::dbgs() << "Examining symbol:" << loadStdString(Ctx_.Db, Name)
@@ -391,17 +438,17 @@ void LayoutBuilder::run() {
       // Get the symbol definition and a lock on the symbol table entry.
       auto const SymDef = Sym->definition();
 
-      assert(std::get<Symbol::DefinitionIndex>(SymDef).hasValue() &&
+      assert(std::get<Symbol::OptionalBodies &>(SymDef).hasValue() &&
              "Symbols that reach layout must be defined");
 
-      auto const &Bodies = *std::get<Symbol::DefinitionIndex>(SymDef);
+      auto const &Bodies = *std::get<Symbol::OptionalBodies &>(SymDef);
       assert(Bodies.size() >= 1U &&
              "A defined symbol must have a least 1 body");
 
       if (Bodies.size() == 1U) {
         auto const &B = Bodies.front();
         if (B.inputOrdinal() == Ordinal) {
-          this->addSymbolBody(Sym, B, Ordinal, Name);
+          this->addSymbolBody(Sym, B, Ordinal, Name, IfxContributions);
         }
       } else {
         auto const First = std::begin(Bodies);
@@ -424,7 +471,7 @@ void LayoutBuilder::run() {
               return A.inputOrdinal() < B;
             });
         assert(Pos != Last && Pos->inputOrdinal() == Ordinal);
-        this->addSymbolBody(Sym, *Pos, Ordinal, Name);
+        this->addSymbolBody(Sym, *Pos, Ordinal, Name, IfxContributions);
       }
     }
 

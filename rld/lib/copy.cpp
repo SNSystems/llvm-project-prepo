@@ -29,29 +29,62 @@ using namespace rld;
 static constexpr auto DebugType = "rld-copy";
 
 using ExternalFixup = pstore::repo::external_fixup;
+using InternalFixup = pstore::repo::internal_fixup;
 
 template <uint8_t Relocation>
-static void apply(uint8_t *const Out, const Contribution &Contribution,
-                  const Layout &Layout, const Symbol &Sym,
-                  const ExternalFixup &XFixup) {
+static void apply_external(uint8_t *const Out, const Contribution &Src,
+                           const Layout &Layout, const Symbol &Sym,
+                           const ExternalFixup &XFixup) {
   llvm_unreachable("Relocation type is unsupported");
 }
 
-template <>
-inline void apply<llvm::ELF::R_X86_64_NONE>(
-    uint8_t *const /*Out*/, const Contribution & /*Contribution*/,
-    const Layout & /*Layout*/, const Symbol & /*Sym*/,
-    const ExternalFixup & /*XFixup*/) {}
+template <uint8_t Relocation>
+static void apply_internal(uint8_t *const Out, const Contribution &Src,
+                           const Layout &Layout, const Contribution &Target,
+                           const InternalFixup &Fixup) {
+  llvm_unreachable("Relocation type is unsupported");
+}
+
+inline uint64_t getS(const Symbol &Sym) { return Sym.value(); }
+inline uint64_t getS(const Contribution &Contribution) {
+  return Contribution.OScn->VirtualAddr + Contribution.Offset;
+}
+inline uint64_t getA(const ExternalFixup &Fixup) { return Fixup.addend; }
+inline uint64_t getA(const InternalFixup &Fixup) { return Fixup.addend; }
 
 template <>
-inline void apply<llvm::ELF::R_X86_64_64>(uint8_t *const Out,
-                                          const Contribution &Contribution,
-                                          const Layout &Layout,
-                                          const Symbol &Sym,
-                                          const ExternalFixup &XFixup) {
-  const auto S = Sym.value();
-  const int64_t A = XFixup.addend;
-  llvm::support::ulittle64_t::ref{Out} = S + A;
+inline void apply_external<llvm::ELF::R_X86_64_NONE>(
+    uint8_t *const /*Out*/, const Contribution & /*Src*/,
+    const Layout & /*Layout*/, const Symbol & /*Target*/,
+    const ExternalFixup & /*XFixup*/) {}
+template <>
+inline void apply_internal<llvm::ELF::R_X86_64_NONE>(
+    uint8_t *const /*Out*/, const Contribution & /*Src*/,
+    const Layout & /*Layout*/, const Contribution & /*Target*/,
+    const InternalFixup & /*Fixup*/) {}
+
+template <typename TargetType, typename FixupType>
+static inline void
+apply_R_X86_64_64(uint8_t *const Out, const Contribution & /*Src*/,
+                  const Layout & /*Layout*/, const TargetType &Target,
+                  const FixupType &Fixup) {
+  llvm::support::ulittle64_t::ref{Out} = getS(Target) + getA(Fixup);
+}
+template <>
+inline void apply_external<llvm::ELF::R_X86_64_64>(uint8_t *const Out,
+                                                   const Contribution &Src,
+                                                   const Layout &Layout,
+                                                   const Symbol &Target,
+                                                   const ExternalFixup &Fixup) {
+  apply_R_X86_64_64(Out, Src, Layout, Target, Fixup);
+}
+template <>
+inline void apply_internal<llvm::ELF::R_X86_64_64>(uint8_t *const Out,
+                                                   const Contribution &Src,
+                                                   const Layout &Layout,
+                                                   const Contribution &Target,
+                                                   const InternalFixup &Fixup) {
+  apply_R_X86_64_64(Out, Src, Layout, Target, Fixup);
 }
 
 // Field: word32
@@ -60,52 +93,82 @@ inline void apply<llvm::ELF::R_X86_64_64>(uint8_t *const Out,
 // 32-bits. The linker must verify that the generated value for the R_X86_64_32
 // (R_X86_64_32S) relocation zero-extends (sign-extends) to the original 64-bit
 // value.
-template <>
-inline void apply<llvm::ELF::R_X86_64_32>(uint8_t *const Out,
-                                          const Contribution &Contribution,
-                                          const Layout &Layout,
-                                          const Symbol &Sym,
-                                          const ExternalFixup &XFixup) {
-  const auto S = Sym.value();
-  const int64_t A = XFixup.addend;
-  llvm::support::ulittle32_t::ref{Out} = S + A;
+template <typename TargetType, typename FixupType>
+static inline void
+apply_R_X86_64_32(uint8_t *const Out, const Contribution & /*Src*/,
+                  const Layout & /*Layout*/, const TargetType &Target,
+                  const FixupType &Fixup) {
+  llvm::support::ulittle32_t::ref{Out} = getS(Target) + getA(Fixup);
 }
 
 template <>
-inline void apply<llvm::ELF::R_X86_64_32S>(uint8_t *const Out,
-                                           const Contribution &Contribution,
-                                           const Layout &Layout,
-                                           const Symbol &Sym,
-                                           const ExternalFixup &XFixup) {
-  const auto S = Sym.value();
-  const int64_t A = XFixup.addend;
-  llvm::support::little32_t::ref{Out} = S + A;
+inline void apply_external<llvm::ELF::R_X86_64_32>(uint8_t *const Out,
+                                                   const Contribution &Src,
+                                                   const Layout &Layout,
+                                                   const Symbol &Target,
+                                                   const ExternalFixup &Fixup) {
+  apply_R_X86_64_32(Out, Src, Layout, Target, Fixup);
+}
+template <>
+inline void apply_internal<llvm::ELF::R_X86_64_32>(uint8_t *const Out,
+                                                   const Contribution &Src,
+                                                   const Layout &Layout,
+                                                   const Contribution &Target,
+                                                   const InternalFixup &Fixup) {
+  apply_R_X86_64_32(Out, Src, Layout, Target, Fixup);
 }
 
+template <typename TargetType, typename FixupType>
+static inline void
+apply_R_X86_64_32S(uint8_t *const Out, const Contribution & /*Src*/,
+                   const Layout & /*Layout*/, const TargetType &Target,
+                   const FixupType &Fixup) {
+  llvm::support::little32_t::ref{Out} = getS(Target) + getA(Fixup);
+}
 template <>
-inline void apply<llvm::ELF::R_X86_64_PC32>(uint8_t *const Out,
-                                            const Contribution &Contribution,
-                                            const Layout &Layout,
-                                            const Symbol &Sym,
-                                            const ExternalFixup &XFixup) {
-  const auto S = Sym.value();
-  const int64_t A = XFixup.addend;
-  assert(alignTo(Contribution.Offset, Contribution.Align) ==
-         Contribution.Offset);
-  const uint64_t P =
-      Contribution.OScn->VirtualAddr + Contribution.Offset + XFixup.offset;
+inline void apply_external<llvm::ELF::R_X86_64_32S>(
+    uint8_t *const Out, const Contribution &Src, const Layout &Layout,
+    const Symbol &Target, const ExternalFixup &Fixup) {
+  apply_R_X86_64_32S(Out, Src, Layout, Target, Fixup);
+}
+template <>
+inline void apply_internal<llvm::ELF::R_X86_64_32S>(
+    uint8_t *const Out, const Contribution &Src, const Layout &Layout,
+    const Contribution &Target, const InternalFixup &Fixup) {
+  apply_R_X86_64_32S(Out, Src, Layout, Target, Fixup);
+}
+
+template <typename TargetType, typename FixupType>
+static inline void
+apply_R_X86_64_PC32(uint8_t *const Out, const Contribution &Src,
+                    const Layout & /*Layout*/, const TargetType &Target,
+                    const FixupType &Fixup) {
+  const auto S = getS(Target);
+  const int64_t A = getA(Fixup);
+  assert(alignTo(Src.Offset, Src.Align) == Src.Offset);
+  const uint64_t P = Src.OScn->VirtualAddr + Src.Offset + Fixup.offset;
   llvm::support::little32_t::ref{Out} = S + A - P;
 }
+template <>
+inline void apply_external<llvm::ELF::R_X86_64_PC32>(
+    uint8_t *const Out, const Contribution &Src, const Layout &Layout,
+    const Symbol &Target, const ExternalFixup &Fixup) {
+  return apply_R_X86_64_PC32(Out, Src, Layout, Target, Fixup);
+}
+template <>
+inline void apply_internal<llvm::ELF::R_X86_64_PC32>(
+    uint8_t *const Out, const Contribution &Src, const Layout &Layout,
+    const Contribution &Target, const InternalFixup &Fixup) {
+  return apply_R_X86_64_PC32(Out, Src, Layout, Target, Fixup);
+}
 
 template <>
-inline void apply<llvm::ELF::R_X86_64_PLT32>(uint8_t *const Out,
-                                             const Contribution &Contribution,
-                                             const Layout &Layout,
-                                             const Symbol &Sym,
-                                             const ExternalFixup &XFixup) {
+inline void apply_external<llvm::ELF::R_X86_64_PLT32>(
+    uint8_t *const Out, const Contribution &Contribution, const Layout &Layout,
+    const Symbol &Sym, const ExternalFixup &XFixup) {
   if (Sym.hasDefinition()) {
-    return apply<llvm::ELF::R_X86_64_PC32>(Out, Contribution, Layout, Sym,
-                                           XFixup);
+    return apply_external<llvm::ELF::R_X86_64_PC32>(Out, Contribution, Layout,
+                                                    Sym, XFixup);
   }
 
   const uint64_t L =
@@ -145,28 +208,40 @@ inline void apply<llvm::ELF::R_X86_64_DTPOFF32>(uint8_t *const Out,
                                             const ExternalFixup &XFixup) {}
 #endif
 
-template <SectionKind SKind>
-uint8_t *copyContribution(uint8_t *Dest, Context &Ctxt,
-                          const Contribution &Contribution,
-                          const Layout &Lout) {
-  llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
-    llvm::dbgs() << "copy to "
-                 << format_hex(reinterpret_cast<std::uintptr_t>(Dest)) << '\n';
-  });
+template <typename SectionType>
+static void applyInternalFixups(uint8_t *Dest, Context &Ctxt,
+                                const SectionType &Section,
+                                const Contribution &C, const Layout &Lout) {
+  pstore::repo::section_sparray<const Contribution *> const *IfxContributions =
+      C.IfxContributions;
+  if (IfxContributions == nullptr) {
+    return;
+  }
+  for (InternalFixup const &IFixup : Section.ifixups()) {
+    llvmDebug(DebugType, Ctxt.IOMut, [&]() {
+      llvm::dbgs() << "  ifx type:" << static_cast<unsigned>(IFixup.type)
+                   << '\n';
+    });
 
-  using SectionType = typename pstore::repo::enum_to_section<
-      ToPstoreSectionKind<SKind>::value>::type;
-  auto *const Section =
-      reinterpret_cast<SectionType const *>(Contribution.Section);
-  const auto &D = Section->payload();
-  const auto Size = D.size();
-  std::memcpy(Dest, D.begin(), Size);
+    const Contribution &Target = *(*IfxContributions)[IFixup.section];
+    switch (IFixup.type) {
+#define ELF_RELOC(Name, Value)                                                 \
+  case llvm::ELF::Name:                                                        \
+    apply_internal<llvm::ELF::Name>(Dest + IFixup.offset, Target, Lout,        \
+                                    Target, IFixup);                           \
+    break;
+#include "llvm/BinaryFormat/ELFRelocs/x86_64.def"
+#undef ELF_RELOC
+    }
+  }
+}
 
-  // The contribution's shadow memory contains an array of symbol pointers; one
-  // for each external fixup.
-
-  const Symbol *const *XfxSymbols = Contribution.XfxSymbols;
-  for (ExternalFixup const &XFixup : Section->xfixups()) {
+template <typename SectionType>
+static void applyExternalFixups(uint8_t *Dest, Context &Ctxt,
+                                const SectionType &Section,
+                                const Contribution &C, const Layout &Lout) {
+  const Symbol *const *XfxSymbols = C.XfxSymbols;
+  for (ExternalFixup const &XFixup : Section.xfixups()) {
     const Symbol *const Symbol = *XfxSymbols;
     llvmDebug(DebugType, Ctxt.IOMut, [&]() {
       llvm::dbgs() << "  xfx type:" << static_cast<unsigned>(XFixup.type)
@@ -177,14 +252,31 @@ uint8_t *copyContribution(uint8_t *Dest, Context &Ctxt,
     switch (XFixup.type) {
 #define ELF_RELOC(Name, Value)                                                 \
   case llvm::ELF::Name:                                                        \
-    apply<llvm::ELF::Name>(Dest + XFixup.offset, Contribution, Lout, *Symbol,  \
-                           XFixup);                                            \
+    apply_external<llvm::ELF::Name>(Dest + XFixup.offset, C, Lout, *Symbol,    \
+                                    XFixup);                                   \
     break;
 #include "llvm/BinaryFormat/ELFRelocs/x86_64.def"
 #undef ELF_RELOC
     }
     ++XfxSymbols;
   }
+}
+
+template <SectionKind SKind>
+uint8_t *copyContribution(uint8_t *Dest, Context &Ctxt, const Contribution &C,
+                          const Layout &Lout) {
+  llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
+    llvm::dbgs() << "copy to "
+                 << format_hex(reinterpret_cast<std::uintptr_t>(Dest)) << '\n';
+  });
+  using SectionType = typename pstore::repo::enum_to_section<
+      ToPstoreSectionKind<SKind>::value>::type;
+  auto *const Section = reinterpret_cast<SectionType const *>(C.Section);
+  const auto &D = Section->payload();
+  const auto Size = D.size();
+  std::memcpy(Dest, D.begin(), Size);
+  applyExternalFixups<SectionType>(Dest, Ctxt, *Section, C, Lout);
+  applyInternalFixups<SectionType>(Dest, Ctxt, *Section, C, Lout);
   return Dest + Size;
 }
 

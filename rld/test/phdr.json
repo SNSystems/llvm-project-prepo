@@ -7,23 +7,22 @@
 
 // CHECK: Elf file type is EXEC (Executable file)
 // CHECK: Entry point 0x401000
-// CHECK: There are 4 program headers, starting at offset 64
-//
-// CHECK: Program Headers:
-// CHECK-NEXT:   Type      Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
-// CHECK-NEXT:   PHDR      0x000000 0x0000000000400000 0x0000000000400000 0x000120 0x000120 R 0x1
-// CHECK-NEXT:   LOAD      0x000000 0x0000000000400000 0x0000000000400000 0x000158 0x000158 R 0x1000
-// CHECK-NEXT:   LOAD      0x001000 0x0000000000401000 0x0000000000401000 0x0000c6 0x0000c6 R E 0x1000
-// CHECK-NEXT:   GNU_STACK 0x000000 0x0000000000000000 0x0000000000000000 0x000000 0x000000 RW  0x0
-//
-// CHECK:      Section to Segment mapping:
-// CHECK-NEXT:  Segment Sections...
-// CHECK-NEXT:   00
-// CHECK-NEXT:   01     .rodata.str1.1 .rodata
-// CHECK-NEXT:   02     .text
-// CHECK-NEXT:   03
-// CHECK-NEXT:   None   .shstrtab .strtab .symtab
+// CHECK: There are 4 program headers
 
+// CHECK: Program Headers:
+// CHECK-NEXT: Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
+// CHECK-NEXT: PHDR           0x000000 0x0000000000400000 0x0000000000400000 0x000120 0x000120 R   0x1
+// CHECK-NEXT: LOAD           0x000000 0x0000000000400000 0x0000000000400000 0x000158 0x000158 R   0x1000
+// CHECK-NEXT: LOAD           0x001000 0x0000000000401000 0x0000000000401000 0x0000c6 0x0000c6 R E 0x1000
+// CHECK-NEXT: GNU_STACK      0x000000 0x0000000000000000 0x0000000000000000 0x000000 0x000000 RW  0x0
+
+// CHECK: Section to Segment mapping:
+// CHECK-NEXT: Segment Sections...
+// CHECK-NEXT: 00     
+// CHECK-NEXT: 01     .rodata 
+// CHECK-NEXT: 02     .text 
+// CHECK-NEXT: 03     
+// CHECK-NEXT: None   .shstrtab .strtab .symtab 
 
 {
     "version":1,

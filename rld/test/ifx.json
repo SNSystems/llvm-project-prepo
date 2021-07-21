@@ -1,0 +1,43 @@
+// This test verifies that rld correctly processes a single internal fixup.
+
+// RUN: rm -rf %t && mkdir -p %t
+// RUN: pstore-import %t/db.db %s
+// RUN: repo-create-ticket --repo %t/db.db -o %t/t0.o 11111111111111111111111111111111
+// RUN: rld --repo=%t/db.db -o %t/rld.out %t/t0.o
+// RUN: llvm-readelf --hex-dump=.data %t/rld.out | FileCheck %s
+
+// CHECK: Hex dump of section '.data':
+// CHECK-NEXT: 0x00401000 00104000 00000000
+{
+  "version": 1,
+  "id": "2D75D4DE-5B22-4618-8851-474C42FBF339",
+  "transactions": [
+    {
+      "names": [
+        "x86_64-pc-linux-gnu-repo", // 0
+        "f", // 1
+      ],
+
+      "fragments": {
+        "11111111111111111111111111111111": {
+          "data": {
+            "data": "AAAAAAAAAAA=", // 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00
+            // A single R_X86_64_64 fixup targeting data+0
+            "ifixups": [ { "section": "data", "type": 1, "offset": 0, "addend": 0 } ],
+          }
+        },
+      },
+
+
+      "compilations": {
+        "11111111111111111111111111111111": {
+          "triple": 0, // "x86_64-pc-linux-gnu-repo"
+          "definitions": [
+            { "digest": "11111111111111111111111111111111", "name": 1, "linkage": "external" }, // "f"
+          ]
+        },
+
+      }
+    }
+  ]
+}

@@ -16,6 +16,7 @@ add_rld_unittest(rldTests
   CompilationBuilder.cpp
   EmptyStore.cpp
   StringAdder.cpp
+  TestCSAlloc.cpp
   TestMathExtras.cpp
   TestSymbolResolver.cpp
   TestXfxResolver.cpp

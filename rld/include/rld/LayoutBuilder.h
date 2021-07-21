@@ -250,9 +250,26 @@ private:
                  std::tuple<LocalSymbolsContainer, LocalPLTsContainer>>
       CUs_;
 
-  using SectionToSegmentArray =
-    EnumIndexedArray<SectionKind, SectionKind::last, std::pair<SectionKind, SegmentKind>>;
+  struct SectionMapping {
+    constexpr SectionMapping(SectionKind InputSection,
+                             SectionKind OutputSection, SegmentKind Segment)
+        :
+#ifndef NDEBUG
+          InputSection{InputSection},
+#endif
+          OutputSection{OutputSection}, Segment{Segment} {
+    }
 
+#ifndef NDEBUG
+    const SectionKind InputSection;
+#endif
+    const SectionKind OutputSection;
+    const SegmentKind Segment;
+  };
+
+  using SectionToSegmentArray =
+      EnumIndexedArray<SectionKind, SectionKind::last, SectionMapping>;
+  /// A table which maps input section kinds to output section and segment.
   static SectionToSegmentArray const SectionToSegment_;
 
   /// The Layout_ container is built as layout runs.
@@ -274,13 +291,15 @@ private:
 
   /// \tparam SKind The section kind to be added. This must exist within
   ///   fragment \p F.
-  /// \param Body  The symbol body which defines the data to be added.
   /// \param Name  The name of the associated symbol.
+  /// \param Body  The symbol body which defines the data to be added.
   /// \returns The contribution representing the newly added section data. This
   ///   is nullptr if the section is not copied to the output file.
   template <pstore::repo::section_kind SKind>
-  Contribution *addSectionToLayout(const Symbol::Body &Body,
-                                   StringAddress Name);
+  Contribution *
+  addSectionToLayout(StringAddress Name, const Symbol::Body &Body,
+                     pstore::repo::section_sparray<Contribution const *> const
+                         *const IfxContributions);
 
   /// \param SKind The kind of the section to be added.
   /// \param Size  The number of bytes required for the section data.
@@ -292,8 +311,9 @@ private:
   std::tuple<LocalSymbolsContainer, LocalPLTsContainer>
   recoverDefinitionsFromCUMap(std::size_t Ordinal);
 
-  void addSymbolBody(Symbol *const Sym, Symbol::Body const &Body,
-                     uint32_t Ordinal, StringAddress const Name);
+  void addSymbolBody(Symbol *const Sym, const Symbol::Body &Body,
+                     uint32_t Ordinal, const StringAddress Name,
+                     ContributionSpArrayPtr IfxContributions);
 
   static std::uint64_t
   prevSectionEnd(OutputSection::ContributionVector const &Contributions);

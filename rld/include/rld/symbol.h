@@ -35,6 +35,28 @@
 
 namespace rld {
 
+/// A function to be used as unique_ptr<> deleter which simply does nothing. For
+/// these pointers, storage is managed elsewhere.
+constexpr void nopFree(void *) noexcept {}
+
+/// A type similar to unique_ptr<> but where placement new is used for
+/// allocation and therefore the deleter function is a no-op.
+template <typename T>
+using PlacementUniquePtr = std::unique_ptr<T, decltype(&nopFree)>;
+
+template <typename T, typename... Args>
+std::enable_if_t<!std::is_array<T>::value, PlacementUniquePtr<T>>
+makePlacementUniquePtr(void *ptr, Args &&...args) {
+  return PlacementUniquePtr<T>{new (ptr) T(std::forward<Args>(args)...),
+                               &nopFree};
+}
+
+template <typename T>
+std::enable_if_t<!std::is_array<T>::value, PlacementUniquePtr<T>>
+makeNullPlacementUniquePtr() {
+  return PlacementUniquePtr<T>{nullptr, &nopFree};
+}
+
 //-MARK: SpinLock
 class SpinLock {
 public:
@@ -152,7 +174,7 @@ public:
     // TODO: using an section_kind array of pointers here is wasteful. Most
     // fragments don't contain a large number of sections so we're burning a lot
     // of unnecessary space. Could move this to a separate container and
-    // use something like pstore::spare_array<> instead.
+    // use something like pstore::sparse_array<> instead.
     using ResType =
         EnumIndexedArray<pstore::repo::section_kind,
                          pstore::repo::section_kind::last, Symbol **>;
@@ -217,7 +239,7 @@ public:
   using BodyContainer = llvm::SmallVector<Body, 1>;
   using OptionalBodies = llvm::Optional<BodyContainer>;
 
-  enum { DefinitionIndex, LockIndex };
+  // enum { DefinitionIndex, LockIndex };
 
   auto definition() const
       -> std::tuple<const OptionalBodies &, std::unique_lock<Mutex>> {
@@ -619,8 +641,13 @@ std::pair<Symbol *, bool> setSymbolShadow(std::atomic<Symbol *> *Sptr,
   return Update(Symbol);
 }
 
+using ContributionSpArrayPtr =
+    pstore::repo::section_sparray<Contribution const *> *;
+// using ContributionSpArrayPtr =
+// PlacementUniquePtr<pstore::repo::section_sparray<Contribution const *>>;
 using LocalSymbolsContainer =
-    llvm::DenseMap<StringAddress, std::pair<Symbol *, bool>>;
+    llvm::DenseMap<StringAddress,
+                   std::tuple<Symbol *, bool, ContributionSpArrayPtr>>;
 using LocalPLTsContainer = llvm::SmallVector<Symbol *, 256>;
 /// The Global symbols are allocated in chunks of 4MiB.
 using GlobalSymbolsContainer =
@@ -738,7 +765,9 @@ SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
     const std::pair<Symbol *, bool> SymDef =
         this->defineSymbol(Globals, Undefs, Def, InputOrdinal);
     if (SymDef.first != nullptr) {
-      Locals.insert({Def.name, SymDef});
+
+      Locals.try_emplace(Def.name,
+                         std::make_tuple(SymDef.first, SymDef.second, nullptr));
     } else {
       Error = true;
       ErrorFn(Def.name); // Allow the error to be reported to the user.

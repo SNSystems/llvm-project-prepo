@@ -202,7 +202,7 @@ int main(int Argc, char *Argv[]) {
   rld::UndefsContainer Undefs;
   auto GlobalSymbs =
       std::make_unique<rld::GlobalsStorage>(NumWorkers.getValue());
-  auto XfxStorage = std::make_unique<rld::XfxStorage>(NumWorkers.getValue());
+  auto XfxStorage = std::make_unique<rld::FixupStorage>(NumWorkers.getValue());
   std::unique_ptr<rld::Layout> LO;
   std::unique_ptr<rld::LocalPLTsContainer> PLTs;
   {

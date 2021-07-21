@@ -26,19 +26,26 @@ struct OutputSection;
 //-MARK: Contribution
 struct Contribution {
   /// \param S  The contribution's fragment section.
-  /// \param XfxSymbols_  An array of symbol pointers, one for each external
+  /// \param XfxSymbols_  An array of symbol pointers: one for each external
   ///   fixup.
+  /// \param IfxContributions  A sparse array of contributions: one per
+  ///   section of the original fragment. Used for processing internal fixups.
   /// \param OScn_  The output section to which this contribution belongs.
   /// \param Offset_  The offset of this section within the output section.
   /// \param Size_  The number of bytes occupied by this contribution's
   ///   section data.
   /// \param Align_  The alignment of this contribution's section data.
   Contribution(pstore::repo::section_base const *const S,
-               Symbol const *const *XfxSymbols_, OutputSection *OScn_,
-               uint64_t Offset_, uint64_t Size_, unsigned Align_,
-               StringAddress Name_, unsigned InputOrdinal_)
-      : Section{S}, XfxSymbols{XfxSymbols_}, OScn{OScn_}, Offset{Offset_},
-        Size{Size_}, Align{Align_}, InputOrdinal{InputOrdinal_}, Name{Name_} {}
+               Symbol const *const *XfxSymbols_,
+               pstore::repo::section_sparray<Contribution const *> const
+                   *const IfxContributions_,
+               OutputSection *OScn_, uint64_t Offset_, uint64_t Size_,
+               unsigned Align_, StringAddress Name_, unsigned InputOrdinal_)
+      : Section{S}, XfxSymbols{XfxSymbols_},
+        IfxContributions{IfxContributions_}, OScn{OScn_}, Offset{Offset_},
+        Size{Size_}, Align{Align_}, InputOrdinal{InputOrdinal_}, Name{Name_} {
+    assert(IfxContributions != nullptr);
+  }
 
   Contribution(Contribution const &) = delete;
   Contribution(Contribution &&) noexcept = delete;
@@ -48,6 +55,9 @@ struct Contribution {
 
   const pstore::repo::section_base *const Section;
   Symbol const *const *XfxSymbols;
+  pstore::repo::section_sparray<Contribution const *> const
+      *const IfxContributions;
+
   OutputSection *const OScn;
 
   /// The offset from the first section of this type in the owning output
