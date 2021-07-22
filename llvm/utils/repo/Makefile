@@ -29,6 +29,8 @@ libunwind.a:
 		-D LIBUNWIND_ENABLE_STATIC=Yes                                \
 		-D LLVM_ENABLE_UNWIND_TABLES=OFF                              \
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                     \
+		-D CMAKE_CXX_COMPILER=$(LLVM_BUILD)/bin/clang++               \
+		-D CMAKE_C_COMPILER=$(LLVM_BUILD)/bin/clang                   \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                               \
 		-D musl_install=$(MUSL)                                       \
 		../libunwind &&                                               \
@@ -52,6 +54,8 @@ libcompiler-rt.a:
 		-D COMPILER_RT_BUILD_PROFILE=OFF                              \
 		-D LLVM_ENABLE_UNWIND_TABLES=OFF                              \
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                     \
+		-D CMAKE_CXX_COMPILER=$(LLVM_BUILD)/bin/clang++               \
+		-D CMAKE_C_COMPILER=$(LLVM_BUILD)/bin/clang                   \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                               \
 		-D musl_install=$(MUSL)                                       \
 		../compiler-rt &&                                             \
@@ -84,6 +88,8 @@ libcxxabi.a: libunwind.a libcompiler-rt.a                                       
 		-D LIBCXXABI_ENABLE_SHARED=No                                       \
 		-D LIBCXXABI_ENABLE_STATIC=Yes                                      \
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                           \
+		-D CMAKE_CXX_COMPILER=$(LLVM_BUILD)/bin/clang++                     \
+		-D CMAKE_C_COMPILER=$(LLVM_BUILD)/bin/clang                         \
 		-D LLVM_ENABLE_UNWIND_TABLES=OFF                                    \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                                     \
 		-D musl_install=$(MUSL)                                             \
@@ -106,6 +112,8 @@ libcxx.a: libcxxabi.a
 		-D LIBCXX_HAS_MUSL_LIBC=ON                                    \
 		-D LLVM_ENABLE_UNWIND_TABLES=OFF                              \
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                     \
+		-D CMAKE_CXX_COMPILER=$(LLVM_BUILD)/bin/clang++               \
+		-D CMAKE_C_COMPILER=$(LLVM_BUILD)/bin/clang                   \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                               \
 		-D musl_install=$(MUSL)                                       \
 		../libcxx &&                                                  \
