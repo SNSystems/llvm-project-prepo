@@ -164,12 +164,10 @@ public:
       return *this;
     }
 
-    constexpr pstore::repo::linkage linkage() const { return Def_->linkage(); }
-    constexpr pstore::repo::visibility visibility() const {
-      return Def_->visibility();
-    }
+    pstore::repo::linkage linkage() const { return Def_->linkage(); }
+    pstore::repo::visibility visibility() const { return Def_->visibility(); }
 
-    constexpr bool hasLocalLinkage() const {
+    bool hasLocalLinkage() const {
       const pstore::repo::linkage Linkage = this->linkage();
       return Linkage == pstore::repo::linkage::internal ||
              Linkage == pstore::repo::linkage::internal_no_symbol;
