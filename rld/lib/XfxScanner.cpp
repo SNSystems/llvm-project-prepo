@@ -108,9 +108,7 @@ void forEachNewFragment(Context &Context,
                         const NotNull<LocalSymbolsContainer *> Locals,
                         const uint32_t InputOrdinal, NewFragmentFunction f) {
   for (auto &NS : *Locals) {
-    std::tuple<Symbol *, bool, ContributionSpArrayPtr> const &SymDef =
-        NS.second;
-    Symbol *const Sym = std::get<Symbol *>(SymDef);
+    Symbol *const Sym = std::get<Symbol *>(NS.second);
     assert(Sym && "All local definitions must have an associated symbol");
 
     llvmDebug(DebugType, Context.IOMut, [&]() {
@@ -118,31 +116,30 @@ void forEachNewFragment(Context &Context,
                    << loadStdString(Context.Db, Sym->name()) << "\"\n";
     });
 
-    if (!std::get<bool>(SymDef)) {
-      // Symbol resolution discarded this definition. No need for any further
-      // work on it.
-      llvmDebug(DebugType, Context.IOMut,
-                [&]() { llvm::dbgs() << "  skipped\n"; });
-      continue;
-    }
-
     auto BodiesAndLock = Sym->definition();
     auto &OptionalBodies = std::get<Symbol::OptionalBodies &>(BodiesAndLock);
     assert(OptionalBodies.hasValue() &&
            "All local symbol definitions must have a body");
     auto &Bodies = OptionalBodies.getValue();
-    const auto BodiesEnd = std::end(Bodies);
-    // Find the symbol body that is associated with this compilation.
-    auto Pos = std::lower_bound(std::begin(Bodies), BodiesEnd, InputOrdinal,
-                                [](Symbol::Body const &A, uint32_t Ord) {
-                                  return A.inputOrdinal() < Ord;
-                                });
-    if (Pos == BodiesEnd || Pos->inputOrdinal() != InputOrdinal) {
-      assert(false && "We found no associated body");
-      continue;
+    assert(Bodies.size() >= 1U && "Defined symbols must have a body");
+    if (Bodies.size() == 1U) {
+      auto &Body = Bodies[0];
+      if (Body.inputOrdinal() == InputOrdinal || Body.hasLocalLinkage()) {
+        f(NS, Body);
+      }
+    } else {
+      const auto BodiesEnd = std::end(Bodies);
+      // Find the symbol body that is associated with this compilation.
+      auto Pos = std::lower_bound(std::begin(Bodies), BodiesEnd, InputOrdinal,
+                                  [](Symbol::Body const &A, uint32_t Ord) {
+                                    return A.inputOrdinal() < Ord;
+                                  });
+      if (Pos == BodiesEnd || Pos->inputOrdinal() != InputOrdinal) {
+        assert(false && "We found no associated body");
+        continue;
+      }
+      f(NS, *Pos);
     }
-
-    f(NS, *Pos);
   }
 }
 
@@ -177,7 +174,7 @@ static void externals(State &S, Symbol::Body &Def,
 
 // internals
 // ~~~~~~~~~
-static ContributionSpArrayPtr
+static ContributionSpArray *
 internals(Symbol::Body &Def, const NotNull<FixupStorage::Container *> Storage) {
   const FragmentPtr &Fragment = Def.fragment();
   const size_t NumSections = Fragment->size();
@@ -191,8 +188,6 @@ internals(Symbol::Body &Def, const NotNull<FixupStorage::Container *> Storage) {
       csAlloc(Storage.get(), T::size_bytes(NumSections), alignof(T));
   assert(reinterpret_cast<std::uintptr_t>(Ptr) % alignof(T) == 0 &&
          "Storage must be aligned correctly");
-  //  return makePlacementUniquePtr<ContributionSpArray> (Ptr, std::begin
-  //  (*Fragment), std::end (*Fragment));
   return new (Ptr) T(std::begin(*Fragment), std::end(*Fragment));
 }
 
@@ -211,7 +206,7 @@ LocalPLTsContainer rld::resolveFixups(
       Context, Locals, InputOrdinal,
       [&](LocalSymbolsContainer::value_type &NS, Symbol::Body &Def) {
         externals(S, Def, Storage, InputOrdinal, &PLTSymbols);
-        std::get<ContributionSpArrayPtr>(NS.second) = internals(Def, Storage);
+        std::get<ContributionSpArray *>(NS.second) = internals(Def, Storage);
       });
   return PLTSymbols;
 }

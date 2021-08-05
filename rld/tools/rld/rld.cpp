@@ -202,7 +202,8 @@ int main(int Argc, char *Argv[]) {
   rld::UndefsContainer Undefs;
   auto GlobalSymbs =
       std::make_unique<rld::GlobalsStorage>(NumWorkers.getValue());
-  auto XfxStorage = std::make_unique<rld::FixupStorage>(NumWorkers.getValue());
+  auto FixupStorage =
+      std::make_unique<rld::FixupStorage>(NumWorkers.getValue());
   std::unique_ptr<rld::Layout> LO;
   std::unique_ptr<rld::LocalPLTsContainer> PLTs;
   {
@@ -231,11 +232,11 @@ int main(int Argc, char *Argv[]) {
       rld::Scanner Scan{Ctxt, Layout, &Undefs};
       for (const auto &C : Identified->Compilations) {
         WorkPool.async(
-            [&Scan, &GlobalSymbs, &XfxStorage](
+            [&Scan, &GlobalSymbs, &FixupStorage](
                 const rld::Identifier::CompilationVector::value_type &V) {
               Scan.run(std::get<std::string>(V), // path
                        GlobalSymbs->getThreadStorage(),
-                       XfxStorage->getThreadStorage(),
+                       FixupStorage->getThreadStorage(),
                        std::get<pstore::extent<pstore::repo::compilation>>(
                            V),             // compilation extent
                        std::get<size_t>(V) // input ordinal

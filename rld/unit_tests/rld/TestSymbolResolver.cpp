@@ -32,9 +32,9 @@ using pstore::repo::linkage;
 
 namespace {
 
-template <typename T1, typename T2, typename T3>
-std::tuple<const T1 *, T2, T3> addConst(std::tuple<T1 *, T2, T3> const &p) {
-  return {std::get<0>(p), std::get<1>(p), std::get<2>(p)};
+template <typename T1, typename T2>
+std::tuple<const T1 *, T2> addConst(std::tuple<T1 *, T2> const &p) {
+  return {std::get<0>(p), std::get<1>(p)};
 }
 
 //*  ___            _         _ ___                             *
@@ -175,7 +175,7 @@ TEST_P(SingleSymbol, SingleSymbol) {
     ASSERT_EQ(C0Locals->size(), 1U);
     rld::LocalSymbolsContainer::value_type const &S = *C0Locals->begin();
     EXPECT_EQ(rld::loadStdString(this->Db(), S.first), "f0");
-    EXPECT_EQ(S.second, std::make_tuple(&Globals.front(), true, nullptr));
+    EXPECT_EQ(S.second, std::make_tuple(&Globals.front(), nullptr));
   }
 }
 
@@ -263,8 +263,7 @@ void TwoSymbols::checkCompilationLocalView(
   // compilation.
   ASSERT_TRUE(LocalView.hasValue());
   EXPECT_EQ(LocalView->size(), 1U);
-  EXPECT_EQ(addConst(LocalView->begin()->second),
-            std::make_tuple(&S, true, nullptr));
+  EXPECT_EQ(addConst(LocalView->begin()->second), std::make_tuple(&S, nullptr));
 }
 
 using TwoLinkages = std::tuple<linkage, linkage>;
@@ -373,6 +372,7 @@ TEST_P(LowestOrdinal, LowerOrdinalSecond) {
   llvm::Optional<rld::LocalSymbolsContainer> C1 = Resolver_.defineSymbols(
       &Globals, &Undefs, *CU1_, Input1_, std::cref(ErrorCallback));
   ASSERT_TRUE(C1.hasValue()) << "Expected defineSymbols to succeed";
+  // This second definition should replace the original.
   llvm::Optional<rld::LocalSymbolsContainer> C0 = Resolver_.defineSymbols(
       &Globals, &Undefs, *CU0_, Input0_, std::cref(ErrorCallback));
   ASSERT_TRUE(C0.hasValue()) << "Expected defineSymbols to succeed";
@@ -561,8 +561,7 @@ TEST_P(Collision, OtherHits) {
   // The first compilation should see a definition of Symbol0.
   ASSERT_TRUE(C0.hasValue());
   EXPECT_EQ(C0->size(), 1U);
-  EXPECT_EQ(addConst(C0->begin()->second),
-            std::make_tuple(&Symbol0, true, nullptr));
+  EXPECT_EQ(addConst(C0->begin()->second), std::make_tuple(&Symbol0, nullptr));
 
   // Now check that the second compilation had an error.
   EXPECT_FALSE(C1.hasValue());
@@ -674,15 +673,13 @@ void Append::checkLocalSymbolView(ReturnType const &C0, ReturnType const &C1,
   // compilation.
   ASSERT_TRUE(C0.hasValue());
   EXPECT_EQ(C0->size(), 1U);
-  EXPECT_EQ(addConst(C0->begin()->second),
-            std::make_tuple(&Symbol, true, nullptr));
+  EXPECT_EQ(addConst(C0->begin()->second), std::make_tuple(&Symbol, nullptr));
 
   // Now check the CU-local view of the symbols is correct for the second
   // compilation.
   ASSERT_TRUE(C1.hasValue());
   EXPECT_EQ(C1->size(), 1U);
-  EXPECT_EQ(addConst(C1->begin()->second),
-            std::make_tuple(&Symbol, true, nullptr));
+  EXPECT_EQ(addConst(C1->begin()->second), std::make_tuple(&Symbol, nullptr));
 }
 
 } // end anonymous namespace

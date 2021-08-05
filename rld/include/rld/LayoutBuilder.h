@@ -313,7 +313,7 @@ private:
 
   void addSymbolBody(Symbol *const Sym, const Symbol::Body &Body,
                      uint32_t Ordinal, const StringAddress Name,
-                     ContributionSpArrayPtr IfxContributions);
+                     ContributionSpArray *IfxContributions);
 
   static std::uint64_t
   prevSectionEnd(OutputSection::ContributionVector const &Contributions);

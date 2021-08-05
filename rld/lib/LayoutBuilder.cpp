@@ -334,9 +334,10 @@ auto LayoutBuilder::recoverDefinitionsFromCUMap(const std::size_t Ordinal)
 
 // add symbol body
 // ~~~~~~~~~~~~~~~
-void LayoutBuilder::addSymbolBody(
-    Symbol *const Sym, const Symbol::Body &Body, const uint32_t Ordinal,
-    const StringAddress Name, ContributionSpArrayPtr const IfxContributions) {
+void LayoutBuilder::addSymbolBody(Symbol *const Sym, const Symbol::Body &Body,
+                                  const uint32_t Ordinal,
+                                  const StringAddress Name,
+                                  ContributionSpArray *const IfxContributions) {
   // Record this symbol's fragment if it was defined by this compilation.
   if (Body.inputOrdinal() != Ordinal) {
     return;
@@ -417,7 +418,7 @@ void LayoutBuilder::run() {
     CompilationWaiter_.waitFor(Ordinal);
 
     llvmDebug(DebugType, Ctx_.IOMut, [&] {
-      llvm::dbgs() << "Finished scanning #" << Ordinal << '\n';
+      llvm::dbgs() << "Starting layout for #" << Ordinal << '\n';
     });
 
     std::tuple<LocalSymbolsContainer, LocalPLTsContainer> PerCompilation =
@@ -428,8 +429,9 @@ void LayoutBuilder::run() {
       StringAddress const Name = Definition.first;
       auto *const Sym = std::get<Symbol *>(Definition.second);
       auto *const IfxContributions =
-          std::get<ContributionSpArrayPtr>(Definition.second);
+          std::get<ContributionSpArray *>(Definition.second);
 
+      // TODO: optimize so that this is nullptr if there are no internal fixups.
       llvmDebug(DebugType, Ctx_.IOMut, [&] {
         llvm::dbgs() << "Examining symbol:" << loadStdString(Ctx_.Db, Name)
                      << '\n';
@@ -447,7 +449,8 @@ void LayoutBuilder::run() {
 
       if (Bodies.size() == 1U) {
         auto const &B = Bodies.front();
-        if (B.inputOrdinal() == Ordinal) {
+        if (B.inputOrdinal() == Ordinal || B.hasLocalLinkage()) {
+          assert(IfxContributions != nullptr);
           this->addSymbolBody(Sym, B, Ordinal, Name, IfxContributions);
         }
       } else {
@@ -471,6 +474,7 @@ void LayoutBuilder::run() {
               return A.inputOrdinal() < B;
             });
         assert(Pos != Last && Pos->inputOrdinal() == Ordinal);
+        assert(IfxContributions != nullptr);
         this->addSymbolBody(Sym, *Pos, Ordinal, Name, IfxContributions);
       }
     }
