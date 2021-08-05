@@ -37,7 +37,11 @@ public:
   size_t size() const { return Strings_.size(); }
   IStringAddress pick(size_t Ind) const {
     const auto Size = this->size();
-    for (Ind %= Size; !Strings_[Ind].IsDefinition; Ind = (Ind + 1U) % Size) {
+    Ind %= Size;
+    while (!Strings_[Ind].IsDefinition) {
+      const auto Ind2 = (Ind + 1U) % Size;
+      assert(Ind2 != Ind);
+      Ind = Ind2;
     }
     return Strings_[Ind].Address;
   }

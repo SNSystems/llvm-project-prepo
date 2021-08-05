@@ -53,19 +53,19 @@ llvm::cl::opt<std::string> DbPath("repo",
 llvm::cl::opt<unsigned>
     AppendPerModule("append",
                     llvm::cl::desc("Number of append symbols per module"),
-                    llvm::cl::init(1U));
+                    llvm::cl::init(0U));
 llvm::cl::opt<unsigned>
     CommonPerModule("common",
                     llvm::cl::desc("Number of common symbols per module"),
-                    llvm::cl::init(1U));
+                    llvm::cl::init(0U));
 llvm::cl::opt<unsigned>
     ExternalPerModule("external",
                       llvm::cl::desc("Number of external symbols per module"),
-                      llvm::cl::init(1U));
+                      llvm::cl::init(0U));
 llvm::cl::opt<unsigned>
     LinkOncePerModule("linkonce",
                       llvm::cl::desc("Number of link-once symbols per module"),
-                      llvm::cl::init(1U));
+                      llvm::cl::init(0U));
 
 llvm::cl::opt<unsigned> Modules("modules", llvm::cl::desc("Number of modules"),
                                 llvm::cl::init(1U));
@@ -83,6 +83,10 @@ llvm::cl::opt<unsigned> SectionSize{
 
 llvm::cl::opt<unsigned> XFixupSize{
     "xfixup-size", llvm::cl::desc{"Number of external fixups in a section"},
+    llvm::cl::init(0U)};
+
+llvm::cl::opt<unsigned> IFixupSize{
+    "ifixup-size", llvm::cl::desc{"Number of internal fixups in a section"},
     llvm::cl::init(0U)};
 
 llvm::cl::opt<std::string::size_type> PrefixLength{
@@ -148,10 +152,10 @@ public:
   createFragments(pstore::transaction<pstore::transaction_lock> &Transaction,
                   FragmentCreator &Creator, StringAdder &Strings) {
     for (auto Ctr = 0U; Ctr < Count_; ++Ctr) {
-      Fragments_.emplace_back(Creator(Transaction, Ctr, Strings),
-                              Strings.add(Transaction,
-                                          NamePrefix_ + std::to_string(Ctr),
-                                          true /*IsDefinition*/));
+      const IStringAddress SA =
+          Strings.add(Transaction, NamePrefix_ + std::to_string(Ctr),
+                      true /*IsDefinition*/);
+      Fragments_.emplace_back(Creator(Transaction, Ctr, Strings), SA);
       FragmentIndex_->insert(Transaction, std::get<0>(Fragments_.back()));
     }
     return Count_;
@@ -312,13 +316,13 @@ int main(int argc, char *argv[]) {
   auto ExternalCount = 0U;
 
   FragmentCreator BssCreator{
-      DataFibonacci, SectionSize, 0U,
+      DataFibonacci, SectionSize, 0U, 0U,
       SectionSet{
           (1ULL << static_cast<unsigned>(pstore::repo::section_kind::bss))}};
 
   for (auto ModuleCtr = 0U; ModuleCtr < Modules; ++ModuleCtr) {
     FragmentCreator FCreator{
-        DataFibonacci, SectionSize, XFixupSize,
+        DataFibonacci, SectionSize, XFixupSize, IFixupSize,
         SectionSet{
             (1ULL << static_cast<unsigned>(pstore::repo::section_kind::text)) |
             (1ULL << static_cast<unsigned>(
@@ -342,14 +346,13 @@ int main(int argc, char *argv[]) {
 
     for (auto ExternalCtr = 0U; ExternalCtr < ExternalPerModule;
          ++ExternalCtr) {
+      const IStringAddress Name = Strings.add(
+          Transaction, ExternalPrefix + std::to_string(ExternalCount++),
+          true /*IsDefinition*/);
       auto const DigestExtentPair =
           FCreator(Transaction, FragmentCount++, Strings);
-      Definitions.emplace_back(
-          DigestExtentPair.first, DigestExtentPair.second,
-          Strings.add(Transaction,
-                      ExternalPrefix + std::to_string(ExternalCount++),
-                      true /*IsDefinition*/),
-          pstore::repo::linkage::external);
+      Definitions.emplace_back(DigestExtentPair.first, DigestExtentPair.second,
+                               Name, pstore::repo::linkage::external);
     }
 
     // Create the per-compilation 'append' defintions along with their

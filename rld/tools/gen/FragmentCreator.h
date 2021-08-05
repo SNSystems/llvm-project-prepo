@@ -46,9 +46,10 @@ public:
   /// \param SectionSize  The number of 32-bit values to be added to each
   /// section's payload.
   /// \param XFixupSize  The number of external fixups to add to each section.
+  /// \param IFixupSize  The number of internal fixups to add to each section.
   /// \param Sections  The set of sections to be added to the fragment.
   FragmentCreator(bool DataFibonacci, unsigned SectionSize, unsigned XFixupSize,
-                  const SectionSet &Sections);
+                  unsigned IFixupSize, const SectionSet &Sections);
   auto operator()(pstore::transaction_base &T, size_t Count,
                   StringAdder const &Strings) -> FragmentIndexValueType;
 
@@ -84,6 +85,8 @@ private:
   const unsigned SectionSize_;
   /// The number of external fixups to add to each section.
   const unsigned XFixupSize_;
+  /// The number of internal fixups to add to each section.
+  const unsigned IFixupSize_;
   const SectionSet Sections_;
 
   fibonacci_generator<> Fib_;

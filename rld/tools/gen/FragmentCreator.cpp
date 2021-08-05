@@ -83,10 +83,10 @@ static void addSectionToHash(HashFunction *const Hash,
 // ctor
 // ~~~~
 FragmentCreator::FragmentCreator(bool DataFibonacci, unsigned SectionSize,
-                                 unsigned XFixupSize,
+                                 unsigned XFixupSize, unsigned IFixupSize,
                                  SectionSet const &Sections)
     : DataFibonacci_{DataFibonacci}, SectionSize_{SectionSize},
-      XFixupSize_{XFixupSize}, Sections_{Sections},
+      XFixupSize_{XFixupSize}, IFixupSize_{IFixupSize}, Sections_{Sections},
       Dispatchers_{createDispatchers(Sections)} {}
 
 // create dispatcher [static]
@@ -241,12 +241,20 @@ pstore::repo::section_content FragmentCreator::generateDataSection(
     DataSection.data.emplace_back((V >> 0) & 0xFF);
   }
 
+  const auto FixupType = pstore::repo::relocation_type{1}; // TODO: R_X86_64_64
   for (auto Ctr = 0U; Ctr < XFixupSize_; ++Ctr) {
     DataSection.xfixups.emplace_back(
-        Strings.pick(*G), pstore::repo::relocation_type{1}, // TODO: R_X86_64_64
-        pstore::repo::reference_strength::strong,
-        UINT64_C(0), // offset
-        INT64_C(0)   // addend
+        Strings.pick(*G), FixupType, pstore::repo::reference_strength::strong,
+        static_cast<uint64_t>(Ctr) % SectionSize_, // offset
+        INT64_C(8)                                 // addend
+    );
+    ++G;
+  }
+  for (auto Ctr = 0U; Ctr < IFixupSize_; ++Ctr) {
+    DataSection.ifixups.emplace_back(
+        Kind, FixupType,
+        static_cast<uint64_t>(Ctr) % SectionSize_, // offset
+        INT64_C(8)                                 // addend
     );
     ++G;
   }
