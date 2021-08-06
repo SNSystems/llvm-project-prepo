@@ -40,8 +40,16 @@ function clone_project() {
   fi
   set -e
   echo "Checking out '$SOURCE/$PROJECT' into '$DIRECTORY/$DESTINATION'"
-  # Create a shallow clone, including only the last revision.
-  git clone --depth 1 --recurse-submodules --branch $SOURCE $GIT_REPOSITORY/$PROJECT $DESTINATION
+  # Create a shallow clone, including only the last revision and retreiving only
+  # the $SOURCE branch..
+  git clone                    \
+      --depth 1                \
+      --recurse-submodules     \
+      --single-branch          \
+      --branch $SOURCE         \
+      --progress               \
+      $GIT_REPOSITORY/$PROJECT \
+      $DESTINATION
 }
 
 BRANCH=""
