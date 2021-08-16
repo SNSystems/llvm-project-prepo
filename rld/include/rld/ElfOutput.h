@@ -28,11 +28,13 @@ namespace rld {
 
 class Context;
 class Layout;
+class UndefsContainer;
 
 llvm::Error elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
                       const GlobalSymbolsContainer &Globals,
-                      llvm::ThreadPool &WorkPool, Layout *const Lout,
-                      const LocalPLTsContainer &PLTs);
+                      const SymbolOrder &SymOrder,
+                      const UndefsContainer &Undefs, llvm::ThreadPool &WorkPool,
+                      Layout *const Lout, const LocalPLTsContainer &PLTs);
 
 } // end namespace rld
 

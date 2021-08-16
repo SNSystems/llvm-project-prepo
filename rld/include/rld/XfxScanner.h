@@ -31,8 +31,8 @@ namespace rld {
 ///   internal fixups.
 
 LocalPLTsContainer
-resolveFixups(Context &Context, const NotNull<LocalSymbolsContainer *> Locals,
-              const NotNull<rld::GlobalSymbolsContainer *> Globals,
+resolveFixups(Context &Context, const NotNull<CompilationSymbolsView *> Locals,
+              const NotNull<GlobalSymbolsContainer *> Globals,
               const NotNull<UndefsContainer *> Undefs, uint32_t InputOrdinal,
               const NotNull<FixupStorage::Container *> Storage);
 

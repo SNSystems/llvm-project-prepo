@@ -202,7 +202,7 @@ public:
 
   /// Call when a compilation scan has been completed.
   void visited(uint32_t Ordinal,
-               std::tuple<LocalSymbolsContainer, LocalPLTsContainer> &&Locals);
+               std::tuple<CompilationSymbolsView, LocalPLTsContainer> &&Locals);
 
   /// The main layout thread entry point.
   void run();
@@ -214,6 +214,11 @@ public:
   flattenSegments(uint64_t Base, uint64_t HeaderBlockSize);
 
   template <typename ELFT> uint64_t elfHeaderBlockSize() const;
+
+  SymbolOrder symbolOrder() const {
+    return {std::get<HeadIndex>(LocalEmit_), LocalsSize_,
+            std::get<HeadIndex>(GlobalEmit_)};
+  }
 
 private:
   Context &Ctx_;
@@ -247,7 +252,7 @@ private:
 
   std::mutex CUsMut_;
   llvm::DenseMap<uint32_t,
-                 std::tuple<LocalSymbolsContainer, LocalPLTsContainer>>
+                 std::tuple<CompilationSymbolsView, LocalPLTsContainer>>
       CUs_;
 
   struct SectionMapping {
@@ -258,6 +263,13 @@ private:
           InputSection{InputSection},
 #endif
           OutputSection{OutputSection}, Segment{Segment} {
+    }
+    constexpr SectionMapping(SectionKind InputSection, SegmentKind Segment)
+        :
+#ifndef NDEBUG
+          InputSection{InputSection},
+#endif
+          OutputSection{InputSection}, Segment{Segment} {
     }
 
 #ifndef NDEBUG
@@ -276,6 +288,15 @@ private:
   std::unique_ptr<Layout> Layout_;
   /// The PLTS_ container is built as each compilation finishes scan.
   std::unique_ptr<LocalPLTsContainer> PLTs_;
+
+  enum { HeadIndex, LastIndex };
+  std::pair<Symbol *, Symbol *> LocalEmit_;
+  /// The number of local symbols.
+  size_t LocalsSize_ = 0;
+  std::pair<Symbol *, Symbol *> GlobalEmit_;
+
+  static void appendToEmitList(std::pair<Symbol *, Symbol *> *const EmitList,
+                               Symbol *const Sym);
 
   static constexpr decltype(auto) sectionNum(pstore::repo::section_kind SKind) {
     return static_cast<std::underlying_type<pstore::repo::section_kind>::type>(
@@ -308,11 +329,11 @@ private:
   OutputSection *addToOutputSection(SectionKind SKind, size_t Size,
                                     unsigned Alignment);
 
-  std::tuple<LocalSymbolsContainer, LocalPLTsContainer>
+  std::tuple<CompilationSymbolsView, LocalPLTsContainer>
   recoverDefinitionsFromCUMap(std::size_t Ordinal);
 
   void addSymbolBody(Symbol *const Sym, const Symbol::Body &Body,
-                     uint32_t Ordinal, const StringAddress Name,
+                     uint32_t Ordinal, StringAddress Name,
                      ContributionSpArray *IfxContributions);
 
   static std::uint64_t

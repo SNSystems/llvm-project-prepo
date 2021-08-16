@@ -45,7 +45,7 @@ public:
   Scanner &operator=(Scanner const &) = delete;
 
   void run(const llvm::StringRef &Path,
-           const NotNull<rld::GlobalSymbolsContainer *> GlobalSymbols,
+           const NotNull<GlobalSymbolsContainer *> GlobalSymbols,
            const NotNull<FixupStorage::Container *> FixupStorage,
            const pstore::extent<pstore::repo::compilation> &CompilationExtent,
            uint32_t InputOrdinal);

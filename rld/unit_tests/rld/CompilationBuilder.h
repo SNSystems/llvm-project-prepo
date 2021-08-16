@@ -23,6 +23,8 @@
 
 #include "StringAdder.h"
 
+#include <initializer_list>
+
 class CompilationBuilder {
 public:
   using NameAndLinkagePair = std::pair<std::string, pstore::repo::linkage>;
@@ -43,7 +45,7 @@ public:
   ///     with the desired contents. It should have a signature compatible with:
   ///     pstore::index::fragment_index::value_type(Transaction &, StringAdder
   ///     &).
-  /// \returns A pair containing the new fragment's digest and its extent.
+  /// \returns A pointer to the new compilation record.
   template <typename NameAndLinkageIterator, typename CreateFragmentFn>
   auto compile(NameAndLinkageIterator First, NameAndLinkageIterator Last,
                CreateFragmentFn FragmentCreator)
@@ -58,7 +60,21 @@ public:
   /// \param DefinitionName The name of the definition that is created.
   /// \param Linkage The linkage of the definition to be created. This must not
   /// be "common" linkage.
+  /// \returns A pointer to the new compilation record.
   auto compile(std::string const &DefinitionName, pstore::repo::linkage Linkage)
+      -> std::shared_ptr<pstore::repo::compilation const>;
+
+  /// A convenience method which creates a compilation with members whose name
+  /// and linkage are defined by the Members list. The resulting compilation
+  /// contains definitions which each which reference a fragment with a
+  /// read-only section.
+  ///
+  /// Note that definitions with common linkage _cannot_ be created by this
+  /// function.
+  ///
+  /// \param Members The names and linkages of the definitions to be created.
+  /// \returns A pointer to the new compilation record.
+  auto compile(std::initializer_list<NameAndLinkagePair> Members)
       -> std::shared_ptr<pstore::repo::compilation const>;
 
   /// A convenience method which creates a compilation with a single definition
@@ -67,6 +83,7 @@ public:
   ///
   /// \param DefinitionName The name of the definition that is created.
   /// \param CommonSize The size of the common symbol.
+  /// \returns A pointer to the new compilation record.
   auto compileWithCommonSymbol(std::string const &DefinitionName,
                                unsigned CommonSize)
       -> std::shared_ptr<pstore::repo::compilation const>;
@@ -81,12 +98,12 @@ public:
   static std::shared_ptr<pstore::index::name_index>
   getNameIndex(pstore::database &Db);
 
-private:
   static pstore::index::fragment_index::value_type
   createFragmentWithReadOnlySection(Transaction &T, StringAdder &N);
   static pstore::index::fragment_index::value_type
   createFragmentWithBSSSection(Transaction &T, size_t Size);
 
+private:
   pstore::database &Db_;
   StringAdder NameAdder_;
 };

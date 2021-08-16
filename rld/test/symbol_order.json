@@ -1,0 +1,98 @@
+// A test which will result in the creation of symbols that are local, global,
+// and weak-undefined. These arrive in the linker in essentially random order
+// but must be emitted as local first (as per the ELF spec), global, then
+// finally weak-undef.
+
+// RUN: rm -rf %t && mkdir -p %t
+// RUN: pstore-import %t/db.db %s
+// RUN: repo-create-ticket --repo %t/db.db -o %t/a.o 11111111111111111111111111111111
+// RUN: repo-create-ticket --repo %t/db.db -o %t/b.o 22222222222222222222222222222222
+// RUN: rld --repo=%t/db.db -o %t/a.out %t/a.o %t/b.o
+// RUN: llvm-readelf --symbols %t/a.out | FileCheck %s
+
+
+// CHECK: Symbol table '.symtab' contains 8 entries:
+// CHECK: 0: 0000000000000000 0 NOTYPE  LOCAL  DEFAULT   UND
+// CHECK: 1: {{[0-9A-Fa-f]+}} 0 FUNC    LOCAL  DEFAULT     1 b
+// CHECK: 2: {{[0-9A-Fa-f]+}} 0 FUNC    LOCAL  DEFAULT     1 e
+// CHECK: 3: {{[0-9A-Fa-f]+}} 0 FUNC    GLOBAL DEFAULT     1 a
+// CHECK: 4: {{[0-9A-Fa-f]+}} 0 FUNC    GLOBAL DEFAULT     1 c
+// CHECK: 5: {{[0-9A-Fa-f]+}} 0 FUNC    GLOBAL DEFAULT     1 d
+// CHECK: 6: {{[0-9A-Fa-f]+}} 0 FUNC    GLOBAL DEFAULT     1 f
+// CHECK: 7: 0000000000000000 0 NOTYPE  WEAK   DEFAULT   UND g
+
+
+{
+  "version":1,
+  "id":"544a7ecc-aa16-4b82-af6e-baebc7de2dd8",
+  "transactions":[
+    {
+      // transaction #1
+      "names":[
+        "x86_64-pc-linux-gnu-repo", // #0
+        "a", // #1
+        "b", // #2
+        "c", // #3
+        "e", // #4
+        "f", // #5
+        "g", // #6
+        "d" // #7
+      ],
+      "fragments":{
+        "21bb417b8313320579c1e32adb9dacfa":{
+          "text":{
+            "data":"VUiJ5YtF/F3D"
+          }
+        },
+        "8a91fdd59376a2d86ae3c934c330c0df":{
+          "text":{
+            "data":"VUiJ5egAAAAAXcM=",
+            "xfixups":[
+              {"name":2,"type":4,"offset":5,"addend":-4} //"b"
+            ]
+          }
+        },
+        "e00f3e0529b3e5747c4f012bcde70cdf":{
+          "text":{
+            "data":"VUiJ5V3D"
+          }
+        },
+        "27770eecf6cfe905d7697c7d0780b8f2":{
+          "text":{
+            "data":"VUiJ5bAA6AAAAABdww==",
+            "xfixups":[
+              {"name":6,"type":4,"is_weak":true,"offset":7,"addend":-4} //"g"
+            ]
+          }
+        },
+        "d9608132e7a983a057c1520ad2e20671":{
+          "text":{
+            "data":"VUiJ5egAAAAAXcM=",
+            "xfixups":[
+              {"name":4,"type":4,"offset":5,"addend":-4} //"e"
+            ]
+          }
+        },
+      },
+      "compilations":{
+        "11111111111111111111111111111111":{
+          "triple":0, //"x86_64-pc-linux-gnu-repo"
+          "definitions":[
+            {"digest":"21bb417b8313320579c1e32adb9dacfa","name":1,"linkage":"external"}, //"a"
+            {"digest":"8a91fdd59376a2d86ae3c934c330c0df","name":3,"linkage":"external"}, //"c"
+            {"digest":"e00f3e0529b3e5747c4f012bcde70cdf","name":2,"linkage":"internal"} //"b"
+          ]
+        },
+        "22222222222222222222222222222222":{
+          "triple":0, //"x86_64-pc-linux-gnu-repo"
+          "definitions":[
+            {"digest":"27770eecf6cfe905d7697c7d0780b8f2","name":7,"linkage":"external"}, //"d"
+            {"digest":"d9608132e7a983a057c1520ad2e20671","name":5,"linkage":"external"}, //"f"
+            {"digest":"e00f3e0529b3e5747c4f012bcde70cdf","name":4,"linkage":"internal"} //"e"
+          ]
+        }
+
+      }
+    }
+  ]
+}

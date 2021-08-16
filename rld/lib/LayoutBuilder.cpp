@@ -119,13 +119,18 @@ void LayoutBuilder::Visited::resize(uint32_t NumCompilations) {
   }
 }
 
+// For the most part, the type of the section in the input is mapped directly to
+// the output. In the case of the mergeable... sections, these are translated to
+// the read_only output section.
+//
 // Note that a target segment-kind of 'last' indicates that we don't expecting
 // to be emitting output sections of this type.
+
 LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
-    SectionMapping{SectionKind::text, SectionKind::text, SegmentKind::text},
-    {SectionKind::data, SectionKind::data, SegmentKind::data},
-    {SectionKind::bss, SectionKind::bss, SegmentKind::data},
-    {SectionKind::rel_ro, SectionKind::rel_ro, SegmentKind::data},
+    SectionMapping{SectionKind::text, SegmentKind::text},
+    {SectionKind::data, SegmentKind::data},
+    {SectionKind::bss, SegmentKind::data},
+    {SectionKind::rel_ro, SegmentKind::data},
     {SectionKind::mergeable_1_byte_c_string, SectionKind::read_only,
      SegmentKind::rodata},
     {SectionKind::mergeable_2_byte_c_string, SectionKind::read_only,
@@ -140,22 +145,19 @@ LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
      SegmentKind::rodata},
     {SectionKind::mergeable_const_32, SectionKind::read_only,
      SegmentKind::rodata},
-    {SectionKind::read_only, SectionKind::read_only, SegmentKind::rodata},
-    {SectionKind::thread_data, SectionKind::thread_data, SegmentKind::tls},
-    {SectionKind::thread_bss, SectionKind::thread_bss, SegmentKind::tls},
-    {SectionKind::debug_line, SectionKind::debug_line, SegmentKind::discard},
-    {SectionKind::debug_string, SectionKind::debug_string,
-     SegmentKind::discard},
-    {SectionKind::debug_ranges, SectionKind::debug_ranges,
-     SegmentKind::discard},
-    {SectionKind::linked_definitions, SectionKind::linked_definitions,
-     SegmentKind::discard},
-    {SectionKind::gotplt, SectionKind::gotplt, SegmentKind::data},
-    {SectionKind::plt, SectionKind::plt, SegmentKind::text},
-    {SectionKind::rela_plt, SectionKind::rela_plt, SegmentKind::rodata},
-    {SectionKind::shstrtab, SectionKind::shstrtab, SegmentKind::discard},
-    {SectionKind::strtab, SectionKind::strtab, SegmentKind::discard},
-    {SectionKind::symtab, SectionKind::symtab, SegmentKind::discard},
+    {SectionKind::read_only, SegmentKind::rodata},
+    {SectionKind::thread_data, SegmentKind::tls},
+    {SectionKind::thread_bss, SegmentKind::tls},
+    {SectionKind::debug_line, SegmentKind::discard},
+    {SectionKind::debug_string, SegmentKind::discard},
+    {SectionKind::debug_ranges, SegmentKind::discard},
+    {SectionKind::linked_definitions, SegmentKind::discard},
+    {SectionKind::gotplt, SegmentKind::data},
+    {SectionKind::plt, SegmentKind::text},
+    {SectionKind::rela_plt, SegmentKind::rodata},
+    {SectionKind::shstrtab, SegmentKind::discard},
+    {SectionKind::strtab, SegmentKind::discard},
+    {SectionKind::symtab, SegmentKind::discard},
 }};
 
 // (ctor)
@@ -195,7 +197,8 @@ LayoutBuilder::LayoutBuilder(Context &Ctx,
     : Ctx_{Ctx}, Globals_{Globals}, NumCompilations_{NumCompilations},
       CompilationWaiter_{NumCompilations}, CUsMut_{}, CUs_{},
       Layout_{std::make_unique<Layout>()},
-      PLTs_{std::make_unique<LocalPLTsContainer>()} {
+      PLTs_{std::make_unique<LocalPLTsContainer>()}, LocalEmit_{},
+      GlobalEmit_{} {
 
   for (auto SegmentK = firstSegmentKind(); SegmentK < SegmentKind::last;
        ++SegmentK) {
@@ -209,7 +212,7 @@ LayoutBuilder::LayoutBuilder(Context &Ctx,
 // ~~~~~~~
 void LayoutBuilder::visited(
     uint32_t Index,
-    std::tuple<LocalSymbolsContainer, LocalPLTsContainer> &&Locals) {
+    std::tuple<CompilationSymbolsView, LocalPLTsContainer> &&Locals) {
   {
     std::lock_guard<std::mutex> const _{CUsMut_};
     assert(CUs_.find(Index) == CUs_.end() &&
@@ -307,7 +310,7 @@ Contribution *LayoutBuilder::addSectionToLayout(
       OutputSection,    // The output section to which the contribution belongs.
       alignTo(LayoutBuilder::prevSectionEnd(OutputSection->Contributions),
               Alignment), // Offset
-      Size, Alignment, Name, Body.inputOrdinal());
+      Size, Alignment, Body.inputOrdinal(), Name);
 
   llvmDebug(DebugType, Ctx_.IOMut, [&] {
     const auto &Entry = OutputSection->Contributions.back();
@@ -323,13 +326,31 @@ Contribution *LayoutBuilder::addSectionToLayout(
 // We were handed the compilation's definitions when its scan completed.
 // Recover it from where we stashed it in the CUs_ map.
 auto LayoutBuilder::recoverDefinitionsFromCUMap(const std::size_t Ordinal)
-    -> std::tuple<LocalSymbolsContainer, LocalPLTsContainer> {
+    -> std::tuple<CompilationSymbolsView, LocalPLTsContainer> {
   std::lock_guard<std::mutex> const _{CUsMut_};
-  assert(CUs_.find(Ordinal) != CUs_.end());
-  std::tuple<LocalSymbolsContainer, LocalPLTsContainer> D =
-      std::move(CUs_[Ordinal]);
-  CUs_.erase(Ordinal);
+  const auto Pos = CUs_.find(Ordinal);
+  assert(Pos != CUs_.end() && "Ordinal must be in the CUs map");
+  std::tuple<CompilationSymbolsView, LocalPLTsContainer> D =
+      std::move(Pos->second);
+  CUs_.erase(Pos);
   return D;
+}
+
+// append to emit list [static]
+// ~~~~~~~~~~~~~~~~~~~
+void LayoutBuilder::appendToEmitList(
+    std::pair<Symbol *, Symbol *> *const EmitList, Symbol *const Sym) {
+  assert(Sym != nullptr);
+  Symbol *&H = std::get<HeadIndex>(*EmitList);
+  Symbol *&L = std::get<LastIndex>(*EmitList);
+  assert((H == nullptr) == (L == nullptr));
+  if (H == nullptr) {
+    H = L = Sym;
+  } else {
+    if (L->setNextEmit(Sym)) {
+      L = Sym;
+    }
+  }
 }
 
 // add symbol body
@@ -346,8 +367,20 @@ void LayoutBuilder::addSymbolBody(Symbol *const Sym, const Symbol::Body &Body,
     llvm::dbgs() << "  Layout:" << loadStdString(Ctx_.Db, Name) << '\n';
   });
 
-  Contribution *C = nullptr;
+  if (isLocalLinkage(Body.linkage())) {
+    ++LocalsSize_;
+    this->appendToEmitList(&LocalEmit_, Sym);
+  } else {
+    this->appendToEmitList(&GlobalEmit_, Sym);
+  }
+
+  ContributionSpArray::iterator CIt{};
+  if (IfxContributions != nullptr) {
+    CIt = IfxContributions->begin();
+  }
+
   for (pstore::repo::section_kind Section : *Body.fragment()) {
+    Contribution *C = nullptr;
 #define X(a)                                                                   \
   case pstore::repo::section_kind::a:                                          \
     C = this->addSectionToLayout<pstore::repo::section_kind::a>(               \
@@ -365,7 +398,10 @@ void LayoutBuilder::addSymbolBody(Symbol *const Sym, const Symbol::Body &Body,
       assert(IfxContributions->has_index(Section) &&
              "The array does not have an index for one of the fragment's "
              "sections");
-      (*IfxContributions)[Section] = C;
+      assert(&(*IfxContributions)[Section] == &*CIt &&
+             "The IfxContribution iterator was not correct");
+      *CIt = C;
+      ++CIt;
     }
 
     Sym->setFirstContribution(C);
@@ -421,15 +457,14 @@ void LayoutBuilder::run() {
       llvm::dbgs() << "Starting layout for #" << Ordinal << '\n';
     });
 
-    std::tuple<LocalSymbolsContainer, LocalPLTsContainer> PerCompilation =
+    std::tuple<CompilationSymbolsView, LocalPLTsContainer> PerCompilation =
         recoverDefinitionsFromCUMap(Ordinal);
 
     for (auto const &Definition :
-         std::get<LocalSymbolsContainer>(PerCompilation)) {
+         std::get<CompilationSymbolsView>(PerCompilation).Map) {
       StringAddress const Name = Definition.first;
-      auto *const Sym = std::get<Symbol *>(Definition.second);
-      auto *const IfxContributions =
-          std::get<ContributionSpArray *>(Definition.second);
+      Symbol *const Sym = Definition.second.Sym;
+      ContributionSpArray *const IfxContributions = Definition.second.Ifx;
 
       // TODO: optimize so that this is nullptr if there are no internal fixups.
       llvmDebug(DebugType, Ctx_.IOMut, [&] {
@@ -449,10 +484,8 @@ void LayoutBuilder::run() {
 
       if (Bodies.size() == 1U) {
         auto const &B = Bodies.front();
-        if (B.inputOrdinal() == Ordinal || B.hasLocalLinkage()) {
-          assert(IfxContributions != nullptr);
-          this->addSymbolBody(Sym, B, Ordinal, Name, IfxContributions);
-        }
+        assert(!B.hasLocalLinkage() || B.inputOrdinal() == Ordinal);
+        this->addSymbolBody(Sym, B, Ordinal, Name, IfxContributions);
       } else {
         auto const First = std::begin(Bodies);
         auto const Last = std::end(Bodies);
@@ -474,7 +507,6 @@ void LayoutBuilder::run() {
               return A.inputOrdinal() < B;
             });
         assert(Pos != Last && Pos->inputOrdinal() == Ordinal);
-        assert(IfxContributions != nullptr);
         this->addSymbolBody(Sym, *Pos, Ordinal, Name, IfxContributions);
       }
     }

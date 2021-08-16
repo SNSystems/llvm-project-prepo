@@ -72,7 +72,7 @@ protected:
       llvm::StringRef const &Name, linkage Linkage,
       llvm::StringRef const &RefTo, reference_strength Strength);
 
-  llvm::Optional<rld::LocalSymbolsContainer>
+  llvm::Optional<rld::CompilationSymbolsView>
   defineSymbols(CompilationPtr const &Compilation, uint32_t InputOrdinal);
 
   rld::Context Context_;
@@ -98,7 +98,7 @@ auto XfxScannerTest::compileOneDefinitionWithReferenceTo(
 
 // define symbols
 // ~~~~~~~~~~~~~~
-llvm::Optional<rld::LocalSymbolsContainer>
+llvm::Optional<rld::CompilationSymbolsView>
 XfxScannerTest::defineSymbols(CompilationPtr const &Compilation,
                               uint32_t InputOrdinal) {
   // Create an entry in the symbol table for the definition in our compilation.
@@ -112,7 +112,7 @@ XfxScannerTest::defineSymbols(CompilationPtr const &Compilation,
 } // end anonymous namespace
 
 TEST_F(XfxScannerTest, Empty) {
-  rld::LocalSymbolsContainer Locals;
+  rld::CompilationSymbolsView Locals{0};
 
   rld::FixupStorage::Container FixupStorage;
   constexpr auto InputOrdinal = uint32_t{0};
@@ -122,7 +122,7 @@ TEST_F(XfxScannerTest, Empty) {
   EXPECT_TRUE(Undefs_.empty());
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U);
   EXPECT_TRUE(Undefs_.strongUndefCountIsCorrect());
-  EXPECT_TRUE(Locals.empty());
+  EXPECT_TRUE(Locals.Map.empty());
   EXPECT_TRUE(Globals_.empty());
 }
 
@@ -152,7 +152,7 @@ TEST_F(XfxScannerTest, StrongRefToUndefined) {
   EXPECT_TRUE(Undefs_.strongUndefCountIsCorrect());
   EXPECT_EQ(Globals_.size(), 2U)
       << "Expected 2 globals: the definition and the undef";
-  EXPECT_EQ(Locals->size(), 1U)
+  EXPECT_EQ(Locals->Map.size(), 1U)
       << "The compilation should have a single definition";
 
   // Build an intermediate vector with just the name and has-definition values.
@@ -197,7 +197,7 @@ TEST_F(XfxScannerTest, WeakRefToUndefined) {
   EXPECT_TRUE(Undefs_.strongUndefCountIsCorrect());
   EXPECT_EQ(Globals_.size(), 2U)
       << "Expected 2 globals: the definition and the undef";
-  EXPECT_EQ(Locals->size(), 1U)
+  EXPECT_EQ(Locals->Map.size(), 1U)
       << "The compilation should have a single definition";
 
   // Build an intermediate vector with just the name and has-definition values.
@@ -232,7 +232,7 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
     // compilation.
     auto Locals1 = this->defineSymbols(Compilation1, InputOrdinal1);
     ASSERT_TRUE(Locals1.hasValue()) << "Expected defineSymbols to succeed";
-    EXPECT_EQ(Locals1->size(), 1U);
+    EXPECT_EQ(Locals1->Map.size(), 1U);
     // Resolve the external fixups in compilation #1.
     const rld::LocalPLTsContainer PLTSymbols1 =
         resolveFixups(Context_, Locals1.getPointer(), &Globals_, &Undefs_,
@@ -258,7 +258,7 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
     // compilation.
     auto Locals2 = this->defineSymbols(Compilation2, InputOrdinal2);
     ASSERT_TRUE(Locals2.hasValue()) << "Expected defineSymbols to succeed";
-    EXPECT_EQ(Locals2->size(), 1U);
+    EXPECT_EQ(Locals2->Map.size(), 1U);
     // Resolve the external fixups in compilation #2.
     const rld::LocalPLTsContainer PLTSymbols2 =
         resolveFixups(Context_, Locals2.getPointer(), &Globals_, &Undefs_,
@@ -297,7 +297,7 @@ TEST_F(XfxScannerTest, StrongRefToExternalDef) {
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U);
   EXPECT_TRUE(Undefs_.strongUndefCountIsCorrect());
   EXPECT_EQ(Globals_.size(), 1U);
-  EXPECT_EQ(Locals->size(), 1U)
+  EXPECT_EQ(Locals->Map.size(), 1U)
       << "The compilation should have a single definition";
 
   const auto Pos = std::begin(Globals_);
@@ -337,9 +337,9 @@ TEST_F(XfxScannerTest, RefToAppendDef) {
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U);
   EXPECT_TRUE(Undefs_.strongUndefCountIsCorrect());
   EXPECT_EQ(Globals_.size(), 1U);
-  EXPECT_EQ(L0->size(), 1U)
+  EXPECT_EQ(L0->Map.size(), 1U)
       << "Locals for Compilation 0 should have a single definition";
-  EXPECT_EQ(L1->size(), 1U)
+  EXPECT_EQ(L1->Map.size(), 1U)
       << "Locals for Compilation 1 should have a single definition";
 
   const auto Pos = std::begin(Globals_);

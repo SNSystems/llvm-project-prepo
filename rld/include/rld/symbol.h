@@ -130,6 +130,11 @@ private:
 
 struct Contribution;
 
+constexpr bool isLocalLinkage(const pstore::repo::linkage L) {
+  return L == pstore::repo::linkage::internal ||
+         L == pstore::repo::linkage::internal_no_symbol;
+}
+
 //*  ___            _         _  *
 //* / __|_  _ _ __ | |__  ___| | *
 //* \__ \ || | '  \| '_ \/ _ \ | *
@@ -166,12 +171,7 @@ public:
 
     pstore::repo::linkage linkage() const { return Def_->linkage(); }
     pstore::repo::visibility visibility() const { return Def_->visibility(); }
-
-    bool hasLocalLinkage() const {
-      const pstore::repo::linkage Linkage = this->linkage();
-      return Linkage == pstore::repo::linkage::internal ||
-             Linkage == pstore::repo::linkage::internal_no_symbol;
-    }
+    bool hasLocalLinkage() const { return isLocalLinkage(this->linkage()); }
 
     uint32_t inputOrdinal() const { return InputOrdinal_; }
     const FragmentPtr &fragment() const { return Fragment_; }
@@ -410,6 +410,18 @@ public:
                            const NotNull<UndefsContainer *> Undefs,
                            uint32_t InputOrdinal);
 
+  bool setNextEmit(Symbol *const Next) {
+    assert(Next != nullptr);
+    if (Next->NextEmit != nullptr) {
+      return false;
+    }
+    NextEmit = Next;
+    return true;
+  }
+
+  // Set by the layout thread and read during final output.
+  Symbol *NextEmit = nullptr;
+
 private:
   /// If we're an earlier input file than the one which was responsible
   /// for this definition, then ours beats it out; if we're later than
@@ -635,13 +647,52 @@ Symbol *setSymbolShadow(std::atomic<Symbol *> *Sptr, CreateOp Create,
   return Update(Symbol);
 }
 
-using ContributionSpArray = pstore::repo::section_sparray<Contribution const *>;
-using LocalSymbolsContainer =
-    llvm::DenseMap<StringAddress, std::tuple<Symbol *, ContributionSpArray *>>;
+using ContributionSpArray = pstore::repo::section_sparray<const Contribution *>;
+
+/// A view on of the global symbol table from the point of view of an individual
+/// compilation.
+struct CompilationSymbolsView {
+  struct Value {
+    explicit Value(Symbol *Sym) : Sym{Sym} {}
+    bool operator==(const Value &Other) const {
+      return Sym == Other.Sym && Ifx == Other.Ifx;
+    }
+    bool operator!=(const Value &Other) const { return !operator==(Other); }
+
+    Symbol *Sym;
+    ContributionSpArray *Ifx = nullptr;
+  };
+  using Container = llvm::DenseMap<StringAddress, Value>;
+
+  explicit CompilationSymbolsView(const unsigned InitialReserve)
+      : Map{InitialReserve} {}
+  CompilationSymbolsView(const CompilationSymbolsView &) = delete;
+  CompilationSymbolsView(CompilationSymbolsView &&Other)
+      : Map{std::move(Other.Map)} {}
+
+  CompilationSymbolsView &
+  operator=(const CompilationSymbolsView &Other) = delete;
+  CompilationSymbolsView &operator=(CompilationSymbolsView &&Other) {
+    if (&Other != this) {
+      Map = std::move(Other.Map);
+    }
+    return *this;
+  }
+
+  Container Map;
+};
+
 using LocalPLTsContainer = llvm::SmallVector<Symbol *, 256>;
+
 /// The Global symbols are allocated in chunks of 4MiB.
 using GlobalSymbolsContainer =
     pstore::chunked_sequence<Symbol, (4 * 1024 * 1024) / sizeof(Symbol)>;
+
+struct SymbolOrder {
+  Symbol *Local = nullptr;
+  size_t LocalsSize = 0U;
+  Symbol *Global = nullptr;
+};
 
 void debugDumpSymbols(const Context &Ctx,
                       const GlobalSymbolsContainer &Globals);
@@ -691,7 +742,7 @@ public:
   ///   ensure consistent output regardless of the order of processing.
   /// \param ErrorFn  Called in the event of an error.
   template <typename Function>
-  llvm::Optional<LocalSymbolsContainer>
+  llvm::Optional<CompilationSymbolsView>
   defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
                 const NotNull<UndefsContainer *> Undefs,
                 const pstore::repo::compilation &Compilation,
@@ -740,7 +791,7 @@ private:
 // define symbols
 // ~~~~~~~~~~~~~~
 template <typename Function>
-llvm::Optional<LocalSymbolsContainer>
+llvm::Optional<CompilationSymbolsView>
 SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
                               const NotNull<UndefsContainer *> Undefs,
                               const pstore::repo::compilation &Compilation,
@@ -748,16 +799,22 @@ SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
                               const Function ErrorFn) {
   bool Error = false;
 
-  LocalSymbolsContainer Locals{Compilation.size()};
+  CompilationSymbolsView Locals{Compilation.size()};
 
   // Define the symbols in this module.
   for (const pstore::repo::definition &Def : Compilation) {
     Symbol *const Sym = this->defineSymbol(Globals, Undefs, Def, InputOrdinal);
-    // defineSymbol() returns a null symbol pointer to indicate that the
-    // definition was rejected. We must issue an error.
     if (Sym != nullptr) {
-      Locals.try_emplace(Def.name, std::make_tuple(Sym, nullptr));
+      // Definition succeeded. Record the symbol the corresponds to this name in
+      // this compilation. Fixup resolution will consult this map before falling
+      // back to the global symbol table.
+      const std::pair<CompilationSymbolsView::Container::iterator, bool> Res =
+          Locals.Map.try_emplace(Def.name, CompilationSymbolsView::Value{Sym});
+      (void)Res;
+      assert(Res.second);
     } else {
+      // defineSymbol() returns a null symbol pointer to indicate that the
+      // definition was rejected. We must issue an error.
       Error = true;
       ErrorFn(Def.name); // Allow the error to be reported to the user.
     }
@@ -784,7 +841,7 @@ SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
 ///   the creation of this symbol.
 /// \return  A pointer to the referenced symbol.
 NotNull<Symbol *>
-referenceSymbol(Context &Ctxt, const LocalSymbolsContainer &Locals,
+referenceSymbol(Context &Ctxt, const CompilationSymbolsView &Locals,
                 const NotNull<GlobalSymbolsContainer *> Globals,
                 const NotNull<UndefsContainer *> Undefs, StringAddress Name,
                 pstore::repo::reference_strength Strength);

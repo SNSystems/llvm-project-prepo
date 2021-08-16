@@ -445,15 +445,15 @@ void debugDumpSymbols(Context const &Ctx,
 NotNull<GlobalSymbolsContainer *> GlobalsStorage::getThreadStorage() {
   static thread_local char tls = 0;
   auto *const ptr = &tls;
-  std::lock_guard<std::mutex> const _{Mut_};
+  const std::lock_guard<std::mutex> _{Mut_};
   return &SymbolMemory_.try_emplace(ptr).first->second;
 }
 
 // all
 // ~~~
-rld::GlobalSymbolsContainer GlobalsStorage::all() {
-  std::lock_guard<std::mutex> const _{Mut_};
-  rld::GlobalSymbolsContainer Result;
+GlobalSymbolsContainer GlobalsStorage::all() {
+  const std::lock_guard<std::mutex> _{Mut_};
+  GlobalSymbolsContainer Result;
   for (auto &&CM : SymbolMemory_) {
     Result.splice(std::move(CM.second));
   }
@@ -507,7 +507,7 @@ NotNull<Symbol *> SymbolResolver::addReference(
 
 // add
 // ~~~
-Symbol *SymbolResolver::add(NotNull<GlobalSymbolsContainer *> const Globals,
+Symbol *SymbolResolver::add(const NotNull<GlobalSymbolsContainer *> Globals,
                             const pstore::address Name, const size_t Length,
                             const pstore::repo::definition &Def,
                             const uint32_t InputOrdinal) {
@@ -520,9 +520,9 @@ Symbol *SymbolResolver::add(NotNull<GlobalSymbolsContainer *> const Globals,
 // define symbol
 // ~~~~~~~~~~~~~
 Symbol *
-SymbolResolver::defineSymbol(NotNull<GlobalSymbolsContainer *> const Globals,
-                             NotNull<UndefsContainer *> const Undefs,
-                             pstore::repo::definition const &Def,
+SymbolResolver::defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
+                             const NotNull<UndefsContainer *> Undefs,
+                             const pstore::repo::definition &Def,
                              uint32_t InputOrdinal) {
 
   llvmDebug(DebugType, Context_.IOMut, [&] {
@@ -589,16 +589,16 @@ SymbolResolver::defineSymbol(NotNull<GlobalSymbolsContainer *> const Globals,
 // reference symbol
 // ~~~~~~~~~~~~~~~~
 NotNull<Symbol *>
-referenceSymbol(Context &Ctxt, LocalSymbolsContainer const &Locals,
-                NotNull<GlobalSymbolsContainer *> const Globals,
-                NotNull<UndefsContainer *> const Undefs, StringAddress Name,
+referenceSymbol(Context &Ctxt, const CompilationSymbolsView &Locals,
+                const NotNull<GlobalSymbolsContainer *> Globals,
+                const NotNull<UndefsContainer *> Undefs, StringAddress Name,
                 pstore::repo::reference_strength Strength) {
 
   // Do we have a local definition for this symbol?
-  auto const NamePos = Locals.find(Name);
-  if (NamePos != Locals.end()) {
+  const auto NamePos = Locals.Map.find(Name);
+  if (NamePos != Locals.Map.end()) {
     // Yes, the symbol was defined by this module. Use it.
-    return std::get<Symbol *>(NamePos->second);
+    return NamePos->second.Sym;
   }
 
   return setSymbolShadow(

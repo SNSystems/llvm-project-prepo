@@ -37,16 +37,16 @@ namespace {
 constexpr auto DebugType = "rld-xfx-scanner";
 
 struct State {
-  State(Context &C, const NotNull<LocalSymbolsContainer *> L,
-        NotNull<GlobalSymbolsContainer *> const G,
-        NotNull<UndefsContainer *> const U)
+  State(Context &C, const NotNull<CompilationSymbolsView *> L,
+        const NotNull<GlobalSymbolsContainer *> G,
+        const NotNull<UndefsContainer *> U)
       : Ctxt{C}, Locals{L}, Globals{G}, Undefs{U} {}
 
   State(State const &) = delete;
   State &operator=(State const &) = delete;
 
   Context &Ctxt;
-  const NotNull<LocalSymbolsContainer *> Locals;
+  const NotNull<CompilationSymbolsView *> Locals;
   const NotNull<GlobalSymbolsContainer *> Globals;
   const NotNull<UndefsContainer *> Undefs;
 };
@@ -105,10 +105,10 @@ namespace {
 /// `void(Symbol::Body &)`.
 template <typename NewFragmentFunction>
 void forEachNewFragment(Context &Context,
-                        const NotNull<LocalSymbolsContainer *> Locals,
+                        const NotNull<CompilationSymbolsView *> Locals,
                         const uint32_t InputOrdinal, NewFragmentFunction f) {
-  for (auto &NS : *Locals) {
-    Symbol *const Sym = std::get<Symbol *>(NS.second);
+  for (auto &NS : Locals->Map) {
+    Symbol *const Sym = NS.second.Sym;
     assert(Sym && "All local definitions must have an associated symbol");
 
     llvmDebug(DebugType, Context.IOMut, [&]() {
@@ -194,7 +194,7 @@ internals(Symbol::Body &Def, const NotNull<FixupStorage::Container *> Storage) {
 // resolve fixups
 // ~~~~~~~~~~~~~~
 LocalPLTsContainer rld::resolveFixups(
-    Context &Context, const NotNull<LocalSymbolsContainer *> Locals,
+    Context &Context, const NotNull<CompilationSymbolsView *> Locals,
     const NotNull<GlobalSymbolsContainer *> Globals,
     const NotNull<UndefsContainer *> Undefs, uint32_t InputOrdinal,
     const NotNull<FixupStorage::Container *> Storage) {
@@ -202,11 +202,11 @@ LocalPLTsContainer rld::resolveFixups(
   LocalPLTsContainer PLTSymbols;
   State S{Context, Locals, Globals, Undefs};
 
-  forEachNewFragment(
-      Context, Locals, InputOrdinal,
-      [&](LocalSymbolsContainer::value_type &NS, Symbol::Body &Def) {
-        externals(S, Def, Storage, InputOrdinal, &PLTSymbols);
-        std::get<ContributionSpArray *>(NS.second) = internals(Def, Storage);
-      });
+  forEachNewFragment(Context, Locals, InputOrdinal,
+                     [&](CompilationSymbolsView::Container::value_type &NS,
+                         Symbol::Body &Def) {
+                       externals(S, Def, Storage, InputOrdinal, &PLTSymbols);
+                       NS.second.Ifx = internals(Def, Storage);
+                     });
   return PLTSymbols;
 }

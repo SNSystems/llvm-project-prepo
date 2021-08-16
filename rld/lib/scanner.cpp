@@ -53,7 +53,7 @@ namespace rld {
 // ~~~
 void Scanner::run(
     const llvm::StringRef &Path,
-    const NotNull<rld::GlobalSymbolsContainer *> GlobalSymbols,
+    const NotNull<GlobalSymbolsContainer *> GlobalSymbols,
     const NotNull<FixupStorage::Container *> FixupStorage,
     const pstore::extent<pstore::repo::compilation> &CompilationExtent,
     uint32_t InputOrdinal) {
@@ -78,7 +78,7 @@ void Scanner::run(
   };
 
   SymbolResolver Resolver{Context_};
-  llvm::Optional<LocalSymbolsContainer> Locals = Resolver.defineSymbols(
+  llvm::Optional<CompilationSymbolsView> Locals = Resolver.defineSymbols(
       GlobalSymbols, Undefs_, Compilation, InputOrdinal, ErrorFn);
 
   bool Error = !Locals.hasValue();
@@ -86,16 +86,16 @@ void Scanner::run(
     // FIXME: handle the error somehow
   }
 
-  assert(Locals->size() == Compilation.size());
+  assert(Locals->Map.size() == Compilation.size());
   LocalPLTsContainer PLTSymbols =
       resolveFixups(Context_, &Locals.getValue(), GlobalSymbols, Undefs_,
                     InputOrdinal, FixupStorage.get());
 
   // Notify layout that we've completed work on the item at 'index' and tell it
   // about its definitions.
-  auto &&L = Locals.getValue();
-  Layout_.visited(InputOrdinal,
-                  std::make_tuple(std::move(L), std::move(PLTSymbols)));
+  auto &&LocalsValue = Locals.getValue();
+  Layout_.visited(InputOrdinal, std::make_tuple(std::move(LocalsValue),
+                                                std::move(PLTSymbols)));
 }
 
 } // namespace rld

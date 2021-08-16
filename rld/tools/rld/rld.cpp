@@ -206,6 +206,8 @@ int main(int Argc, char *Argv[]) {
       std::make_unique<rld::FixupStorage>(NumWorkers.getValue());
   std::unique_ptr<rld::Layout> LO;
   std::unique_ptr<rld::LocalPLTsContainer> PLTs;
+  SymbolOrder SymOrder;
+
   {
     llvm::NamedRegionTimer LayoutTimer("Layout", "Output file layout",
                                        rld::TimerGroupName,
@@ -281,6 +283,9 @@ int main(int Argc, char *Argv[]) {
         Layout.elfHeaderBlockSize<
             llvm::object::ELFType<llvm::support::little, true>>());
 
+    // Get the lists of local and global symbols from layout.
+    SymOrder = Layout.symbolOrder();
+
     if (ExitCode != EXIT_SUCCESS) {
       return ExitCode;
     }
@@ -298,8 +303,8 @@ int main(int Argc, char *Argv[]) {
   // Now we set about emitting an ELF executable...
   rld::llvmDebug(DebugType, Ctxt.IOMut,
                  [] { llvm::dbgs() << "Beginning output\n"; });
-  ExitOnErr(rld::elfOutput(OutputFileName, Ctxt, *AllSymbols, WorkPool,
-                           LO.get(), *PLTs));
+  ExitOnErr(rld::elfOutput(OutputFileName, Ctxt, *AllSymbols, SymOrder, Undefs,
+                           WorkPool, LO.get(), *PLTs));
 
   // Avoid calling the destructors of some of our global objects. We can simply
   // let the O/S do that instead. Remove these calls if looking for memoryleaks,

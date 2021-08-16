@@ -34,6 +34,12 @@ CompilationBuilder::compile(std::string const &DefinitionName,
                  createFragmentWithReadOnlySection);
 }
 
+std::shared_ptr<pstore::repo::compilation const>
+CompilationBuilder::compile(std::initializer_list<NameAndLinkagePair> Members) {
+  return compile(std::begin(Members), std::end(Members),
+                 createFragmentWithReadOnlySection);
+}
+
 // compile with common symbol
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~
 std::shared_ptr<pstore::repo::compilation const>

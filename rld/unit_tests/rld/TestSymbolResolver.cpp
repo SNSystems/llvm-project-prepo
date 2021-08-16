@@ -47,8 +47,7 @@ public:
   SymbolScanner() : CompilationBuilder_{this->Db()} {}
 
 protected:
-  static rld::StringAddress getStringAddress(pstore::database const &Db,
-                                             char const *Name);
+  rld::StringAddress getStringAddress(char const *Name);
 
   static void checkFragmentContents(
       std::shared_ptr<pstore::repo::fragment const> const &Fragment,
@@ -65,8 +64,8 @@ protected:
 
 // get string address
 // ~~~~~~~~~~~~~~~~~~
-rld::StringAddress SymbolScanner::getStringAddress(pstore::database const &Db,
-                                                   char const *Name) {
+rld::StringAddress SymbolScanner::getStringAddress(char const *Name) {
+  pstore::database const &Db = this->Db();
   auto NameIndex = pstore::index::get_index<pstore::trailer::indices::name>(Db);
   pstore::raw_sstring_view const str = pstore::make_sstring_view(Name);
   auto Pos = NameIndex->find(Db, pstore::indirect_string{Db, &str});
@@ -128,7 +127,7 @@ protected:
 TEST_P(SingleSymbol, SingleSymbol) {
   linkage const Linkage = this->GetParam();
   using testing::_;
-  using ReturnType = llvm::Optional<rld::LocalSymbolsContainer>;
+  using ReturnType = llvm::Optional<rld::CompilationSymbolsView>;
 
   ErrorFn ErrorCallback;
   EXPECT_CALL(ErrorCallback, invoke(_)).Times(0);
@@ -172,10 +171,14 @@ TEST_P(SingleSymbol, SingleSymbol) {
   }
   // Now that the CU-local view of the symbols is correct.
   {
-    ASSERT_EQ(C0Locals->size(), 1U);
-    rld::LocalSymbolsContainer::value_type const &S = *C0Locals->begin();
+    ASSERT_EQ(C0Locals->Map.size(), 1U);
+    rld::CompilationSymbolsView::Container::value_type const &S =
+        *C0Locals->Map.begin();
     EXPECT_EQ(rld::loadStdString(this->Db(), S.first), "f0");
-    EXPECT_EQ(S.second, std::make_tuple(&Globals.front(), nullptr));
+
+    rld::CompilationSymbolsView::Value const &V = S.second;
+    EXPECT_EQ(V.Sym, &Globals.front());
+    EXPECT_EQ(V.Ifx, nullptr);
   }
 }
 
@@ -198,17 +201,17 @@ public:
   TwoSymbols() : Ctx_{this->Db(), "_start"}, Resolver_{Ctx_} {}
 
 protected:
-  using ReturnType = llvm::Optional<rld::LocalSymbolsContainer>;
-  void checkSymbol(rld::Symbol const &Symbol, unsigned TicketFileIndex,
+  using ReturnType = llvm::Optional<rld::CompilationSymbolsView>;
+  void checkSymbol(const rld::Symbol &Symbol, unsigned TicketFileIndex,
                    linkage Linkage, uint8_t FragmentIndex);
-  rld::Symbol const &getSymbol(rld::GlobalSymbolsContainer const &Globals,
+  const rld::Symbol &getSymbol(const rld::GlobalSymbolsContainer &G,
                                unsigned Index);
 
   static constexpr uint32_t Input0_ = 0;
   static constexpr uint32_t Input1_ = 1;
 
   void checkCompilationLocalView(
-      llvm::Optional<rld::LocalSymbolsContainer> const &LocalView,
+      llvm::Optional<rld::CompilationSymbolsView> const &LocalView,
       rld::Symbol const &S) const;
 
   rld::Context Ctx_;
@@ -220,10 +223,9 @@ constexpr uint32_t TwoSymbols::Input1_;
 
 // get symbol
 // ~~~~~~~~~~
-rld::Symbol const &
-TwoSymbols::getSymbol(rld::GlobalSymbolsContainer const &Globals,
+const rld::Symbol &
+TwoSymbols::getSymbol(const rld::GlobalSymbolsContainer &Globals,
                       unsigned Index) {
-  // auto const &ST = Ctx_.symbolTable();
   assert(Index < Globals.size());
   auto It = std::begin(Globals);
   std::advance(It, Index);
@@ -237,9 +239,9 @@ void TwoSymbols::checkSymbol(const rld::Symbol &Symbol,
                              uint8_t FragmentIndex) {
   ASSERT_TRUE(Symbol.hasDefinition()) << "The symbol must be be defined";
   auto DefinitionAndLock = Symbol.definition();
-  auto const &Bodies =
+  const auto &Bodies =
       std::get<rld::Symbol::OptionalBodies const &>(DefinitionAndLock);
-  auto const &Lock =
+  const auto &Lock =
       std::get<std::unique_lock<rld::Symbol::Mutex>>(DefinitionAndLock);
   ASSERT_TRUE(Lock.owns_lock()) << "definition() must return an owned lock";
   ASSERT_TRUE(Bodies.hasValue()) << "The symbol should be defined [and must "
@@ -257,13 +259,16 @@ void TwoSymbols::checkSymbol(const rld::Symbol &Symbol,
 // check compilation local view
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 void TwoSymbols::checkCompilationLocalView(
-    llvm::Optional<rld::LocalSymbolsContainer> const &LocalView,
-    rld::Symbol const &S) const {
+    const llvm::Optional<rld::CompilationSymbolsView> &LocalView,
+    const rld::Symbol &S) const {
   // Check the CU-local view of the symbols is correct for this
   // compilation.
   ASSERT_TRUE(LocalView.hasValue());
-  EXPECT_EQ(LocalView->size(), 1U);
-  EXPECT_EQ(addConst(LocalView->begin()->second), std::make_tuple(&S, nullptr));
+  EXPECT_EQ(LocalView->Map.size(), 1U);
+
+  rld::CompilationSymbolsView::Value const &V = LocalView->Map.begin()->second;
+  EXPECT_EQ(V.Sym, &S);
+  EXPECT_EQ(V.Ifx, nullptr);
 }
 
 using TwoLinkages = std::tuple<linkage, linkage>;
@@ -282,8 +287,8 @@ protected:
   std::shared_ptr<pstore::repo::compilation const> CU0_;
   std::shared_ptr<pstore::repo::compilation const> CU1_;
 
-  void checkSuccess(llvm::Optional<rld::LocalSymbolsContainer> const &C0,
-                    llvm::Optional<rld::LocalSymbolsContainer> const &C1,
+  void checkSuccess(llvm::Optional<rld::CompilationSymbolsView> const &C0,
+                    llvm::Optional<rld::CompilationSymbolsView> const &C1,
                     rld::Symbol const &Symbol0) const;
 };
 
@@ -297,21 +302,29 @@ TwoCompilations::TwoCompilations() {
 // check success
 // ~~~~~~~~~~~~~
 void TwoCompilations::checkSuccess(
-    llvm::Optional<rld::LocalSymbolsContainer> const &C0,
-    llvm::Optional<rld::LocalSymbolsContainer> const &C1,
+    llvm::Optional<rld::CompilationSymbolsView> const &C0,
+    llvm::Optional<rld::CompilationSymbolsView> const &C1,
     rld::Symbol const &Symbol0) const {
+  {
+    // Now check the CU-local view of the symbols is correct for the first
+    // compilation.
+    ASSERT_TRUE(C0.hasValue());
+    ASSERT_EQ(C0->Map.size(), 1U);
 
-  // Now check the CU-local view of the symbols is correct for the first
-  // compilation.
-  ASSERT_TRUE(C0.hasValue());
-  ASSERT_EQ(C0->size(), 1U);
-  EXPECT_EQ(std::get<rld::Symbol *>(C0->begin()->second), &Symbol0);
+    rld::CompilationSymbolsView::Value const &V0 = C0->Map.begin()->second;
+    EXPECT_EQ(V0.Sym, &Symbol0);
+    EXPECT_EQ(V0.Ifx, nullptr);
+  }
+  {
+    // Now check the CU-local view of the symbols is correct for the second
+    // compilation.
+    ASSERT_TRUE(C1.hasValue());
+    ASSERT_EQ(C1->Map.size(), 1U);
 
-  // Now check the CU-local view of the symbols is correct for the second
-  // compilation.
-  ASSERT_TRUE(C1.hasValue());
-  ASSERT_EQ(C1->size(), 1U);
-  EXPECT_EQ(std::get<rld::Symbol *>(C1->begin()->second), &Symbol0);
+    rld::CompilationSymbolsView::Value const &V1 = C1->Map.begin()->second;
+    EXPECT_EQ(V1.Sym, &Symbol0);
+    EXPECT_EQ(V1.Ifx, nullptr);
+  }
 }
 
 } // end anonymous namespace
@@ -337,11 +350,13 @@ TEST_P(LowestOrdinal, LowerOrdinalFirst) {
 
   // Define the symbol in the first compilation (Input0_) before the second
   // (Input1_).
-  llvm::Optional<rld::LocalSymbolsContainer> const C0 = Resolver_.defineSymbols(
-      &Globals, &Undefs, *CU0_, Input0_, std::cref(ErrorCallback));
+  llvm::Optional<rld::CompilationSymbolsView> const C0 =
+      Resolver_.defineSymbols(&Globals, &Undefs, *CU0_, Input0_,
+                              std::cref(ErrorCallback));
   ASSERT_TRUE(C0.hasValue()) << "Expected defineSymbols to succeed";
-  llvm::Optional<rld::LocalSymbolsContainer> const C1 = Resolver_.defineSymbols(
-      &Globals, &Undefs, *CU1_, Input1_, std::cref(ErrorCallback));
+  llvm::Optional<rld::CompilationSymbolsView> const C1 =
+      Resolver_.defineSymbols(&Globals, &Undefs, *CU1_, Input1_,
+                              std::cref(ErrorCallback));
   ASSERT_TRUE(C1.hasValue()) << "Expected defineSymbols to succeed";
 
   // Check that the resolver did the right thing. First that the global symbol
@@ -369,11 +384,11 @@ TEST_P(LowestOrdinal, LowerOrdinalSecond) {
   rld::GlobalSymbolsContainer Globals;
   // Define the symbol in the second compilation (Input1_) before the first
   // (Input0_).
-  llvm::Optional<rld::LocalSymbolsContainer> C1 = Resolver_.defineSymbols(
+  llvm::Optional<rld::CompilationSymbolsView> C1 = Resolver_.defineSymbols(
       &Globals, &Undefs, *CU1_, Input1_, std::cref(ErrorCallback));
   ASSERT_TRUE(C1.hasValue()) << "Expected defineSymbols to succeed";
   // This second definition should replace the original.
-  llvm::Optional<rld::LocalSymbolsContainer> C0 = Resolver_.defineSymbols(
+  llvm::Optional<rld::CompilationSymbolsView> C0 = Resolver_.defineSymbols(
       &Globals, &Undefs, *CU0_, Input0_, std::cref(ErrorCallback));
   ASSERT_TRUE(C0.hasValue()) << "Expected defineSymbols to succeed";
 
@@ -559,10 +574,14 @@ TEST_P(Collision, OtherHits) {
   }
 
   // The first compilation should see a definition of Symbol0.
-  ASSERT_TRUE(C0.hasValue());
-  EXPECT_EQ(C0->size(), 1U);
-  EXPECT_EQ(addConst(C0->begin()->second), std::make_tuple(&Symbol0, nullptr));
+  {
+    ASSERT_TRUE(C0.hasValue());
+    EXPECT_EQ(C0->Map.size(), 1U);
 
+    rld::CompilationSymbolsView::Value const &V0 = C0->Map.begin()->second;
+    EXPECT_EQ(V0.Sym, &Symbol0);
+    EXPECT_EQ(V0.Ifx, nullptr);
+  }
   // Now check that the second compilation had an error.
   EXPECT_FALSE(C1.hasValue());
 }
@@ -669,17 +688,26 @@ void Append::checkSymbolTableEntry(rld::Symbol const &Symbol0) {
 // ~~~~~~~~~~~~~~~~~~~~~~~
 void Append::checkLocalSymbolView(ReturnType const &C0, ReturnType const &C1,
                                   rld::Symbol const &Symbol) const {
-  // Now check the CU-local view of the symbols is correct for the first
-  // compilation.
-  ASSERT_TRUE(C0.hasValue());
-  EXPECT_EQ(C0->size(), 1U);
-  EXPECT_EQ(addConst(C0->begin()->second), std::make_tuple(&Symbol, nullptr));
+  {
+    // Now check the CU-local view of the symbols is correct for the first
+    // compilation.
+    ASSERT_TRUE(C0.hasValue());
+    EXPECT_EQ(C0->Map.size(), 1U);
 
-  // Now check the CU-local view of the symbols is correct for the second
-  // compilation.
-  ASSERT_TRUE(C1.hasValue());
-  EXPECT_EQ(C1->size(), 1U);
-  EXPECT_EQ(addConst(C1->begin()->second), std::make_tuple(&Symbol, nullptr));
+    rld::CompilationSymbolsView::Value const &V0 = C0->Map.begin()->second;
+    EXPECT_EQ(V0.Sym, &Symbol);
+    EXPECT_EQ(V0.Ifx, nullptr);
+  }
+  {
+    // Now check the CU-local view of the symbols is correct for the second
+    // compilation.
+    ASSERT_TRUE(C1.hasValue());
+    EXPECT_EQ(C1->Map.size(), 1U);
+
+    rld::CompilationSymbolsView::Value const &V1 = C1->Map.begin()->second;
+    EXPECT_EQ(V1.Sym, &Symbol);
+    EXPECT_EQ(V1.Ifx, nullptr);
+  }
 }
 
 } // end anonymous namespace
@@ -747,7 +775,6 @@ namespace {
 
 class Largest : public TwoSymbols {
 protected:
-  //  using ReturnType = llvm::Optional<rld::LocalSymbolsContainer>;
   static constexpr auto OrdinalA_ = uint32_t{43};
   static constexpr auto OrdinalB_ = uint32_t{47};
   static constexpr auto Name_ = "f";
@@ -756,7 +783,7 @@ protected:
                          std::size_t ExpectedSize);
 };
 
-// checkCommonSymbol
+// check common symbol
 // ~~~~~~~~~~~~~~~~~
 void Largest::checkCommonSymbol(rld::Symbol const &Sym,
                                 std::size_t ExpectedOrdinal,
@@ -820,7 +847,8 @@ TEST_F(Largest, ALtB) {
   EXPECT_TRUE(Undefs.strongUndefCountIsCorrect());
   ASSERT_TRUE(CB.hasValue())
       << "Symbol resolution for OrdinalB_ produced an error";
-  ASSERT_EQ(CB->size(), 1U) << "The global symbol table should hold 1 entry";
+  ASSERT_EQ(CB->Map.size(), 1U)
+      << "The global symbol table should hold 1 entry";
 
   SCOPED_TRACE("Largest,ALtB");
   rld::Symbol const &Sym = *Globals.begin();
@@ -937,11 +965,11 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
   // Create a reference to "f".
   rld::UndefsContainer Undefs;
   rld::GlobalSymbolsContainer Globals;
-  rld::LocalSymbolsContainer S0;
+  rld::CompilationSymbolsView S0{0};
   rld::referenceSymbol(Ctx_, S0, &Globals, &Undefs,
                        CompilationBuilder_.storeString(Name),
                        reference_strength::strong);
-  EXPECT_EQ(S0.size(), 0U);
+  EXPECT_EQ(S0.Map.size(), 0U);
   ASSERT_EQ(Globals.size(), 1U);
   EXPECT_FALSE(this->getSymbol(Globals, 0U).hasDefinition());
 
@@ -956,7 +984,7 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
   // Create a definition of "f".
   constexpr auto InputNo = 1U;
   std::shared_ptr<pstore::repo::compilation const> C1 = this->compile(Name, Linkage);
-  llvm::Optional<rld::LocalSymbolsContainer> S1 = Resolver_.defineSymbols(
+  llvm::Optional<rld::CompilationSymbolsView> S1 = Resolver_.defineSymbols(
       &Globals, &Undefs, *C1, InputNo, std::cref(ErrorCallback));
   ASSERT_TRUE(S1.hasValue());
 
@@ -972,10 +1000,10 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
     {
       SCOPED_TRACE("RefBeforeDef, DefinitionReplacesReference");
       this->checkSymbol(Symbol0, InputNo, Linkage, 0U);
-      this->checkCompilationLocalView(*S1, Symbol0);
+      this->checkCompilationLocalView(S1, Symbol0);
     }
     EXPECT_EQ(rld::referenceSymbol(Ctx_, *S1, &Globals, &Undefs,
-                                   getStringAddress(this->Db(), Name),
+                                   this->getStringAddress(Name),
                                    reference_strength::strong),
               &Symbol0);
   }
@@ -1036,15 +1064,15 @@ TEST_P(InternalCollision, InternalAfter) {
     SCOPED_TRACE("InternalCollision, InternalAfter");
     this->checkSymbol(Symbol0, Input0_, OtherLinkage, 0U);
     this->checkSymbol(Symbol1, Input1_, linkage::internal, 1U);
-    this->checkCompilationLocalView(*C0, Symbol0);
-    this->checkCompilationLocalView(*C1, Symbol1);
+    this->checkCompilationLocalView(C0, Symbol0);
+    this->checkCompilationLocalView(C1, Symbol1);
   }
   EXPECT_EQ(rld::referenceSymbol(Ctx_, *C0, &Globals, &Undefs,
-                                 getStringAddress(this->Db(), Name_),
+                                 this->getStringAddress(Name_),
                                  reference_strength::strong),
             &Symbol0);
   EXPECT_EQ(rld::referenceSymbol(Ctx_, *C1, &Globals, &Undefs,
-                                 getStringAddress(this->Db(), Name_),
+                                 this->getStringAddress(Name_),
                                  reference_strength::strong),
             &Symbol1);
   EXPECT_TRUE(Undefs.empty());
@@ -1084,15 +1112,15 @@ TEST_P(InternalCollision, InternalBefore) {
     SCOPED_TRACE("InternalCollision, InternalBefore");
     this->checkSymbol(Symbol0, Input0_, linkage::internal, 0U);
     this->checkSymbol(Symbol1, Input1_, OtherLinkage, 1U);
-    this->checkCompilationLocalView(*C0, Symbol0);
-    this->checkCompilationLocalView(*C1, Symbol1);
+    this->checkCompilationLocalView(C0, Symbol0);
+    this->checkCompilationLocalView(C1, Symbol1);
   }
   EXPECT_EQ(rld::referenceSymbol(Ctx_, *C0, &Globals, &Undefs,
-                                 getStringAddress(this->Db(), Name_),
+                                 this->getStringAddress(Name_),
                                  reference_strength::strong),
             &Symbol0);
   EXPECT_EQ(rld::referenceSymbol(Ctx_, *C1, &Globals, &Undefs,
-                                 getStringAddress(this->Db(), Name_),
+                                 this->getStringAddress(Name_),
                                  reference_strength::strong),
             &Symbol1);
 }

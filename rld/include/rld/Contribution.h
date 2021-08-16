@@ -40,7 +40,8 @@ struct Contribution {
                pstore::repo::section_sparray<Contribution const *> const
                    *const IfxContributions_,
                OutputSection *OScn_, uint64_t Offset_, uint64_t Size_,
-               unsigned Align_, StringAddress Name_, unsigned InputOrdinal_)
+               unsigned Align_, unsigned InputOrdinal_,
+               const StringAddress Name_)
       : Section{S}, XfxSymbols{XfxSymbols_},
         IfxContributions{IfxContributions_}, OScn{OScn_}, Offset{Offset_},
         Size{Size_}, Align{Align_}, InputOrdinal{InputOrdinal_}, Name{Name_} {
@@ -57,21 +58,19 @@ struct Contribution {
   Symbol const *const *XfxSymbols;
   pstore::repo::section_sparray<Contribution const *> const
       *const IfxContributions;
-
   OutputSection *const OScn;
 
   /// The offset from the first section of this type in the owning output
   /// section.
-  uint64_t const Offset;
+  const uint64_t Offset;
   /// The number of bytes occupied by this section.
-  uint64_t const Size; // TODO: we really don't need 64-bits for the size of an
+  const uint64_t Size; // TODO: we really don't need 64-bits for the size of an
                        // individual section.
   /// The required alignment for this section's data.
-  unsigned const Align;
+  const unsigned Align;
   /// The input-ordinal of the ticket file from which this section originates.
-  unsigned const InputOrdinal;
-
-  StringAddress const Name;
+  const unsigned InputOrdinal;
+  const StringAddress Name;
 };
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, Contribution const &SI);
