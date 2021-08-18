@@ -145,6 +145,11 @@ class Symbol : public llvm::ilist_node<Symbol> {
 public:
   class Body {
   public:
+    Body(const pstore::repo::definition *const Def, FragmentPtr &&Fragment,
+         const FragmentAddress FAddr, const uint32_t InputOrdinal)
+        : InputOrdinal_{InputOrdinal}, Def_{Def},
+          Fragment_{std::move(Fragment)}, FAddr_{FAddr}, ResolveMap_{} {}
+
     Body(const pstore::repo::definition *const Def, const FragmentPtr &Fragment,
          const FragmentAddress FAddr, const uint32_t InputOrdinal)
         : InputOrdinal_{InputOrdinal}, Def_{Def}, Fragment_{Fragment},
@@ -486,7 +491,7 @@ private:
   Symbol *replaceImpl(const std::unique_lock<Mutex> &Lock,
                       const pstore::database &Db,
                       const pstore::repo::definition &Def,
-                      uint32_t InputOrdinal, const FragmentPtr &Fragment);
+                      uint32_t InputOrdinal, FragmentPtr &&Fragment);
 
   void setName(StringAddress N);
 

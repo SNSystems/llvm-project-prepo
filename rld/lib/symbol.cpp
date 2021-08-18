@@ -134,15 +134,11 @@ inline Symbol *Symbol::replaceIfLowerOrdinal(
   }
 
   auto &ExistingBody = Definition_->front();
-
-  const rld::FragmentPtr Fragment =
-      ExistingBody.fragmentAddress() == Def.fext.addr
-          ? ExistingBody.fragment()
-          : pstore::repo::fragment::load(Db, Def.fext);
-
-  llvm::SmallVector<Body, 1> B;
-  B.emplace_back(&Def, Fragment, Def.fext.addr, InputOrdinal);
-  Definition_.emplace(std::move(B));
+  ExistingBody = Symbol::Body{&Def,
+                              ExistingBody.fragmentAddress() == Def.fext.addr
+                                  ? ExistingBody.fragment()
+                                  : pstore::repo::fragment::load(Db, Def.fext),
+                              Def.fext.addr, InputOrdinal};
   return this; // Use this definition instead.
 }
 
@@ -184,14 +180,14 @@ inline Symbol *Symbol::replaceImpl(const std::unique_lock<SpinLock> &Lock,
                                    const pstore::database &Db,
                                    const pstore::repo::definition &Def,
                                    const uint32_t InputOrdinal,
-                                   const FragmentPtr &Fragment) {
+                                   FragmentPtr &&Fragment) {
   (void)Lock;
   assert(Lock.owns_lock());
   assert(Definition_ &&
          "If we're replacing a definition, then we must already have one.");
 
   llvm::SmallVector<Body, 1> B;
-  B.emplace_back(&Def, Fragment, Def.fext.addr, InputOrdinal);
+  B.emplace_back(&Def, std::move(Fragment), Def.fext.addr, InputOrdinal);
   Definition_.emplace(std::move(B));
   return this;
 }
@@ -320,17 +316,25 @@ Symbol *Symbol::updateCommonSymbol(const pstore::database &Db,
       assert(F->has_section(pstore::repo::section_kind::bss));
       return F->at<pstore::repo::section_kind::bss>().size();
     };
+
+    Symbol::Body &B = Definition_->front();
+    if (B.fragmentAddress() == Def.fext.addr) {
+      // The same fragment as the existing definition so therefore the same
+      // size.
+      return this->replaceIfLowerOrdinal(Lock, Db, Def, InputOrdinal);
+    }
+
     FragmentPtr Fragment = pstore::repo::fragment::load(Db, Def.fext);
     std::size_t const ThisSize = BssSize(Fragment);
-    std::size_t const ExistingSize = BssSize(Definition_->front().fragment());
+    std::size_t const ExistingSize = BssSize(B.fragment());
 
     // Replace the existing definition if this one is larger or from a
     // lower input-ordinal. The latter condition ensures stable output
     // regardless of the order in which we are processing input files.
     if (ThisSize > ExistingSize ||
-        (ThisSize == ExistingSize &&
-         InputOrdinal < Definition_->front().inputOrdinal())) {
-      return this->replaceImpl(Lock, Db, Def, InputOrdinal, Fragment);
+        (ThisSize == ExistingSize && InputOrdinal < B.inputOrdinal())) {
+      return this->replaceImpl(Lock, Db, Def, InputOrdinal,
+                               std::move(Fragment));
     }
     // Not larger and not a later input file. Ignored.
     return this;
