@@ -555,6 +555,10 @@ std::string ToolChain::GetLinkerPath() const {
     // second-guess that.
     if (llvm::sys::fs::can_execute(UseLinker))
       return std::string(UseLinker);
+  } else if (Triple.isOSBinFormatRepo()) {
+    std::string LinkerPath(GetProgramPath("rld"));
+    if (llvm::sys::fs::can_execute(LinkerPath))
+      return LinkerPath;
   } else if (UseLinker.empty() || UseLinker == "ld") {
     // If we're passed -fuse-ld= with no argument, or with the argument ld,
     // then use whatever the default system linker is.
