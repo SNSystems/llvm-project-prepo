@@ -56,8 +56,8 @@ endif ()
 # '-Dlibcxx:BOOL=Yes' on the command line
 if (libcxx)
 	set (libcxx_compile_flags "-nostdinc++ -isystem ${llvm_install}/include/c++/v1 -isystem ${llvm_install}/lib/clang/11.0.0/include")
-	set (libcxx_link_flags "-nostdlib++ -L ${llvm_install}/lib ${llvm_install}/lib/linux/clang_rt.crtbegin-x86_64.o.elf ${llvm_install}/lib/linux/clang_rt.crtend-x86_64.o.elf -lc++ -lc++abi -L ${llvm_install}/lib/linux -lclang_rt.builtins-x86_64")
-endif()
+	set (libcxx_link_flags "-nostdlib++ -L ${llvm_install}/lib ${llvm_install}/lib/clang/11.0.0/lib/linux/clang_rt.crtbegin-x86_64.o ${llvm_install}/lib/clang/11.0.0/lib/linux/clang_rt.crtend-x86_64.o -lc++ -lc++abi -L ${llvm_install}/lib/clang/11.0.0/lib/linux -lclang_rt.builtins-x86_64")
+endif ()
 
 # The user may use the MUSL libc.a by giving
 # '-Dmusl:BOOL=Yes' on the command line
