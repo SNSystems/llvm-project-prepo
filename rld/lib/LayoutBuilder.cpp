@@ -442,7 +442,7 @@ void LayoutBuilder::debugDumpLayout() const {
   });
 }
 
-using ELFT = llvm::object::ELFType<llvm::support::little, true>;
+using ELFT = llvm::object::ELF64LE;
 using Elf_Rela = llvm::object::ELFFile<ELFT>::Elf_Rela;
 
 // run

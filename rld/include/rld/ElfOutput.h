@@ -12,8 +12,8 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#ifndef RLD_ELF_OUTPUT_H
-#define RLD_ELF_OUTPUT_H
+#ifndef RLD_ELFOUTPUT_H
+#define RLD_ELFOUTPUT_H
 
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ThreadPool.h"
@@ -30,6 +30,7 @@ class Context;
 class Layout;
 class UndefsContainer;
 
+template <typename ELFT>
 llvm::Error elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
                       const GlobalSymbolsContainer &Globals,
                       const SymbolOrder &SymOrder,
@@ -38,4 +39,4 @@ llvm::Error elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
 
 } // end namespace rld
 
-#endif // RLD_ELF_OUTPUT_H
+#endif // RLD_ELFOUTPUT_H

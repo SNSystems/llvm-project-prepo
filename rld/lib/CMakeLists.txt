@@ -26,17 +26,22 @@ add_llvm_library (LLVMrld
     "${CMAKE_CURRENT_BINARY_DIR}/include/rld/config.h"
 
     CSAlloc.cpp
-    elf.cpp
+    ELFProgramHeaders.cpp
+    ELFSectionHeaders.cpp
+    ELFSectionNames.cpp
+    ELFStringTable.cpp
+    ELFSymbolTable.cpp
     ElfOutput.cpp
-    context.cpp
-    copy.cpp
     ErrorCode.cpp
     Identify.cpp
     IdentifyPass.cpp
     LayoutBuilder.cpp
+    XfxScanner.cpp
+    context.cpp
+    copy.cpp
+    elf.cpp
     scanner.cpp
     symbol.cpp
-    XfxScanner.cpp
 
     ADDITIONAL_HEADER_DIRS
     "${RLD_INCLUDE_DIR}/rld"

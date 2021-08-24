@@ -279,9 +279,7 @@ int main(int Argc, char *Argv[]) {
     LayoutThread.join();
 
     std::tie(LO, PLTs) = Layout.flattenSegments(
-        Ctxt.baseAddress(),
-        Layout.elfHeaderBlockSize<
-            llvm::object::ELFType<llvm::support::little, true>>());
+        Ctxt.baseAddress(), Layout.elfHeaderBlockSize<llvm::object::ELF64LE>());
 
     // Get the lists of local and global symbols from layout.
     SymOrder = Layout.symbolOrder();
@@ -303,8 +301,9 @@ int main(int Argc, char *Argv[]) {
   // Now we set about emitting an ELF executable...
   rld::llvmDebug(DebugType, Ctxt.IOMut,
                  [] { llvm::dbgs() << "Beginning output\n"; });
-  ExitOnErr(rld::elfOutput(OutputFileName, Ctxt, *AllSymbols, SymOrder, Undefs,
-                           WorkPool, LO.get(), *PLTs));
+  ExitOnErr(rld::elfOutput<llvm::object::ELF64LE>(OutputFileName, Ctxt,
+                                                  *AllSymbols, SymOrder, Undefs,
+                                                  WorkPool, LO.get(), *PLTs));
 
   // Avoid calling the destructors of some of our global objects. We can simply
   // let the O/S do that instead. Remove these calls if looking for memoryleaks,

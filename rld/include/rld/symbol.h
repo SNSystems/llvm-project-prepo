@@ -697,6 +697,18 @@ struct SymbolOrder {
   Symbol *Local = nullptr;
   size_t LocalsSize = 0U;
   Symbol *Global = nullptr;
+
+  template <typename Function>
+  void walk(const UndefsContainer &Undefs, Function F) const {
+    auto W = [&F](const Symbol *S) {
+      for (; S != nullptr; S = S->NextEmit) {
+        F(*S);
+      }
+    };
+    W(Local);
+    W(Global);
+    std::for_each(std::begin(Undefs), std::end(Undefs), F);
+  }
 };
 
 void debugDumpSymbols(const Context &Ctx,

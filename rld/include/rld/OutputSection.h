@@ -58,10 +58,6 @@ struct OutputSection {
   bool shouldEmit() const {
     return AlwaysEmit || VirtualSize > 0 || FileSize > 0;
   }
-
-  typedef void (*WriterFn)(Context &Ctxt, const OutputSection &OScn,
-                           std::uint8_t *Data, const Layout &Lout);
-  WriterFn Writer = nullptr;
 };
 
 } // end namespace rld

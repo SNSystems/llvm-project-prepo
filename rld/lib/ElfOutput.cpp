@@ -17,12 +17,15 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/MC/MCRepoTicketFile.h"
-#include "llvm/Object/ELF.h"
 #include "llvm/Object/ELFTypes.h"
 #include "llvm/Support/FileOutputBuffer.h"
 #include "llvm/Support/Timer.h"
 
-#include "rld/LayoutBuilder.h"
+#include "rld/ELFProgramHeaders.h"
+#include "rld/ELFSectionHeaders.h"
+#include "rld/ELFSectionNames.h"
+#include "rld/ELFStringTable.h"
+#include "rld/ELFSymbolTable.h"
 #include "rld/MathExtras.h"
 #include "rld/SectionKind.h"
 #include "rld/copy.h"
@@ -38,108 +41,8 @@ auto DebugType = "rld-ElfOutput";
 
 static constexpr auto NumImplicitSections = 1U; // The null section.
 
-// section name table writer
-// ~~~~~~~~~~~~~~~~~~~~~~~~~
-// Produce the section names string table.
-static void sectionNameTableWriter(Context &, const OutputSection &OScn,
-                                   uint8_t *Data, const Layout &Lout) {
-  auto *SectionNameBegin = reinterpret_cast<char *>(Data);
-  auto *SectionNamePtr = SectionNameBegin;
 
-  // First entry is the empty string.
-  *(SectionNamePtr++) = '\0';
-  forEachSectionKind([&](SectionKind SectionK) {
-    if (Lout.Sections[SectionK].shouldEmit()) {
-      std::pair<char const *, std::size_t> const NameAndLength =
-          elf::elfSectionNameAndLength(SectionK);
-      std::memcpy(SectionNamePtr, NameAndLength.first, NameAndLength.second);
-      assert(NameAndLength.second == std::strlen(NameAndLength.first));
-      SectionNamePtr += NameAndLength.second;
-      *(SectionNamePtr++) = '\0';
-    }
-  });
 
-  assert(SectionNamePtr > SectionNameBegin &&
-         static_cast<uint64_t>(SectionNamePtr - SectionNameBegin) ==
-             OScn.FileSize);
-}
-
-// build section name string table
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-static SectionIndexedArray<uint64_t>
-buildSectionNameStringTable(Layout *const Lout) {
-  OutputSection &ShStrTab = Lout->Sections[SectionKind::shstrtab];
-  ShStrTab.AlwaysEmit = true;
-
-  SectionIndexedArray<uint64_t> NameOffsets{{uint64_t{0}}};
-
-  auto SectionNameSize = uint64_t{1}; // Initial null.
-  forEachSectionKind([&](SectionKind SectionK) {
-    if (Lout->Sections[SectionK].shouldEmit()) {
-      NameOffsets[SectionK] = SectionNameSize;
-      SectionNameSize += elf::elfSectionNameAndLength(SectionK).second + 1U;
-    }
-  });
-
-  ShStrTab.FileSize = SectionNameSize;
-  ShStrTab.MaxAlign = 1U;
-  ShStrTab.Writer = sectionNameTableWriter;
-  return NameOffsets;
-}
-
-// prepare string table
-// ~~~~~~~~~~~~~~~~~~~~
-using OrderedSymbolsContainer = std::vector<const Symbol *>;
-
-uint64_t prepareStringTable(rld::Context &Ctxt, rld::Layout *const Lout,
-                            const GlobalSymbolsContainer &Globals) {
-  (void)Globals;
-  const auto StringTableSize = Ctxt.ELFStringTableSize.load();
-  assert(StringTableSize ==
-         std::accumulate(std::begin(Globals), std::end(Globals), uint64_t{1},
-                         [&Ctxt](const uint64_t Acc, const Symbol &Sym) {
-                           return Acc + stringLength(Ctxt.Db, Sym.name()) + 1U;
-                         }));
-
-  OutputSection &StrTab = Lout->Sections[SectionKind::strtab];
-  StrTab.AlwaysEmit = true;
-  StrTab.FileSize = StringTableSize;
-  StrTab.MaxAlign = 1U;
-  StrTab.Writer = nullptr;
-  return StringTableSize;
-}
-
-template <typename Function>
-static void walkOrderedSymbolTable(const SymbolOrder &SymOrder,
-                                   const UndefsContainer &Undefs, Function F) {
-  auto WalkList = [&F](const Symbol *S) {
-    for (; S != nullptr; S = S->NextEmit) {
-      F(*S);
-    }
-  };
-  WalkList(SymOrder.Local);
-  WalkList(SymOrder.Global);
-  std::for_each(std::begin(Undefs), std::end(Undefs), F);
-}
-
-// prepare symbol table section
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-template <typename ELFT>
-static uint64_t
-prepareSymbolTableSection(rld::Layout *const Lout,
-                          const GlobalSymbolsContainer &Globals) {
-  using Elf_Sym = typename llvm::object::ELFFile<ELFT>::Elf_Sym;
-  // TODO: this shouldn't include the symbols with internal_no_symbol linkage.
-  const uint64_t NumSymbols = Globals.size() + 1;
-
-  OutputSection &StrTab = Lout->Sections[SectionKind::symtab];
-  StrTab.AlwaysEmit = true;
-  StrTab.FileSize = NumSymbols * sizeof(Elf_Sym);
-  StrTab.MaxAlign = alignof(Elf_Sym);
-  StrTab.Link = SectionKind::strtab;
-  StrTab.Writer = nullptr;
-  return NumSymbols;
-}
 
 // build section to index table
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -218,91 +121,30 @@ static int64_t computeSectionFileOffsets(
   return FileOffset;
 }
 
-enum class Region { FileHeader, SegmentTable, SectionData, SectionTable, Last };
-
-using ELFT = llvm::object::ELFType<llvm::support::little, true>;
-using Elf_Ehdr = llvm::object::ELFFile<ELFT>::Elf_Ehdr;
-using Elf_Shdr = llvm::object::ELFFile<ELFT>::Elf_Shdr;
-using Elf_Phdr = llvm::object::ELFFile<ELFT>::Elf_Phdr;
-using Elf_Sym = llvm::object::ELFFile<ELFT>::Elf_Sym;
-using Elf_Addr = llvm::object::ELFFile<ELFT>::Elf_Addr;
-using Elf_Word = llvm::object::ELFFile<ELFT>::Elf_Word;
-
-// FIXME: there is an almost identical function in R2OSymbolTable.h
-static constexpr unsigned char sectionToSymbolType(const SectionKind T) {
-  using namespace pstore::repo;
-  switch (T) {
-  case SectionKind::text:
-    return llvm::ELF::STT_FUNC;
-  case SectionKind::bss:
-  case SectionKind::data:
-  case SectionKind::rel_ro:
-  case SectionKind::mergeable_1_byte_c_string:
-  case SectionKind::mergeable_2_byte_c_string:
-  case SectionKind::mergeable_4_byte_c_string:
-  case SectionKind::mergeable_const_4:
-  case SectionKind::mergeable_const_8:
-  case SectionKind::mergeable_const_16:
-  case SectionKind::mergeable_const_32:
-  case SectionKind::read_only:
-    return llvm::ELF::STT_OBJECT;
-  case SectionKind::thread_bss:
-  case SectionKind::thread_data:
-    return llvm::ELF::STT_TLS;
-  case SectionKind::debug_line:
-  case SectionKind::debug_ranges:
-  case SectionKind::debug_string:
-    return llvm::ELF::STT_NOTYPE;
-  case SectionKind::linked_definitions:
-  case SectionKind::rela_plt:
-  case SectionKind::gotplt:
-  case SectionKind::plt:
-  case SectionKind::shstrtab:
-  case SectionKind::strtab:
-  case SectionKind::symtab:
-  case SectionKind::last:
-    break;
-  }
-  llvm_unreachable("invalid section type");
-}
-
-// FIXME: this function was lifted from R2OSymbolTable.h
-static constexpr unsigned char
-linkageToELFBinding(const pstore::repo::linkage L) {
-  switch (L) {
-  case pstore::repo::linkage::internal_no_symbol:
-  case pstore::repo::linkage::internal:
-    return llvm::ELF::STB_LOCAL;
-  case pstore::repo::linkage::link_once_any:
-  case pstore::repo::linkage::link_once_odr:
-  case pstore::repo::linkage::weak_any:
-  case pstore::repo::linkage::weak_odr:
-    return llvm::ELF::STB_WEAK;
-  default:
-    return llvm::ELF::STB_GLOBAL;
-  }
-}
-
-static Elf_Addr symbolValue(const Symbol &Sym) {
-  const Contribution *const C = Sym.contribution();
-  assert(C != nullptr);
-  return static_cast<Elf_Addr>(C->OScn->VirtualAddr + C->Offset);
+template <typename ELFT>
+static typename llvm::object::ELFFile<ELFT>::Elf_Addr addressCast(uint64_t A) {
+  using Elf_Addr = typename llvm::object::ELFFile<ELFT>::Elf_Addr;
+  return Elf_Addr{static_cast<typename Elf_Addr::value_type>(A)};
 }
 
 // Returns the start address of the first executable segment.
-static Elf_Addr defaultEntryPoint(const Context &Context,
-                                  const Layout &Layout) {
+template <typename ELFT>
+static typename llvm::object::ELFFile<ELFT>::Elf_Addr
+defaultEntryPoint(const Context &Context, const Layout &Layout) {
   for (auto SegK = firstSegmentKind(); SegK != SegmentKind::last; ++SegK) {
     if (Layout.Segments[SegK].shouldEmit() &&
         (rld::elf::elfSegmentFlags<ELFT>(SegK) & llvm::ELF::PF_X) != 0U) {
-      return Elf_Addr{Layout.Segments[SegK].VirtualAddr};
+      return addressCast<ELFT>(Layout.Segments[SegK].VirtualAddr);
     }
   }
-  // If we didn't fine anything executable, just use the layout base-address.
-  return Elf_Addr{Context.baseAddress()};
+  // If we didn't find anything executable, just use the layout base-address.
+  return addressCast<ELFT>(
+      Context.baseAddress()); // Elf_Addr{Context.baseAddress()};
 }
 
-static Elf_Addr entryPoint(const Context &Ctxt, const Layout &Layout) {
+template <typename ELFT>
+static typename llvm::object::ELFFile<ELFT>::Elf_Addr
+entryPoint(const Context &Ctxt, const Layout &Layout) {
   if (const auto NamesIndex =
           pstore::index::get_index<pstore::trailer::indices::name>(Ctxt.Db,
                                                                    false)) {
@@ -319,29 +161,37 @@ static Elf_Addr entryPoint(const Context &Ctxt, const Layout &Layout) {
       // The shadow memory pointer may be null if the string is known, but isn't
       // used as the name of a symbol.
       if (const Symbol *const Sym = *EntrySymbol) {
-        return symbolValue(*Sym);
+        return addressCast<ELFT>(elf::symbolValue(*Sym));
       }
     }
   }
 
-  return defaultEntryPoint(Ctxt, Layout);
+  return defaultEntryPoint<ELFT>(Ctxt, Layout);
 }
 
-llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName,
-                           Context &Context,
-                           const GlobalSymbolsContainer &Globals,
-                           const SymbolOrder &SymOrder,
-                           const UndefsContainer &Undefs,
-                           llvm::ThreadPool &WorkPool, Layout *const Layout,
-                           const LocalPLTsContainer &PLTs) {
+enum class Region { FileHeader, SegmentTable, SectionData, SectionTable, Last };
+
+template <typename ELFT>
+llvm::Error
+rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
+               const GlobalSymbolsContainer &Globals,
+               const SymbolOrder &SymOrder, const UndefsContainer &Undefs,
+               llvm::ThreadPool &WorkPool, Layout *const Layout,
+               const LocalPLTsContainer &PLTs) {
+  using Elf_Ehdr = typename llvm::object::ELFFile<ELFT>::Elf_Ehdr;
+  using Elf_Shdr = typename llvm::object::ELFFile<ELFT>::Elf_Shdr;
+  using Elf_Phdr = typename llvm::object::ELFFile<ELFT>::Elf_Phdr;
+  using Elf_Sym = typename llvm::object::ELFFile<ELFT>::Elf_Sym;
+
   llvm::NamedRegionTimer Timer("ELF Output", "Binary Output Phase",
                                rld::TimerGroupName, rld::TimerGroupDescription);
 
-  const uint64_t StringTableSize = prepareStringTable(Context, Layout, Globals);
+  const uint64_t StringTableSize =
+      elf::prepareStringTable(Layout, Context, Globals);
   const uint64_t SymbolTableSize =
-      prepareSymbolTableSection<ELFT>(Layout, Globals);
+      elf::prepareSymbolTableSection<ELFT>(Layout, Globals);
   const SectionIndexedArray<uint64_t> NameOffsets =
-      buildSectionNameStringTable(Layout);
+      elf::buildSectionNameStringTable(Layout);
 
   // After this point, don't do anything that might cause additional sections to
   // be emitted. Once we've decided which names are going into the section name
@@ -376,7 +226,7 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName,
   const unsigned NumSections = Layout->numberOfSections(NumImplicitSections);
   const unsigned NumSegments = Layout->numberOfSegments();
 
-  rld::EnumIndexedArray<Region, Region::Last, rld::FileRegion> FileRegions;
+  EnumIndexedArray<Region, Region::Last, FileRegion> FileRegions;
   FileRegions[Region::FileHeader] = rld::FileRegion{0, sizeof(Elf_Ehdr)};
   FileRegions[Region::SegmentTable] = rld::FileRegion{
       FileRegions[Region::FileHeader].end(), sizeof(Elf_Phdr) * NumSegments};
@@ -405,8 +255,7 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName,
         BufferStart + FileRegions[Region::FileHeader].offset());
     *Ehdr = rld::elf::initELFHeader<ELFT>(llvm::ELF::EM_X86_64);
     Ehdr->e_type = llvm::ELF::ET_EXEC;
-    Ehdr->e_entry =
-        entryPoint(Context, *Layout); // Address of the program entry point.
+    Ehdr->e_entry = entryPoint<ELFT>(Context, *Layout);
     Ehdr->e_phnum = NumSegments;
     Ehdr->e_phoff = FileRegions[Region::SegmentTable].offset();
     Ehdr->e_shnum = NumSections;
@@ -451,111 +300,62 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName,
                FileRegions[Region::SectionTable].size() ==
            reinterpret_cast<uint8_t *>(End));
   });
-
-  WorkPool.async([&Context, Layout, &FileRegions, BufferStart,
-                  &SectionFileOffsets]() {
+  {
     assert(SectionFileOffsets[SectionKind::shstrtab].hasValue() &&
            "The shstrtab section should have been assigned an offset");
-    auto *const Data = BufferStart + FileRegions[Region::SectionData].offset() +
-                       *SectionFileOffsets[SectionKind::shstrtab];
-    Layout->Sections[SectionKind::shstrtab].Writer(
-        Context, Layout->Sections[SectionKind::shstrtab], Data, *Layout);
-  });
+    auto *const NamesStart = BufferStart +
+                             FileRegions[Region::SectionData].offset() +
+                             *SectionFileOffsets[SectionKind::shstrtab];
 
-  WorkPool.async([&Context, &FileRegions, BufferStart, &SymOrder, &Undefs,
-                  StringTableSize, &SectionFileOffsets]() {
-    // Produce the string table.
-    llvm::NamedRegionTimer StringTableTimer(
-        "String Table", "Write the symbol name section", rld::TimerGroupName,
-        rld::TimerGroupDescription);
-
+    WorkPool.async([NamesStart, Layout]() {
+      uint8_t *const NamesEnd =
+          elf::sectionNameTableWriter(NamesStart, *Layout);
+      assert(NamesEnd > NamesStart &&
+             static_cast<size_t>(NamesEnd - NamesStart) ==
+                 Layout->Sections[SectionKind::shstrtab].FileSize);
+    });
+  }
+  {
     assert(SectionFileOffsets[SectionKind::strtab].hasValue() &&
            "The strtab section should have been assigned an offset");
+    auto *const StringStart = BufferStart +
+                              FileRegions[Region::SectionData].offset() +
+                              *SectionFileOffsets[SectionKind::strtab];
 
-    auto *const StringData = BufferStart +
-                             FileRegions[Region::SectionData].offset() +
-                             *SectionFileOffsets[SectionKind::strtab];
-    auto *StringOut = StringData;
-    *(StringOut++) = '\0'; // The string table's initial null entry.
-    pstore::shared_sstring_view Owner;
+    WorkPool.async([StringStart, &Context, &SymOrder, &Undefs,
+                    StringTableSize]() {
+      // Produce the string table.
+      llvm::NamedRegionTimer StringTableTimer(
+          "String Table", "Write the symbol name section", rld::TimerGroupName,
+          rld::TimerGroupDescription);
 
-    walkOrderedSymbolTable(SymOrder, Undefs, [&](const Symbol &Sym) {
-      // Copy a string.
-      const pstore::raw_sstring_view Str = pstore::get_sstring_view(
-          Context.Db, Sym.name(), Sym.nameLength(), &Owner);
-      StringOut = std::copy(std::begin(Str), std::end(Str), StringOut);
-      *(StringOut++) = '\0';
+      auto *const StringEnd =
+          elf::writeStrings(StringStart, Context, SymOrder, Undefs);
+      (void)StringTableSize;
+      assert(StringEnd > StringStart &&
+             static_cast<size_t>(StringEnd - StringStart) == StringTableSize);
     });
-    (void)StringTableSize;
-    assert(StringOut > StringData &&
-           static_cast<size_t>(StringOut - StringData) == StringTableSize);
-  });
-
-  WorkPool.async([&SectionToIndex, &FileRegions, BufferStart, &SymOrder,
-                  &Undefs, SymbolTableSize, &SectionFileOffsets]() {
-    llvm::NamedRegionTimer StringTableTimer(
-        "Symbol Table", "Write the symbol table", rld::TimerGroupName,
-        rld::TimerGroupDescription);
-
+  }
+  {
     assert(SectionFileOffsets[SectionKind::symtab].hasValue() &&
            "The symbol section should have been assigned an offset");
-
-    auto *const SymbolData = reinterpret_cast<Elf_Sym *>(
+    auto *const SymbolStart = reinterpret_cast<Elf_Sym *>(
         BufferStart + FileRegions[Region::SectionData].offset() +
         *SectionFileOffsets[SectionKind::symtab]);
-    auto *SymbolOut = SymbolData;
 
-    auto NameOffset =
-        Elf_Word::value_type{1}; // 1 to allow for the initial '\0'.
-    static_assert(std::is_unsigned<Elf_Word::value_type>::value,
-                  "Expected ELF_Word to be unsigned");
-    // The initial null symbol.
-    std::memset(SymbolOut, 0, sizeof(*SymbolOut));
-    ++SymbolOut;
+    WorkPool.async([SymbolStart, &SymOrder, &Undefs, &SectionToIndex,
+                    SymbolTableSize]() {
+      llvm::NamedRegionTimer StringTableTimer(
+          "Symbol Table", "Write the symbol table", rld::TimerGroupName,
+          rld::TimerGroupDescription);
 
-    walkOrderedSymbolTable(SymOrder, Undefs, [&](const Symbol &Sym) {
-      // Build a symbol.
-      const std::tuple<const Symbol::OptionalBodies &,
-                       std::unique_lock<Symbol::Mutex>>
-          Def = Sym.definition();
-      const Symbol::OptionalBodies &Bodies =
-          std::get<const Symbol::OptionalBodies &>(Def);
-      if (!Bodies) {
-        // This is an undefined symbol.
-        std::memset(SymbolOut, 0, sizeof(*SymbolOut));
-        assert(
-            Sym.allReferencesAreWeak(
-                std::get<std::unique_lock<Symbol::Mutex>>(Def)) &&
-            "Undefined entries in the symbol table must be weakly referenced");
-        SymbolOut->setBinding(llvm::ELF::STB_WEAK);
-      } else {
-        // If there are multiple bodies associated with a symbol then the ELF
-        // symbol simply points to the first.
-        const Symbol::Body &B = Bodies->front();
-        const Contribution *const C = Sym.contribution();
-        assert(C != nullptr);
-
-        SymbolOut->st_value = C->OScn->VirtualAddr + C->Offset;
-        SymbolOut->st_shndx = SectionToIndex[C->OScn->SectionK];
-        SymbolOut->st_size =
-            0; // FIXME: the sum of the sizes of all of the bodies.
-        SymbolOut->setVisibility(elf::elfVisibility<ELFT>(B.visibility()));
-        SymbolOut->setBindingAndType(linkageToELFBinding(B.linkage()),
-                                     sectionToSymbolType(C->OScn->SectionK));
-      }
-      SymbolOut->st_name = Elf_Word{NameOffset};
-
-      ++SymbolOut;
-      // Pass our lock to nameLength() so that it doesn't try to take one of its
-      // own.
-      NameOffset += Sym.nameLength(std::get<1>(Def)) +
-                    1U; // +1 to allow for the final '\0'.
+      Elf_Sym *const SymbolEnd = elf::writeSymbolTable<ELFT>(
+          SymbolStart, SymOrder, Undefs, SectionToIndex);
+      (void)SymbolTableSize;
+      assert(SymbolEnd >= SymbolStart &&
+             static_cast<size_t>(SymbolEnd - SymbolStart) == SymbolTableSize);
     });
-
-    (void)SymbolTableSize;
-    assert(SymbolOut >= SymbolData &&
-           static_cast<size_t>(SymbolOut - SymbolData) == SymbolTableSize);
-  });
+  }
 
   copyToOutput(Context, WorkPool, BufferStart, *Layout, PLTs,
                SectionFileOffsets, FileRegions[Region::SectionData].offset());
@@ -563,3 +363,24 @@ llvm::Error rld::elfOutput(const llvm::StringRef &OutputFileName,
 
   return (*Out)->commit();
 }
+
+template llvm::Error rld::elfOutput<llvm::object::ELF64LE>(
+    const llvm::StringRef &OutputFileName, Context &Ctxt,
+    const GlobalSymbolsContainer &Globals, const SymbolOrder &SymOrder,
+    const UndefsContainer &Undefs, llvm::ThreadPool &WorkPool,
+    Layout *const Lout, const LocalPLTsContainer &PLTs);
+template llvm::Error rld::elfOutput<llvm::object::ELF64BE>(
+    const llvm::StringRef &OutputFileName, Context &Ctxt,
+    const GlobalSymbolsContainer &Globals, const SymbolOrder &SymOrder,
+    const UndefsContainer &Undefs, llvm::ThreadPool &WorkPool,
+    Layout *const Lout, const LocalPLTsContainer &PLTs);
+template llvm::Error rld::elfOutput<llvm::object::ELF32LE>(
+    const llvm::StringRef &OutputFileName, Context &Ctxt,
+    const GlobalSymbolsContainer &Globals, const SymbolOrder &SymOrder,
+    const UndefsContainer &Undefs, llvm::ThreadPool &WorkPool,
+    Layout *const Lout, const LocalPLTsContainer &PLTs);
+template llvm::Error rld::elfOutput<llvm::object::ELF32BE>(
+    const llvm::StringRef &OutputFileName, Context &Ctxt,
+    const GlobalSymbolsContainer &Globals, const SymbolOrder &SymOrder,
+    const UndefsContainer &Undefs, llvm::ThreadPool &WorkPool,
+    Layout *const Lout, const LocalPLTsContainer &PLTs);
