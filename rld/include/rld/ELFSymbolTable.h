@@ -17,11 +17,11 @@
 namespace rld {
 namespace elf {
 
-constexpr uint64_t symbolValue(const Contribution &C) {
+inline uint64_t symbolValue(const Contribution &C) {
   return C.OScn->VirtualAddr + C.Offset;
 }
 
-constexpr uint64_t symbolValue(const Symbol &Sym) {
+inline uint64_t symbolValue(const Symbol &Sym) {
   const Contribution *const C = Sym.contribution();
   assert(C != nullptr);
   return symbolValue(*C);
