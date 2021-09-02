@@ -35,9 +35,20 @@ VPATH = $(LLVM_REPO)/build_libunwind/lib/:\
         $(LLVM_REPO)/build_libcxx/lib/:\
         $(CLANG_RT_LIB)/
 
+ALL_LIBS = $(LLVM_REPO)/build_libunwind/lib/libunwind.a  \
+           $(LLVM_REPO)/build_libunwind/lib/libunwind.db \
+           $(LLVM_REPO)/build_libcompiler-rt/lib/linux/libclang_rt.a \
+           $(LLVM_REPO)/build_libcompiler-rt/lib/linux/libclang_rt.db \
+           $(CLANG_RT_LIB)/clang_rt.crtbegin-x86_64.t \
+           $(CLANG_RT_LIB)/clang_rt.crtend-x86_64.t \
+           $(LLVM_REPO)/build_libcxxabi/lib/libc++abi.a \
+           $(LLVM_REPO)/build_libcxxabi/lib/libc++abi.db \
+           $(LLVM_REPO)/build_libcxx/lib/libc++.a \
+           $(LLVM_REPO)/build_libcxx/lib/libc++.db
+
 .ONESHELL:
-$(LLVM_REPO)/build_libunwind/lib/libunwind.a \
-$(LLVM_REPO)/build_libunwind/lib/libunwind.db:
+$(LLVM_REPO)/build_libunwind/lib/%.a \
+$(LLVM_REPO)/build_libunwind/lib/%.db:
 	-rm -rf $(LLVM_REPO)/build_libunwind
 	cd $(LLVM_REPO)
 	mkdir build_libunwind && cd build_libunwind
@@ -60,10 +71,10 @@ $(LLVM_REPO)/build_libunwind/lib/libunwind.db:
 	make install
 
 .ONESHELL:
-$(LLVM_REPO)/build_libcompiler-rt/lib/linux/libclang_rt.a \
-$(LLVM_REPO)/build_libcompiler-rt/lib/linux/libclang_rt.db \
-$(CLANG_RT_LIB)/clang_rt.crtbegin-x86_64.t \
-$(CLANG_RT_LIB)/clang_rt.crtend-x86_64.t:
+$(LLVM_REPO)/build_libcompiler-rt/lib/linux/lib%.a \
+$(LLVM_REPO)/build_libcompiler-rt/lib/linux/lib%.db \
+$(CLANG_RT_LIB)/%.crtbegin-x86_64.t \
+$(CLANG_RT_LIB)/%.crtend-x86_64.t:
 	-rm -rf $(LLVM_REPO)/build_libcompiler-rt
 	cd $(LLVM_REPO)
 	mkdir build_libcompiler-rt && cd build_libcompiler-rt
@@ -98,8 +109,8 @@ $(CLANG_RT_LIB)/clang_rt.crtend-x86_64.o: clang_rt.crtend-x86_64.t
 	repo2obj --repo=$(LLVM_REPO)/build_libcompiler-rt/lib/linux/libclang_rt.db $< -o $@
 
 .ONESHELL:
-$(LLVM_REPO)/build_libcxxabi/lib/libcxxabi.a \
-$(LLVM_REPO)/build_libcxxabi/lib/libc++abi.db: libunwind.a libclang_rt.a
+$(LLVM_REPO)/build_libcxxabi/lib/%.a \
+$(LLVM_REPO)/build_libcxxabi/lib/%.db: libunwind.a libclang_rt.a
 	-rm -rf $(LLVM_REPO)/build_libcxxabi
 	cd $(LLVM_REPO)
 	mkdir build_libcxxabi && cd build_libcxxabi
@@ -125,8 +136,8 @@ $(LLVM_REPO)/build_libcxxabi/lib/libc++abi.db: libunwind.a libclang_rt.a
 	make install
 
 .ONESHELL:
-$(LLVM_REPO)/build_libcxx/lib/libcxx.a \
-$(LLVM_REPO)/build_libcxx/lib/libc++.db: libcxxabi.a
+$(LLVM_REPO)/build_libcxx/lib/%.a \
+$(LLVM_REPO)/build_libcxx/lib/%.db: libc++abi.a
 	-rm -rf $(LLVM_REPO)/build_libcxx
 	cd $(LLVM_REPO)
 	mkdir build_libcxx && cd build_libcxx
@@ -162,14 +173,12 @@ $(LLVM)/lib/libc++abi.db: libc++abi.db
 $(LLVM)/lib/libc++.db: libc++.db
 	cp $< $@
 
-install-libs: libunwind.a \
-              libclang_rt.a \
-              libcxxabi.a \
-              libcxx.a \
+install-libs: $(ALL_LIBS) \
               $(CLANG_RT_LIB)/clang_rt.crtbegin-x86_64.o \
               $(CLANG_RT_LIB)/clang_rt.crtend-x86_64.o
 
-install-repo-libs-dbs: $(LLVM)/lib/libunwind.db \
+install-repo-libs-dbs: $(ALL_LIBS) \
+                       $(LLVM)/lib/libunwind.db \
                        $(CLANG_RT_LIB)/libclang_rt.db \
                        $(LLVM)/lib/libc++abi.db \
                        $(LLVM)/lib/libc++.db \
