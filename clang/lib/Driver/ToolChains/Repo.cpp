@@ -28,33 +28,13 @@ static void constructRepoLinkArgs(Compilation &C, const JobAction &JA,
   const Driver &D = RTC.getDriver();
 
   //----------------------------------------------------------------------------
-  // Silence warnings for various options
-  //----------------------------------------------------------------------------
-  Args.ClaimAllArgs(options::OPT_g_Group);
-  Args.ClaimAllArgs(options::OPT_emit_llvm);
-  Args.ClaimAllArgs(options::OPT_w); // Other warning options are already
-                                     // handled somewhere else.
-
-  //----------------------------------------------------------------------------
   //
   //----------------------------------------------------------------------------
-  if (Args.hasArg(options::OPT_s))
-    CmdArgs.push_back("-s");
-
-  if (Args.hasArg(options::OPT_r))
-    CmdArgs.push_back("-r");
-
-  for (const auto &Opt : RTC.ExtraOpts)
-    CmdArgs.push_back(Opt.c_str());
-
   if (Args.hasArg(options::OPT_shared))
     CmdArgs.push_back("-shared");
 
   if (Args.hasArg(options::OPT_static))
     CmdArgs.push_back("-static");
-
-  if (Args.hasArg(options::OPT_pie))
-    CmdArgs.push_back("-pie");
 
   CmdArgs.push_back("-o");
   CmdArgs.push_back(Output.getFilename());
@@ -152,18 +132,9 @@ RepoToolChain::~RepoToolChain() {}
 
 void RepoToolChain::AddCXXStdlibLibArgs(const ArgList &Args,
                                         ArgStringList &CmdArgs) const {
-  CXXStdlibType Type = GetCXXStdlibType(Args);
-  switch (Type) {
-  case ToolChain::CST_Libcxx:
-    CmdArgs.push_back("-lc++");
-    CmdArgs.push_back("-lc++abi");
-    CmdArgs.push_back("-lunwind");
-    break;
-
-  case ToolChain::CST_Libstdcxx:
-    CmdArgs.push_back("-lstdc++");
-    break;
-  }
+  CmdArgs.push_back("-lc++");
+  CmdArgs.push_back("-lc++abi");
+  CmdArgs.push_back("-lunwind");
 }
 
 Tool *RepoToolChain::buildLinker() const {
