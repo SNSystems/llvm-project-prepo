@@ -14,6 +14,7 @@ constexpr auto elfSegmentFlags(const SegmentKind Kind) ->
   using Elf_Word = typename llvm::object::ELFFile<ELFT>::Elf_Word;
   switch (Kind) {
   case SegmentKind::data:
+  case SegmentKind::gnu_relro:
   case SegmentKind::gnu_stack:
     return Elf_Word{llvm::ELF::PF_R | llvm::ELF::PF_W};
 
@@ -24,7 +25,9 @@ constexpr auto elfSegmentFlags(const SegmentKind Kind) ->
 
   case SegmentKind::text:
     return Elf_Word{llvm::ELF::PF_X | llvm::ELF::PF_R};
-  default:
+
+  case SegmentKind::discard:
+  case SegmentKind::last:
     break;
   }
   llvm_unreachable("Invalid segment kind");

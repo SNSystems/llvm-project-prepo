@@ -183,12 +183,14 @@ internals(Symbol::Body &Def, const NotNull<FixupStorage::Container *> Storage) {
   //    return nullptr;
   //  }
 
-  using T = pstore::repo::section_sparray<Contribution const *>;
   auto *const Ptr =
-      csAlloc(Storage.get(), T::size_bytes(NumSections), alignof(T));
-  assert(reinterpret_cast<std::uintptr_t>(Ptr) % alignof(T) == 0 &&
+      csAlloc(Storage.get(), ContributionSpArray::size_bytes(NumSections),
+              alignof(ContributionSpArray));
+  assert(reinterpret_cast<std::uintptr_t>(Ptr) % alignof(ContributionSpArray) ==
+             0 &&
          "Storage must be aligned correctly");
-  return new (Ptr) T(std::begin(*Fragment), std::end(*Fragment));
+  return new (Ptr)
+      ContributionSpArray(std::begin(*Fragment), std::end(*Fragment));
 }
 
 // resolve fixups

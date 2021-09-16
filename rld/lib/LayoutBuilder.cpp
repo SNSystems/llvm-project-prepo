@@ -16,6 +16,7 @@
 
 #include "rld/Algorithm.h"
 #include "rld/MathExtras.h"
+#include "rld/SpecialNames.h"
 #include "rld/context.h"
 
 #include "llvm/ADT/Twine.h"
@@ -25,6 +26,7 @@
 #include "llvm/Support/Threading.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <bitset>
 #include <cassert>
 
 namespace {
@@ -61,6 +63,7 @@ static constexpr bool hasFileData(pstore::repo::section_kind Kind) {
   case section_kind::last:
     return false;
   }
+  llvm_unreachable("Unknown pstore section kind");
 }
 
 #define X(a)                                                                   \
@@ -73,6 +76,8 @@ static constexpr bool hasFileData(rld::SectionKind Kind) {
   case rld::SectionKind::rela_plt:
   case rld::SectionKind::gotplt:
   case rld::SectionKind::plt:
+  case rld::SectionKind::init_array:
+  case rld::SectionKind::fini_array:
     return true;
   case rld::SectionKind::shstrtab:
   case rld::SectionKind::strtab:
@@ -119,6 +124,32 @@ void LayoutBuilder::Visited::resize(uint32_t NumCompilations) {
   }
 }
 
+#define RLD_X(x) x,
+const std::array<SectionKind const,
+                 static_cast<std::underlying_type_t<SectionKind>>(
+                     SectionKind::last)>
+    SectionFileOrder = {{RLD_SECTION_FILE_ORDER}};
+#undef RLD_X
+
+void checkSectionFileOrder() {
+#ifndef NDEBUG
+  const auto member = [](std::bitset<SectionFileOrder.size()> S,
+                         SectionKind SectionK) {
+    const auto Index =
+        static_cast<std::underlying_type_t<SectionKind>>(SectionK);
+    assert(!S.test(Index));
+    return S.set(Index);
+  };
+  std::bitset<SectionFileOrder.size()> SO;
+#define X(a) SO = member(SO, SectionKind::a);
+#define RLD_X(a) X(a)
+  RLD_ALL_SECTION_KINDS
+#undef RLD_X
+#undef X
+  assert(SO.all());
+#endif // NDEBUG
+}
+
 // For the most part, the type of the section in the input is mapped directly to
 // the output. In the case of the mergeable... sections, these are translated to
 // the read_only output section.
@@ -127,6 +158,7 @@ void LayoutBuilder::Visited::resize(uint32_t NumCompilations) {
 // to be emitting output sections of this type.
 
 LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
+    // The pstore section-kinds.
     SectionMapping{SectionKind::text, SegmentKind::text},
     {SectionKind::data, SegmentKind::data},
     {SectionKind::bss, SegmentKind::data},
@@ -152,6 +184,9 @@ LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
     {SectionKind::debug_string, SegmentKind::discard},
     {SectionKind::debug_ranges, SegmentKind::discard},
     {SectionKind::linked_definitions, SegmentKind::discard},
+    // section-kinds added by rld.
+    {SectionKind::init_array, SegmentKind::data},
+    {SectionKind::fini_array, SegmentKind::data},
     {SectionKind::gotplt, SegmentKind::data},
     {SectionKind::plt, SegmentKind::text},
     {SectionKind::rela_plt, SegmentKind::rodata},
@@ -164,7 +199,7 @@ LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
 // ~~~~~~
 #define X(x) OutputSection{SectionKind::x},
 #define RLD_X(x) X(x)
-Layout::Layout() : Sections{{PSTORE_MCREPO_SECTION_KINDS RLD_SECTION_KINDS}} {}
+Layout::Layout() : Sections{{RLD_ALL_SECTION_KINDS}} {}
 #undef RLD_X
 #undef X
 
@@ -173,16 +208,14 @@ Layout::Layout() : Sections{{PSTORE_MCREPO_SECTION_KINDS RLD_SECTION_KINDS}} {}
 void LayoutBuilder::checkSectionToSegmentArray() {
 #ifndef NDEBUG
   auto Index = 0;
-  for (auto It = std::cbegin(SectionToSegment_),
-            End = std::cend(SectionToSegment_);
-       It != End; ++It, ++Index) {
-    const SectionMapping &v = *It;
-    const SectionKind Section = v.InputSection;
+  for (const SectionMapping &V : SectionToSegment_) {
+    const SectionKind Section = V.InputSection;
     assert(static_cast<std::underlying_type<SectionKind>::type>(Section) ==
                Index &&
            "SectionToSegmentArray order is not correct");
-    assert(v.Segment == SectionToSegment_[v.OutputSection].Segment &&
+    assert(V.Segment == SectionToSegment_[V.OutputSection].Segment &&
            "Segment mapping is not consistent");
+    ++Index;
   }
 #endif
 }
@@ -193,10 +226,11 @@ constexpr auto PageSize = 0x1000U;
 // ~~~~~~
 LayoutBuilder::LayoutBuilder(Context &Ctx,
                              const NotNull<GlobalsStorage *> Globals,
+                             const NotNull<UndefsContainer *> Undefs,
                              uint32_t NumCompilations)
-    : Ctx_{Ctx}, Globals_{Globals}, NumCompilations_{NumCompilations},
-      CompilationWaiter_{NumCompilations}, CUsMut_{}, CUs_{},
-      Layout_{std::make_unique<Layout>()},
+    : Ctx_{Ctx}, Globals_{Globals}, Undefs_{Undefs},
+      NumCompilations_{NumCompilations}, CompilationWaiter_{NumCompilations},
+      CUsMut_{}, CUs_{}, Layout_{std::make_unique<Layout>()},
       PLTs_{std::make_unique<LocalPLTsContainer>()}, LocalEmit_{},
       GlobalEmit_{} {
 
@@ -204,6 +238,8 @@ LayoutBuilder::LayoutBuilder(Context &Ctx,
        ++SegmentK) {
     Layout_->Segments[SegmentK].MaxAlign = PageSize;
   }
+  Layout_->Segments[SegmentKind::gnu_relro].MaxAlign = 1U;
+  checkSectionFileOrder();
 
   this->checkSectionToSegmentArray();
 }
@@ -270,27 +306,26 @@ OutputSection *LayoutBuilder::addToOutputSection(SectionKind SKind, size_t Size,
 
 // add section to layout
 // ~~~~~~~~~~~~~~~~~~~~~
-template <pstore::repo::section_kind SKind>
-Contribution *LayoutBuilder::addSectionToLayout(
-    const StringAddress Name, const Symbol::Body &Body,
-    pstore::repo::section_sparray<Contribution const *> const
-        *const IfxContributions) {
+template <pstore::repo::section_kind InSection, SectionKind OutSection>
+Contribution *
+LayoutBuilder::addSectionToLayout(const StringAddress Name,
+                                  const Symbol::Body &Body,
+                                  ContributionSpArray *const IfxContributions) {
   const FragmentPtr &F = Body.fragment();
-  assert(F->has_section(SKind) &&
+  assert(F->has_section(InSection) &&
          "Layout can't contain a section that doesn't exist");
 
-  const SegmentKind SegmentK =
-      SectionToSegment_[ToRldSectionKind<SKind>::value].Segment;
+  const SegmentKind SegmentK = SectionToSegment_[OutSection].Segment;
   assert(SegmentK != SegmentKind::last);
   if (SegmentK == SegmentKind::discard) {
     llvmDebug(DebugType, Ctx_.IOMut,
-              [&] { llvm::dbgs() << "    Discarding " << SKind << '\n'; });
+              [&] { llvm::dbgs() << "    Discarding " << InSection << '\n'; });
     return nullptr;
   }
 
   Layout_->Segments[SegmentK].HasOutputSections = true;
 
-  const auto &Section = F->at<SKind>();
+  const auto &Section = F->at<InSection>();
   assert(reinterpret_cast<const uint8_t *>(&Section) >
          reinterpret_cast<const uint8_t *>(F.get()));
 
@@ -298,23 +333,24 @@ Contribution *LayoutBuilder::addSectionToLayout(
   const auto Alignment = pstore::repo::section_alignment(Section);
 
   OutputSection *const OutputSection =
-      this->addToOutputSection(ToRldSectionKind<SKind>::value, Size, Alignment);
+      this->addToOutputSection(OutSection, Size, Alignment);
 
   const auto &RM = Body.resolveMap();
 
   OutputSection->Contributions.emplace_back(
-      &Section,  // the contribution's fragment section
-      RM[SKind], // the array of external fixups to be applied when copying the
-                 // contribution
-      IfxContributions, // The contributions for the sections of fragment 'F'
+      &Section,      // The contribution's fragment section.
+      RM[InSection], // The array of external fixups to be applied when copying
+                     // the contribution.
+      IfxContributions, // The contributions for the sections of fragment 'F'.
       OutputSection,    // The output section to which the contribution belongs.
       alignTo(LayoutBuilder::prevSectionEnd(OutputSection->Contributions),
               Alignment), // Offset
-      Size, Alignment, Body.inputOrdinal(), Name);
+      Size, Alignment, Body.inputOrdinal(), ToRldSectionKind<InSection>::value,
+      Name);
 
   llvmDebug(DebugType, Ctx_.IOMut, [&] {
     const auto &Entry = OutputSection->Contributions.back();
-    llvm::dbgs() << "    Adding " << SKind << " section to " << SegmentK
+    llvm::dbgs() << "    Adding " << InSection << " section to " << SegmentK
                  << " segment (" << Entry << ")\n";
   });
 
@@ -353,11 +389,53 @@ void LayoutBuilder::appendToEmitList(
   }
 }
 
+template <SectionKind InSection, SectionKind OutSection>
+std::enable_if_t<!IsPstoreSectionKind<InSection>::value,
+                 ContributionSpArray::iterator>
+LayoutBuilder::addSymbolSection(ContributionSpArray::iterator CIt,
+                                Symbol *const Sym, const StringAddress Name,
+                                const Symbol::Body &Body,
+                                ContributionSpArray *const IfxContributions) {
+  return CIt;
+}
+
+template <SectionKind InSection, SectionKind OutSection>
+std::enable_if_t<IsPstoreSectionKind<InSection>::value,
+                 ContributionSpArray::iterator>
+LayoutBuilder::addSymbolSection(ContributionSpArray::iterator CIt,
+                                Symbol *const Sym, const StringAddress Name,
+                                const Symbol::Body &Body,
+                                ContributionSpArray *const IfxContributions) {
+  constexpr auto InPstoreKind = ToPstoreSectionKind<InSection>::value;
+  if (Body.fragment()->has_section(InPstoreKind)) {
+    Contribution *const C = this->addSectionToLayout<InPstoreKind, OutSection>(
+        Name, Body, IfxContributions);
+    Sym->setFirstContribution(C);
+
+    if (IfxContributions != nullptr) {
+      // Now that we've got a contribution record for this section, we can
+      // record it in the fragment's sparse array.
+      assert(IfxContributions->has_index(InPstoreKind) &&
+             "The array does not have an index for one of the fragment's "
+             "sections");
+      //      assert(&(*IfxContributions)[PstoreKind] == &(*CIt) &&
+      //             "The IfxContribution iterator was not correct");
+      //      *CIt = C;
+      //      ++CIt;
+
+      assert((*IfxContributions)[InPstoreKind] == ContributionEntry{});
+      (*IfxContributions)[InPstoreKind] = ContributionEntry{C, InPstoreKind};
+    }
+  }
+  return CIt;
+}
+
 // add symbol body
 // ~~~~~~~~~~~~~~~
 void LayoutBuilder::addSymbolBody(Symbol *const Sym, const Symbol::Body &Body,
                                   const uint32_t Ordinal,
                                   const StringAddress Name,
+                                  const SpecialNames &Magics,
                                   ContributionSpArray *const IfxContributions) {
   // Record this symbol's fragment if it was defined by this compilation.
   if (Body.inputOrdinal() != Ordinal) {
@@ -379,33 +457,19 @@ void LayoutBuilder::addSymbolBody(Symbol *const Sym, const Symbol::Body &Body,
     CIt = IfxContributions->begin();
   }
 
-  for (pstore::repo::section_kind Section : *Body.fragment()) {
-    Contribution *C = nullptr;
-#define X(a)                                                                   \
-  case pstore::repo::section_kind::a:                                          \
-    C = this->addSectionToLayout<pstore::repo::section_kind::a>(               \
-        Name, Body, IfxContributions);                                         \
-    break;
-    switch (Section) {
-      PSTORE_MCREPO_SECTION_KINDS
-    case pstore::repo::section_kind::last:
-      llvm_unreachable("Unknown fragment section kind");
-    }
-#undef X
-    if (IfxContributions != nullptr) {
-      // Now that we've got a contribution record for this section, we can
-      // record it in the fragment's sparse array.
-      assert(IfxContributions->has_index(Section) &&
-             "The array does not have an index for one of the fragment's "
-             "sections");
-      assert(&(*IfxContributions)[Section] == &*CIt &&
-             "The IfxContribution iterator was not correct");
-      *CIt = C;
-      ++CIt;
-    }
-
-    Sym->setFirstContribution(C);
+  if (Name == Magics.GlobalCtors) {
+    this->addSymbolSection<SectionKind::read_only, SectionKind::init_array>(
+        CIt, Sym, Name, Body, IfxContributions);
+    return;
   }
+
+#define X(x)                                                                   \
+  CIt = this->addSymbolSection<SectionKind::x>(CIt, Sym, Name, Body,           \
+                                               IfxContributions);
+#define RLD_X(x) X(x)
+  RLD_ALL_SECTION_KINDS
+#undef RLD_X
+#undef X
 }
 
 // debug dump layout
@@ -413,27 +477,31 @@ void LayoutBuilder::addSymbolBody(Symbol *const Sym, const Symbol::Body &Body,
 void LayoutBuilder::debugDumpLayout() const {
   auto &OS = llvm::dbgs();
 
-  auto EmitSegment = makeOnce([this, &OS](SegmentKind Seg) {
-    auto const &Segment = Layout_->Segments[Seg];
+  auto EmitSegment = makeOnce([this, &OS](const SegmentKind Seg) {
+    const auto &Segment = Layout_->Segments[Seg];
     OS << Seg << '\t' << format_hex(Segment.VirtualAddr) << '\t'
        << format_hex(Segment.VirtualSize) << '\t'
        << format_hex(Segment.MaxAlign) << '\n';
   });
   auto EmitSection =
-      makeOnce([&OS](SectionKind Scn) { OS << '\t' << Scn << '\n'; });
+      makeOnce([&OS](const SectionKind Scn) { OS << '\t' << Scn << '\n'; });
 
   pstore::shared_sstring_view Owner;
-  forEachSegmentKind([&](SegmentKind SegmentK) {
-    forEachSectionKind([&](SectionKind SectionK) {
-      if (OutputSection const *const Scn =
+  forEachSegmentKind([&](const SegmentKind SegmentK) {
+    auto VAddr = Layout_->Segments[SegmentK].VirtualAddr;
+    forEachSectionKindInFileOrder([&](const SectionKind SectionK) {
+      if (const OutputSection *const Scn =
               Layout_->Segments[SegmentK].Sections[SectionK]) {
-        for (Contribution const &C : Scn->Contributions) {
+        for (const Contribution &C : Scn->Contributions) {
           EmitSegment(SegmentK);
           EmitSection(SectionK);
-          OS << "\t\t" << format_hex(C.Size) << '\t' << format_hex(C.Align)
-             << '\t' << stringViewAsRef(loadString(Ctx_.Db, C.Name, &Owner))
+          VAddr = alignTo(VAddr, C.Align);
+          OS << "\t\t" << format_hex(VAddr) << '\t' << format_hex(C.Size)
              << '\t' << format_hex(C.Align) << '\t'
-             << format_hex(C.InputOrdinal) << '\n';
+             << stringViewAsRef(loadString(Ctx_.Db, C.Name, &Owner)) << '\t'
+             << format_hex(C.Align) << '\t' << format_hex(C.InputOrdinal)
+             << '\n';
+          VAddr += C.Size;
         }
       }
       EmitSection.reset();
@@ -445,10 +513,81 @@ void LayoutBuilder::debugDumpLayout() const {
 using ELFT = llvm::object::ELF64LE;
 using Elf_Rela = llvm::object::ELFFile<ELFT>::Elf_Rela;
 
+void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
+                                   const StringAddress Aliasee,
+                                   const bool Start) {
+  if (Alias == StringAddress::null() || Aliasee == StringAddress::null()) {
+    return;
+  }
+  setSymbolShadow(
+      symbolShadow(Ctx_, Alias),
+      []() -> Symbol * {
+        return nullptr; // Symbol doesn't exist. Do nothing.
+      },
+      [&](Symbol *Sym) -> Symbol * {
+        if (Sym->hasDefinition()) {
+          // We already have a definition. Do nothing.
+          return Sym;
+        }
+        auto *const Ctors = symbolShadow(Ctx_, Aliasee);
+        // The shadow memory pointer may be null if the string is known, but
+        // isn't used as the name of a symbol.
+        if (const Symbol *const AliaseeSym = *Ctors) {
+          const auto CtorsDef = AliaseeSym->definition();
+          if (const auto &Bodies =
+                  std::get<const Symbol::OptionalBodies &>(CtorsDef)) {
+            const Symbol::Body &FirstBody = Bodies->front();
+
+            constexpr auto InputOrdinal = std::numeric_limits<uint32_t>::max();
+            SymbolResolver Resolver{Ctx_};
+            Sym = Resolver.updateSymbol(Sym, Undefs_, FirstBody.definition(),
+                                        InputOrdinal);
+            assert(Sym != nullptr);
+            if (Start) {
+              Sym->setFirstContribution(
+                  &Layout_->Sections[SectionKind::init_array]
+                       .Contributions.front());
+            } else {
+              unsigned Alignment = 1;
+              unsigned Size = 0;
+
+              OutputSection *const OutputSection =
+                  &Layout_->Sections[SectionKind::init_array];
+              OutputSection->Contributions.emplace_back(
+                  nullptr, // The contribution's fragment section.
+                  nullptr, // The array of external fixups to be applied when
+                           // copying the contribution.
+                  nullptr, // The contributions for the sections.
+                  OutputSection, // The output section to which the contribution
+                                 // belongs.
+                  alignTo(LayoutBuilder::prevSectionEnd(
+                              OutputSection->Contributions),
+                          Alignment), // Offset
+                  Size, Alignment, InputOrdinal, SectionKind::init_array,
+                  Alias);
+              Sym->setFirstContribution(&OutputSection->Contributions.back());
+            }
+
+            // c.f. addSymbolBody
+            if (isLocalLinkage(FirstBody.linkage())) {
+              ++LocalsSize_;
+              this->appendToEmitList(&LocalEmit_, Sym);
+            } else {
+              this->appendToEmitList(&GlobalEmit_, Sym);
+            }
+          }
+        }
+        return Sym;
+      });
+}
+
 // run
 // ~~~
 void LayoutBuilder::run() {
   llvm::set_thread_name("LayoutBuilder");
+
+  SpecialNames Magics;
+  Magics.initialize(Ctx_.Db);
 
   for (auto Ordinal = uint32_t{0}; Ordinal < NumCompilations_; ++Ordinal) {
     CompilationWaiter_.waitFor(Ordinal);
@@ -485,7 +624,7 @@ void LayoutBuilder::run() {
       if (Bodies.size() == 1U) {
         auto const &B = Bodies.front();
         assert(!B.hasLocalLinkage() || B.inputOrdinal() == Ordinal);
-        this->addSymbolBody(Sym, B, Ordinal, Name, IfxContributions);
+        this->addSymbolBody(Sym, B, Ordinal, Name, Magics, IfxContributions);
       } else {
         auto const First = std::begin(Bodies);
         auto const Last = std::end(Bodies);
@@ -507,7 +646,7 @@ void LayoutBuilder::run() {
               return A.inputOrdinal() < B;
             });
         assert(Pos != Last && Pos->inputOrdinal() == Ordinal);
-        this->addSymbolBody(Sym, *Pos, Ordinal, Name, IfxContributions);
+        this->addSymbolBody(Sym, *Pos, Ordinal, Name, Magics, IfxContributions);
       }
     }
 
@@ -544,35 +683,52 @@ void LayoutBuilder::run() {
     rela_plt->Link = rld::SectionKind::symtab;
     rela_plt->Info = rld::SectionKind::gotplt;
   }
+
+  this->addAliasSymbol(Magics.InitArrayStart, Magics.GlobalCtors,
+                       true /*start?*/);
+  this->addAliasSymbol(Magics.InitArrayEnd, Magics.GlobalCtors,
+                       false /*start?*/);
 }
 
-static uint64_t positionOutputSections(uint64_t Base, Segment *const Seg,
-                                       uint64_t VirtualSize,
-                                       uint64_t FileSize) {
-  auto A = Base;
-  forEachSectionKind(
-      [Seg, &A, &VirtualSize, &FileSize](const SectionKind SectionK) {
-        if (OutputSection *const Scn = Seg->Sections[SectionK]) {
-          const auto Alignment = Scn->MaxAlign;
-          assert(Alignment <= Seg->MaxAlign);
-          assert(Seg->HasOutputSections && "Segment HasOutputSections must be "
-                                           "true if there are output sections");
-          assert(Scn->VirtualAddr == 0);
-          A = alignTo(A, Alignment);
-          Scn->VirtualAddr = A;
-          A += Scn->VirtualSize;
-          VirtualSize = alignTo(VirtualSize, Alignment) + Scn->VirtualSize;
-          if (hasFileData(SectionK)) {
-            FileSize = alignTo(FileSize, Alignment) + Scn->FileSize;
-          }
-        }
-      });
+// compute segment size
+// ~~~~~~~~~~~~~~~~~~~~
+static std::pair<uint64_t, uint64_t> computeSegmentSize(const Segment &Seg,
+                                                        uint64_t VirtualSize,
+                                                        uint64_t FileSize) {
+  forEachSectionKindInFileOrder([&](const SectionKind SectionK) {
+    if (const OutputSection *const Scn = Seg.Sections[SectionK]) {
+      assert(Seg.HasOutputSections && "Segment HasOutputSections must be true "
+                                      "if there are output sections");
+      const auto Alignment = Scn->MaxAlign;
+      VirtualSize = alignTo(VirtualSize, Alignment) + Scn->VirtualSize;
+      if (hasFileData(SectionK)) {
+        FileSize = alignTo(FileSize, Alignment) + Scn->FileSize;
+      }
+    }
+  });
+  return std::make_pair(VirtualSize, FileSize);
+}
 
-  assert(Seg->VirtualSize == 0);
-  Seg->VirtualSize = VirtualSize;
-  assert(Seg->FileSize == 0);
-  Seg->FileSize = FileSize;
-  return VirtualSize;
+static std::pair<uint64_t, uint64_t> computeSegmentSize(const Segment &Seg,
+                                                        uint64_t Bias) {
+  return computeSegmentSize(Seg, Bias, Bias);
+}
+
+// position output sections
+// ~~~~~~~~~~~~~~~~~~~~~~~~
+static uint64_t positionOutputSections(uint64_t Addr, Segment *const Seg) {
+  forEachSectionKindInFileOrder([&](const SectionKind SectionK) {
+    if (OutputSection *const Scn = Seg->Sections[SectionK]) {
+      assert(Seg->HasOutputSections && "Segment HasOutputSections must be true "
+                                       "if there are output sections");
+      const auto Alignment = Scn->MaxAlign;
+      assert(Scn->VirtualAddr == 0);
+      Addr = alignTo(Addr, Alignment);
+      Scn->VirtualAddr = Addr;
+      Addr += Scn->VirtualSize;
+    }
+  });
+  return Addr;
 }
 
 namespace {
@@ -580,11 +736,10 @@ namespace {
 template <SegmentKind SegmentK>
 uint64_t positionSegment(uint64_t Base, Layout *const Layout) {
   Segment &Seg = Layout->Segments[SegmentK];
-  assert(Seg.MaxAlign >= PageSize);
   Base = alignTo(Base, Seg.MaxAlign);
-  assert(Seg.VirtualAddr == 0);
   Seg.VirtualAddr = Base;
-  return Base + positionOutputSections(Base, &Seg, 0U, 0U);
+  std::tie(Seg.VirtualSize, Seg.FileSize) = computeSegmentSize(Seg, 0U);
+  return positionOutputSections(Base, &Seg);
 }
 
 template <>
@@ -602,12 +757,45 @@ template <>
 uint64_t positionSegment<SegmentKind::rodata>(uint64_t Base,
                                               Layout *const Layout) {
   Segment &Seg = Layout->Segments[SegmentKind::rodata];
-  assert(Base == alignTo(Base, Seg.MaxAlign));
-  assert(Seg.MaxAlign >= PageSize);
+  Base = alignTo(Base, Seg.MaxAlign);
   Seg.VirtualAddr = Base;
-  return Base + positionOutputSections(Base + Layout->HeaderBlockSize, &Seg,
-                                       Layout->HeaderBlockSize,
-                                       Layout->HeaderBlockSize);
+  std::tie(Seg.VirtualSize, Seg.FileSize) =
+      computeSegmentSize(Seg, Layout->HeaderBlockSize);
+  return positionOutputSections(Base + Layout->HeaderBlockSize, &Seg);
+}
+
+template <>
+uint64_t positionSegment<SegmentKind::data>(uint64_t Base,
+                                            Layout *const Layout) {
+
+  Segment &DataSegment = Layout->Segments[SegmentKind::data];
+  Segment &RelROSegment = Layout->Segments[SegmentKind::gnu_relro];
+
+  DataSegment.MaxAlign = std::max(DataSegment.MaxAlign, RelROSegment.MaxAlign);
+  Base = alignTo(Base, DataSegment.MaxAlign);
+  DataSegment.VirtualAddr = Base;
+
+  std::tie(RelROSegment.VirtualSize, RelROSegment.FileSize) =
+      computeSegmentSize(RelROSegment, 0U);
+  std::tie(DataSegment.VirtualSize, DataSegment.FileSize) = computeSegmentSize(
+      DataSegment, RelROSegment.VirtualSize, RelROSegment.FileSize);
+
+  return positionOutputSections(Base, &DataSegment);
+}
+
+template <>
+uint64_t positionSegment<SegmentKind::gnu_relro>(uint64_t Base,
+                                                 Layout *const Layout) {
+  static_assert(SegmentKind::gnu_relro > SegmentKind::data,
+                "Expected gnu_relro to be positioned after the data segment");
+  Segment &Seg = Layout->Segments[SegmentKind::gnu_relro];
+
+  const Segment &DataSegment = Layout->Segments[SegmentKind::data];
+
+  Seg.VirtualAddr = DataSegment.VirtualAddr;
+  assert(std::make_pair(Seg.VirtualSize, Seg.FileSize) ==
+         computeSegmentSize(Seg, 0U));
+  return positionOutputSections(Base, &Seg);
 }
 
 } // end anonymous namespace

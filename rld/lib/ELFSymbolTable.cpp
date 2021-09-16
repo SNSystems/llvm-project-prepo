@@ -40,15 +40,17 @@ static constexpr unsigned char sectionToSymbolType(const rld::SectionKind K) {
     return llvm::ELF::STT_FUNC;
   case SectionKind::bss:
   case SectionKind::data:
-  case SectionKind::rel_ro:
+  case SectionKind::fini_array:
+  case SectionKind::init_array:
   case SectionKind::mergeable_1_byte_c_string:
   case SectionKind::mergeable_2_byte_c_string:
   case SectionKind::mergeable_4_byte_c_string:
-  case SectionKind::mergeable_const_4:
-  case SectionKind::mergeable_const_8:
   case SectionKind::mergeable_const_16:
   case SectionKind::mergeable_const_32:
+  case SectionKind::mergeable_const_4:
+  case SectionKind::mergeable_const_8:
   case SectionKind::read_only:
+  case SectionKind::rel_ro:
     return llvm::ELF::STT_OBJECT;
   case SectionKind::thread_bss:
   case SectionKind::thread_data:

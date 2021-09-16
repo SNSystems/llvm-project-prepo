@@ -33,6 +33,8 @@
 
 #include "pstore/core/hamt_set.hpp"
 
+#include <bitset>
+
 using namespace rld;
 
 namespace {
@@ -64,39 +66,35 @@ buildSectionToIndexTable(const Layout &Lout) {
 // Compute the file offsets for the segments and the sections that they contain.
 // The result is returned in the two output-parameters: SegmentFileOffsets and
 // SectionFileOffsets. Note that these values are all 0 based: that is, no
-// allowance has been made for ELF header/ segment table on the front of the
+// allowance has been made for ELF header/segment table on the front of the
 // file.
 static int64_t computeSectionFileOffsets(
-    rld::Context &Ctxt, const rld::Layout &Lout,
-    rld::SegmentIndexedArray<llvm::Optional<int64_t>>
-        *const SegmentFileOffsets,                                       // out
-    rld::SectionArray<llvm::Optional<int64_t>> *const SectionFileOffsets // out
+    Context &Ctxt, const Layout &Lout,
+    SegmentIndexedArray<llvm::Optional<int64_t>>
+        *const SegmentFileOffsets,                                  // out
+    SectionArray<llvm::Optional<int64_t>> *const SectionFileOffsets // out
 ) {
-  using namespace rld;
-  auto FileOffset = Lout.HeaderBlockSize;
+
+  uint64_t FileOffset = Lout.HeaderBlockSize;
 
   Lout.forEachSegment([&](const SegmentKind SegmentK, const Segment &Seg) {
-    assert(FileOffset >= 0);
     if (SegmentK == SegmentKind::phdr) {
       return;
     }
-    forEachSectionKind([&](SectionKind SectionK) {
+    forEachSectionKindInFileOrder([&](const SectionKind SectionK) {
       if (const OutputSection *const OutScn = Seg.Sections[SectionK]) {
         assert(OutScn->SectionK == SectionK &&
-               "The output-section's SectionKind should match");
+               "The OutputSection SectionKind should match");
         if (OutScn->shouldEmit()) {
           assert(!(*SectionFileOffsets)[SectionK] &&
                  "Layout should not have assigned a section type to more than "
                  "one segment");
-
           FileOffset = alignTo(FileOffset, OutScn->MaxAlign);
-          {
-            // If this is the first section contributing to this segment then
-            // its offset it the start of the segment.
-            auto &SFO = (*SegmentFileOffsets)[SegmentK];
-            if (!SFO) {
-              SFO = FileOffset;
-            }
+
+          // If this is the first section contributing to this segment then
+          // its offset is the start of the segment.
+          if (!(*SegmentFileOffsets)[SegmentK]) {
+            (*SegmentFileOffsets)[SegmentK] = FileOffset;
           }
           (*SectionFileOffsets)[SectionK] = FileOffset;
           FileOffset += OutScn->FileSize;
@@ -108,7 +106,7 @@ static int64_t computeSectionFileOffsets(
 
   // Some sections still need to be written to the output file even though they
   // don't map to a segment.
-  forEachSectionKind([&](SectionKind SectionK) {
+  forEachSectionKindInFileOrder([&](const SectionKind SectionK) {
     llvm::Optional<int64_t> &Offset = (*SectionFileOffsets)[SectionK];
     const OutputSection &OScn = Lout.Sections[SectionK];
     if (OScn.shouldEmit() && !Offset.hasValue()) {

@@ -131,14 +131,21 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, rld::SectionKind SKind) {
 
   switch (SKind) {
     PSTORE_MCREPO_SECTION_KINDS
+
+  case rld::SectionKind::fini_array:
+    OS << "fini_array";
+    break;
   case rld::SectionKind::gotplt:
     OS << "gotplt";
     break;
-  case rld::SectionKind::rela_plt:
-    OS << "rela_plt";
+  case rld::SectionKind::init_array:
+    OS << "init_array";
     break;
   case rld::SectionKind::plt:
     OS << "plt";
+    break;
+  case rld::SectionKind::rela_plt:
+    OS << "rela_plt";
     break;
   case rld::SectionKind::shstrtab:
     OS << "shstrtab";
@@ -219,7 +226,7 @@ int main(int Argc, char *Argv[]) {
       llvm::errs() << "Error: Too many input files\n";
       std::exit(EXIT_FAILURE);
     }
-    rld::LayoutBuilder Layout{Ctxt, GlobalSymbs.get(),
+    rld::LayoutBuilder Layout{Ctxt, GlobalSymbs.get(), &Undefs,
                               static_cast<uint32_t>(NumCompilations)};
     std::thread LayoutThread{&rld::LayoutBuilder::run, &Layout};
 

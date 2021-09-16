@@ -15,18 +15,16 @@ constexpr auto elfSegmentKind(const SegmentKind Kind) ->
   switch (Kind) {
   case SegmentKind::phdr:
     return Elf_Word{llvm::ELF::PT_PHDR};
-
   case SegmentKind::data:
   case SegmentKind::rodata:
   case SegmentKind::text:
     return Elf_Word{llvm::ELF::PT_LOAD};
-
   case SegmentKind::tls:
     return Elf_Word{llvm::ELF::PT_TLS};
-
   case SegmentKind::gnu_stack:
     return Elf_Word{llvm::ELF::PT_GNU_STACK};
-
+  case SegmentKind::gnu_relro:
+    return Elf_Word{llvm::ELF::PT_GNU_RELRO};
   case SegmentKind::discard:
   case SegmentKind::last:
     assert(false); // Never appears in the layout.
@@ -42,6 +40,7 @@ constexpr bool hasPhysicalAddress(const SegmentKind Kind) {
   case SegmentKind::rodata:
   case SegmentKind::text:
   case SegmentKind::tls:
+  case SegmentKind::gnu_relro:
     return true;
 
   case SegmentKind::gnu_stack:

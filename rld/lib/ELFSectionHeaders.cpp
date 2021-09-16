@@ -58,9 +58,12 @@ static constexpr auto elfSectionType(const SectionKind Kind) {
 
   case SectionKind::symtab:
     return Elf_Word{llvm::ELF::SHT_SYMTAB};
-
   case SectionKind::rela_plt:
     return Elf_Word{llvm::ELF::SHT_RELA};
+  case SectionKind::init_array:
+    return Elf_Word{llvm::ELF::SHT_INIT_ARRAY};
+  case SectionKind::fini_array:
+    return Elf_Word{llvm::ELF::SHT_FINI_ARRAY};
 
   case SectionKind::linked_definitions:
   case SectionKind::last:
@@ -81,9 +84,9 @@ static constexpr auto elfSectionFlags(const SectionKind Kind) {
 
   case SectionKind::bss:
   case SectionKind::data:
-    return Elf_Word{llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_WRITE};
-
+  case SectionKind::fini_array:
   case SectionKind::gotplt:
+  case SectionKind::init_array:
   case SectionKind::rel_ro:
     return Elf_Word{llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_WRITE};
 
@@ -146,6 +149,8 @@ static constexpr auto elfSectionEntSize(const SectionKind Kind) {
     return Elf_Word{sizeof(typename llvm::object::ELFFile<ELFT>::Elf_Sym)};
   case SectionKind::gotplt:
   case SectionKind::plt:
+  case SectionKind::init_array:
+  case SectionKind::fini_array:
     return Elf_Word{8};
   case SectionKind::rela_plt:
     return Elf_Word{sizeof(typename llvm::object::ELFFile<ELFT>::Elf_Rela)};
@@ -205,13 +210,13 @@ getShInfoValue(rld::SectionKind SectionK, const rld::Layout &Lout,
   case rld::SectionKind::a:                                                    \
     return ShInfoValue<ELFT, SectionKind::a>{}(Lout, Links, LocalsSize);
 #define RLD_X(a) X(a)
-    PSTORE_MCREPO_SECTION_KINDS
-    RLD_SECTION_KINDS
+    RLD_ALL_SECTION_KINDS
 #undef RLD_X
 #undef X
   case rld::SectionKind::last:
     llvm_unreachable("We should not process the last value");
   }
+  llvm_unreachable("Unknown section kind");
 }
 
 template <typename ELFT>
@@ -230,7 +235,7 @@ auto rld::elf::emitSectionHeaders(
   std::memset(Shdr, 0, sizeof(*Shdr));
   ++Shdr;
 
-  forEachSectionKind([&](SectionKind SectionK) {
+  forEachSectionKind([&](const SectionKind SectionK) {
     const OutputSection &OScn = Lout.Sections[SectionK];
     if (OScn.shouldEmit()) {
       const auto linkSection = [&Links](SectionKind L) {

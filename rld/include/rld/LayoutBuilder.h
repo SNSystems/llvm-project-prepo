@@ -35,6 +35,7 @@
 namespace rld {
 
 class Context;
+class SpecialNames;
 
 //*  ___                         _   _  ___         _  *
 //* / __| ___ __ _ _ __  ___ _ _| |_| |/ (_)_ _  __| | *
@@ -48,6 +49,7 @@ class Context;
   X(text)                                                                      \
   X(data)                                                                      \
   X(tls)                                                                       \
+  X(gnu_relro)                                                                 \
   /* non-loaded segments */                                                    \
   X(gnu_stack)                                                                 \
   X(discard)
@@ -103,16 +105,61 @@ inline SegmentKind operator++(SegmentKind &SK, int) noexcept {
   return prev;
 }
 
-template <typename Function> inline void forEachSegmentKind(Function F) {
+#define RLD_SECTION_FILE_ORDER                                                 \
+  RLD_X(SectionKind::read_only)                                                \
+  RLD_X(SectionKind::mergeable_1_byte_c_string)                                \
+  RLD_X(SectionKind::mergeable_2_byte_c_string)                                \
+  RLD_X(SectionKind::mergeable_4_byte_c_string)                                \
+  RLD_X(SectionKind::mergeable_const_4)                                        \
+  RLD_X(SectionKind::mergeable_const_8)                                        \
+  RLD_X(SectionKind::mergeable_const_16)                                       \
+  RLD_X(SectionKind::mergeable_const_32)                                       \
+  RLD_X(SectionKind::thread_data)                                              \
+  RLD_X(SectionKind::thread_bss)                                               \
+                                                                               \
+  RLD_X(SectionKind::text)                                                     \
+                                                                               \
+  RLD_X(SectionKind::rel_ro)                                                   \
+  RLD_X(SectionKind::init_array)                                               \
+  RLD_X(SectionKind::fini_array)                                               \
+  RLD_X(SectionKind::data)                                                     \
+  RLD_X(SectionKind::bss)                                                      \
+                                                                               \
+  RLD_X(SectionKind::debug_line)                                               \
+  RLD_X(SectionKind::debug_string)                                             \
+  RLD_X(SectionKind::debug_ranges)                                             \
+  RLD_X(SectionKind::linked_definitions)                                       \
+  RLD_X(SectionKind::gotplt)                                                   \
+  RLD_X(SectionKind::plt)                                                      \
+  RLD_X(SectionKind::rela_plt)                                                 \
+  RLD_X(SectionKind::shstrtab)                                                 \
+  RLD_X(SectionKind::strtab)                                                   \
+  RLD_X(SectionKind::symtab)
+
+extern const std::array<SectionKind const,
+                        static_cast<std::underlying_type_t<SectionKind>>(
+                            SectionKind::last)>
+    SectionFileOrder;
+
+template <typename Function, typename... Args>
+inline void forEachSegmentKind(Function F, Args &&...args) {
   for (auto SegmentK = rld::firstSegmentKind();
        SegmentK != rld::SegmentKind::last; ++SegmentK) {
-    F(SegmentK);
+    F(SegmentK, std::forward<Args>(args)...);
   }
 }
-template <typename Function> inline void forEachSectionKind(Function F) {
+template <typename Function, typename... Args>
+inline void forEachSectionKind(Function F, Args &&...args) {
   for (auto SectionK = rld::firstSectionKind();
        SectionK != rld::SectionKind::last; ++SectionK) {
-    F(SectionK);
+    F(SectionK, std::forward<Args>(args)...);
+  }
+}
+
+template <typename Function, typename... Args>
+inline void forEachSectionKindInFileOrder(Function F, Args &&...args) {
+  for (const auto SectionK : SectionFileOrder) {
+    F(SectionK, std::forward<Args>(args)...);
   }
 }
 
@@ -189,10 +236,21 @@ private:
   }
 };
 
+template <SectionKind SK> struct IsPstoreSectionKind {
+  static constexpr auto value = false;
+};
+#define X(a)                                                                   \
+  template <> struct IsPstoreSectionKind<SectionKind::a> {                     \
+    static constexpr auto value = true;                                        \
+  };
+PSTORE_MCREPO_SECTION_KINDS
+#undef X
+
 //-MARK: LayoutBuilder
 class LayoutBuilder {
 public:
-  LayoutBuilder(Context &Ctx, NotNull<GlobalsStorage *> const Globals,
+  LayoutBuilder(Context &Ctx, const NotNull<GlobalsStorage *> Globals,
+                const NotNull<UndefsContainer *> Undefs,
                 uint32_t NumCompilations);
   // no copying or assignment.
   LayoutBuilder(LayoutBuilder const &) = delete;
@@ -220,9 +278,15 @@ public:
             std::get<HeadIndex>(GlobalEmit_)};
   }
 
+  static SectionKind mapInputToOutputSection(SectionKind InputSection) {
+    assert(SectionToSegment_[InputSection].InputSection == InputSection);
+    return SectionToSegment_[InputSection].OutputSection;
+  }
+
 private:
   Context &Ctx_;
-  NotNull<GlobalsStorage *> const Globals_;
+  const NotNull<GlobalsStorage *> Globals_;
+  const NotNull<UndefsContainer *> Undefs_;
   /// The number of compilations that are to be scanned by the front-end.
   uint32_t const NumCompilations_;
 
@@ -310,17 +374,32 @@ private:
     return static_cast<std::underlying_type<SegmentKind>::type>(Kind);
   }
 
-  /// \tparam SKind The section kind to be added. This must exist within
-  ///   fragment \p F.
+  /// \tparam InSection The section containing the input data to be added.
+  /// \tparam OutSection The layout section to which the data will be added.
+  ///
   /// \param Name  The name of the associated symbol.
   /// \param Body  The symbol body which defines the data to be added.
+  /// \param IfxContributions
   /// \returns The contribution representing the newly added section data. This
   ///   is nullptr if the section is not copied to the output file.
-  template <pstore::repo::section_kind SKind>
-  Contribution *
-  addSectionToLayout(StringAddress Name, const Symbol::Body &Body,
-                     pstore::repo::section_sparray<Contribution const *> const
-                         *const IfxContributions);
+  template <pstore::repo::section_kind InSection,
+            SectionKind OutSection = ToRldSectionKind<InSection>::value>
+  Contribution *addSectionToLayout(StringAddress Name, const Symbol::Body &Body,
+                                   ContributionSpArray *const IfxContributions);
+
+  template <SectionKind InSection, SectionKind OutSection = InSection>
+  std::enable_if_t<!IsPstoreSectionKind<InSection>::value,
+                   ContributionSpArray::iterator>
+  addSymbolSection(ContributionSpArray::iterator CIt, Symbol *const Sym,
+                   const StringAddress Name, const Symbol::Body &Body,
+                   ContributionSpArray *const IfxContributions);
+
+  template <SectionKind InSection, SectionKind OutSection = InSection>
+  std::enable_if_t<IsPstoreSectionKind<InSection>::value,
+                   ContributionSpArray::iterator>
+  addSymbolSection(ContributionSpArray::iterator CIt, Symbol *const Sym,
+                   const StringAddress Name, const Symbol::Body &Body,
+                   ContributionSpArray *const IfxContributions);
 
   /// \param SKind The kind of the section to be added.
   /// \param Size  The number of bytes required for the section data.
@@ -334,7 +413,10 @@ private:
 
   void addSymbolBody(Symbol *const Sym, const Symbol::Body &Body,
                      uint32_t Ordinal, StringAddress Name,
+                     const SpecialNames &Magics,
                      ContributionSpArray *IfxContributions);
+
+  void addAliasSymbol(StringAddress Alias, StringAddress Aliasee, bool Start);
 
   static std::uint64_t
   prevSectionEnd(OutputSection::ContributionVector const &Contributions);

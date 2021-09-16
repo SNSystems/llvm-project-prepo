@@ -521,6 +521,32 @@ Symbol *SymbolResolver::add(const NotNull<GlobalSymbolsContainer *> Globals,
                    Def.fext.addr, InputOrdinal));
 }
 
+// update symbol
+// ~~~~~~~~~~~~~
+Symbol *SymbolResolver::updateSymbol(Symbol *const Sym,
+                                     const NotNull<UndefsContainer *> Undefs,
+                                     const pstore::repo::definition &Def,
+                                     const uint32_t InputOrdinal) {
+  switch (Def.linkage()) {
+  case linkage::append:
+    return Sym->updateAppendSymbol(Context_.Db, Def, Undefs, InputOrdinal);
+  case linkage::common:
+    return Sym->updateCommonSymbol(Context_.Db, Def, Undefs, InputOrdinal);
+  case linkage::external:
+    return Sym->updateExternalSymbol(Context_.Db, Def, Undefs, InputOrdinal);
+  case linkage::link_once_any:
+  case linkage::link_once_odr:
+    return Sym->updateLinkOnceSymbol(Context_.Db, Def, Undefs, InputOrdinal);
+  case linkage::weak_any:
+  case linkage::weak_odr:
+    return Sym->updateWeakSymbol(Context_.Db, Def, Undefs, InputOrdinal);
+  case linkage::internal:
+  case linkage::internal_no_symbol:
+    llvm_unreachable("Can't update a symbol with internal linkage");
+  }
+  return Sym;
+}
+
 // define symbol
 // ~~~~~~~~~~~~~
 Symbol *
@@ -546,48 +572,15 @@ SymbolResolver::defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
                      InputOrdinal);
   };
 
-  switch (Def.linkage()) {
-  case linkage::append:
-    return setSymbolShadow(symbolShadow(Context_, Def.name), AddSymbol,
-                           [&](Symbol *const Sym) {
-                             return Sym->updateAppendSymbol(
-                                 Context_.Db, Def, Undefs, InputOrdinal);
-                           });
-
-  case linkage::common:
-    return setSymbolShadow(symbolShadow(Context_, Def.name), AddSymbol,
-                           [&](Symbol *const Sym) {
-                             return Sym->updateCommonSymbol(
-                                 Context_.Db, Def, Undefs, InputOrdinal);
-                           });
-
-  case linkage::external:
-    return setSymbolShadow(symbolShadow(Context_, Def.name), AddSymbol,
-                           [&](Symbol *const Sym) {
-                             return Sym->updateExternalSymbol(
-                                 Context_.Db, Def, Undefs, InputOrdinal);
-                           });
-
-  case linkage::internal:
-  case linkage::internal_no_symbol:
+  if (Def.linkage() == linkage::internal ||
+      Def.linkage() == linkage::internal_no_symbol) {
     return AddSymbol();
-
-  case linkage::link_once_any:
-  case linkage::link_once_odr:
-    return setSymbolShadow(symbolShadow(Context_, Def.name), AddSymbol,
-                           [&](Symbol *const Sym) {
-                             return Sym->updateLinkOnceSymbol(
-                                 Context_.Db, Def, Undefs, InputOrdinal);
-                           });
-
-  case linkage::weak_any:
-  case linkage::weak_odr:
-    return setSymbolShadow(
-        symbolShadow(Context_, Def.name), AddSymbol, [&](Symbol *const Sym) {
-          return Sym->updateWeakSymbol(Context_.Db, Def, Undefs, InputOrdinal);
-        });
   }
-  llvm_unreachable("Unknown linkage");
+
+  return setSymbolShadow(
+      symbolShadow(Context_, Def.name), AddSymbol, [&](Symbol *const Sym) {
+        return this->updateSymbol(Sym, Undefs, Def, InputOrdinal);
+      });
 }
 
 // reference symbol

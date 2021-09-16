@@ -36,6 +36,8 @@ add_llvm_library (LLVMrld
     Identify.cpp
     IdentifyPass.cpp
     LayoutBuilder.cpp
+    SectionKind.cpp
+    SpecialNames.cpp
     XfxScanner.cpp
     context.cpp
     copy.cpp

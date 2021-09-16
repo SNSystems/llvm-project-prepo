@@ -27,7 +27,9 @@ using namespace rld;
   ELF_SECTION_NAME(symtab, ".symtab")                                          \
   ELF_SECTION_NAME(text, ".text")                                              \
   ELF_SECTION_NAME(thread_bss, ".tbss")                                        \
-  ELF_SECTION_NAME(thread_data, ".tls")
+  ELF_SECTION_NAME(thread_data, ".tls")                                        \
+  ELF_SECTION_NAME(init_array, ".init_array")                                  \
+  ELF_SECTION_NAME(fini_array, ".fini_array")
 
 namespace {
 
@@ -56,8 +58,7 @@ RLD_ELF_SECTION_NAMES
 static constexpr std::pair<char const *, std::size_t>
 elfSectionNameAndLength(rld::SectionKind SKind) {
   switch (SKind) {
-    PSTORE_MCREPO_SECTION_KINDS
-    RLD_SECTION_KINDS
+    RLD_ALL_SECTION_KINDS
   case rld::SectionKind::last:
     break;
   }

@@ -15,6 +15,7 @@
 #ifndef RLD_SYMBOL_H
 #define RLD_SYMBOL_H
 
+#include "rld/Contribution.h"
 #include "rld/SectionArray.h"
 #include "rld/context.h"
 
@@ -174,6 +175,7 @@ public:
       return *this;
     }
 
+    const pstore::repo::definition &definition() const { return *Def_; }
     pstore::repo::linkage linkage() const { return Def_->linkage(); }
     pstore::repo::visibility visibility() const { return Def_->visibility(); }
     bool hasLocalLinkage() const { return isLocalLinkage(this->linkage()); }
@@ -290,9 +292,10 @@ public:
   void setPLTIndex(unsigned Index) { PLTIndex_ = Index; }
   unsigned pltIndex() const { return PLTIndex_; }
 
-  void setFirstContribution(Contribution *const C) {
+  Contribution *setFirstContribution(Contribution *const C) {
     Contribution *expected = nullptr;
     Contribution_.compare_exchange_strong(expected, C);
+    return C;
   }
   Contribution *contribution() const { return Contribution_.load(); }
 
@@ -652,7 +655,6 @@ Symbol *setSymbolShadow(std::atomic<Symbol *> *Sptr, CreateOp Create,
   return Update(Symbol);
 }
 
-using ContributionSpArray = pstore::repo::section_sparray<const Contribution *>;
 
 /// A view on of the global symbol table from the point of view of an individual
 /// compilation.
@@ -764,6 +766,20 @@ public:
                 const NotNull<UndefsContainer *> Undefs,
                 const pstore::repo::compilation &Compilation,
                 uint32_t InputOrdinal, Function ErrorFn);
+
+  /// Given an existing symbol updates it as necessary from a new repo
+  /// definition.
+  ///
+  /// \param Sym  The symbol whose definition is to be updated.
+  /// \param Undefs  The global collection of undefined symbols.
+  /// \param Def  The repository definition from which the updates occurs.
+  /// \param InputOrdinal  The "index" of this compilation: used to
+  ///   ensure consistent output regardless of the order of processing.
+  /// \returns The original symbol pointer, \p Sym.
+  Symbol *updateSymbol(Symbol *const Sym,
+                       const NotNull<UndefsContainer *> Undefs,
+                       const pstore::repo::definition &Def,
+                       const uint32_t InputOrdinal);
 
   /// Creates a symbol table entry with no associated definition.
   ///

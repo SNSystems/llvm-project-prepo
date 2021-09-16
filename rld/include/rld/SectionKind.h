@@ -27,6 +27,8 @@ namespace rld {
 //* |___/\___\__|\__|_\___/_||_|_|\_\_|_||_\__,_| *
 //*                                               *
 #define RLD_SECTION_KINDS                                                      \
+  RLD_X(init_array)                                                            \
+  RLD_X(fini_array)                                                            \
   RLD_X(gotplt)                                                                \
   RLD_X(plt)                                                                   \
   RLD_X(rela_plt)                                                              \
@@ -34,10 +36,14 @@ namespace rld {
   RLD_X(strtab)                                                                \
   RLD_X(symtab)
 
+#define RLD_ALL_SECTION_KINDS                                                  \
+  PSTORE_MCREPO_SECTION_KINDS                                                  \
+  RLD_SECTION_KINDS
+
 enum class SectionKind {
 #define X(a) a,
-#define RLD_X(a) a,
-  PSTORE_MCREPO_SECTION_KINDS RLD_SECTION_KINDS last // Never used. Always last.
+#define RLD_X(a) X(a)
+  RLD_ALL_SECTION_KINDS last // Never used. Always last.
 #undef RLD_X
 #undef X
 };
@@ -50,8 +56,7 @@ enum class SectionKind {
 
 template <typename OStream> OStream &operator<<(OStream &OS, SectionKind Kind) {
   switch (Kind) {
-    PSTORE_MCREPO_SECTION_KINDS
-    RLD_SECTION_KINDS
+    RLD_ALL_SECTION_KINDS
   case SectionKind::last:
     break;
   }
@@ -69,8 +74,7 @@ template <typename OStream> OStream &operator<<(OStream &OS, SectionKind Kind) {
 
 inline constexpr auto sectionKindName(SectionKind Kind) noexcept {
   switch (Kind) {
-    PSTORE_MCREPO_SECTION_KINDS
-    RLD_SECTION_KINDS
+    RLD_ALL_SECTION_KINDS
   case SectionKind::last:
     break;
   }
@@ -94,18 +98,30 @@ constexpr auto firstSectionKind() noexcept -> SectionKind {
 template <pstore::repo::section_kind SKind> struct ToRldSectionKind {};
 #define X(x)                                                                   \
   template <> struct ToRldSectionKind<pstore::repo::section_kind::x> {         \
-    static constexpr auto value = rld::SectionKind::x;                         \
+    static constexpr auto value = SectionKind::x;                              \
   };
 PSTORE_MCREPO_SECTION_KINDS
 #undef X
+
+constexpr SectionKind toRldSectionKind(pstore::repo::section_kind SKind) {
+#define X(x)                                                                   \
+  case pstore::repo::section_kind::x:                                          \
+    return ToRldSectionKind<pstore::repo::section_kind::x>::value;
+  switch (SKind) {
+    PSTORE_MCREPO_SECTION_KINDS
+  case pstore::repo::section_kind::last:
+    break;
+  }
+#undef X
+  llvm_unreachable("Unknown section kind");
+}
 
 // pre-increment
 inline constexpr SectionKind &operator++(SectionKind &SK) noexcept {
 #define X(x) SectionKind::x,
 #define RLD_X(x) X(x)
   return SK = enum_values<SectionKind,
-                          PSTORE_MCREPO_SECTION_KINDS RLD_SECTION_KINDS
-                              SectionKind::last>::advance(SK);
+                          RLD_ALL_SECTION_KINDS SectionKind::last>::advance(SK);
 #undef RLD_X
 #undef X
 }

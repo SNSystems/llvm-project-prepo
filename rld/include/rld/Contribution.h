@@ -17,11 +17,43 @@
 
 #include "pstore/mcrepo/section.hpp"
 
+#include "rld/SectionKind.h"
 #include "rld/context.h"
 
 namespace rld {
 
 struct OutputSection;
+struct Contribution;
+
+struct ContributionEntry {
+  constexpr ContributionEntry() = default;
+  constexpr ContributionEntry(const Contribution *const C,
+                              const pstore::repo::section_kind K)
+      : Contribution {
+    C
+  }
+#ifndef NDEBUG
+  , Kind { K }
+#endif
+  { (void)K; }
+
+  constexpr bool operator==(ContributionEntry const &Other) const {
+    return Contribution == Other.Contribution
+#ifndef NDEBUG
+           && Kind == Other.Kind
+#endif
+        ;
+  }
+  constexpr bool operator!=(ContributionEntry const &Other) {
+    return !operator==(Other);
+  }
+  const struct Contribution *Contribution = nullptr;
+#ifndef NDEBUG
+  pstore::repo::section_kind Kind = pstore::repo::section_kind::last;
+#endif
+};
+
+using ContributionSpArray = pstore::repo::section_sparray<ContributionEntry>;
 
 //-MARK: Contribution
 struct Contribution {
@@ -35,18 +67,16 @@ struct Contribution {
   /// \param Size_  The number of bytes occupied by this contribution's
   ///   section data.
   /// \param Align_  The alignment of this contribution's section data.
-  Contribution(pstore::repo::section_base const *const S,
-               Symbol const *const *XfxSymbols_,
-               pstore::repo::section_sparray<Contribution const *> const
-                   *const IfxContributions_,
+  Contribution(const pstore::repo::section_base *const S,
+               const Symbol *const *XfxSymbols_,
+               const ContributionSpArray *const IfxContributions_,
                OutputSection *OScn_, uint64_t Offset_, uint64_t Size_,
                unsigned Align_, unsigned InputOrdinal_,
-               const StringAddress Name_)
+               const SectionKind SectionK, const StringAddress Name)
       : Section{S}, XfxSymbols{XfxSymbols_},
         IfxContributions{IfxContributions_}, OScn{OScn_}, Offset{Offset_},
-        Size{Size_}, Align{Align_}, InputOrdinal{InputOrdinal_}, Name{Name_} {
-    assert(IfxContributions != nullptr);
-  }
+        Size{Size_}, Align{Align_},
+        InputOrdinal{InputOrdinal_}, SectionK{SectionK}, Name{Name} {}
 
   Contribution(Contribution const &) = delete;
   Contribution(Contribution &&) noexcept = delete;
@@ -55,9 +85,8 @@ struct Contribution {
   Contribution &operator=(Contribution &&) noexcept = delete;
 
   const pstore::repo::section_base *const Section;
-  Symbol const *const *XfxSymbols;
-  pstore::repo::section_sparray<Contribution const *> const
-      *const IfxContributions;
+  const Symbol *const *XfxSymbols;
+  const ContributionSpArray *const IfxContributions;
   OutputSection *const OScn;
 
   /// The offset from the first section of this type in the owning output
@@ -70,6 +99,9 @@ struct Contribution {
   const unsigned Align;
   /// The input-ordinal of the ticket file from which this section originates.
   const unsigned InputOrdinal;
+
+  // TODO: the final fields are primarily used for debugging.
+  const SectionKind SectionK;
   const StringAddress Name;
 };
 
