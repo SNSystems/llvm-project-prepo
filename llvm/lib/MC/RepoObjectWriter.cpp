@@ -818,8 +818,8 @@ RepoObjectWriter::writeDebugLineHeader(TransactionType &Transaction,
       // it before the transaction is created and, if not found, add the data
       // and update the index here.
       pstore::database &Db = Transaction.db();
-      pstore::uint128 const Key = get_hash_key(
-          ArrayRef<uint8_t>(DebugLine.data.begin(), DebugLine.data.end()));
+      pstore::uint128 const Key =
+          get_hash_key(ArrayRef<uint8_t>{DebugLine.data.data(), DataSize});
       std::shared_ptr<pstore::index::debug_line_header_index> Index =
           pstore::index::get_index<pstore::trailer::indices::debug_line_header>(
               Db, true /*create*/);
