@@ -30,12 +30,6 @@ static void constructRepoLinkArgs(Compilation &C, const JobAction &JA,
   //----------------------------------------------------------------------------
   //
   //----------------------------------------------------------------------------
-  if (Args.hasArg(options::OPT_shared))
-    CmdArgs.push_back("-shared");
-
-  if (Args.hasArg(options::OPT_static))
-    CmdArgs.push_back("-static");
-
   CmdArgs.push_back("-o");
   CmdArgs.push_back(Output.getFilename());
 
@@ -43,13 +37,9 @@ static void constructRepoLinkArgs(Compilation &C, const JobAction &JA,
          "The linker should be only run on the musl-libc environment.");
 
   std::string MuslRoot = D.SysRoot.empty() ? "/usr/local/musl" : D.SysRoot;
-  if (!Args.hasArg(options::OPT_shared, options::OPT_nostartfiles,
-                   options::OPT_nostdlib)) {
+  if (!Args.hasArg(options::OPT_nostartfiles, options::OPT_nostdlib)) {
     CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/crt1.t.o"));
     CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/crt1_asm.t.o"));
-  } else if (Args.hasArg(options::OPT_shared) &&
-             !Args.hasArg(options::OPT_nostartfiles, options::OPT_nostdlib)) {
-    CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/crti.t.o"));
   }
 
   auto CRTPath = RTC.getCompilerRTPath();
