@@ -249,8 +249,7 @@ PSTORE_MCREPO_SECTION_KINDS
 //-MARK: LayoutBuilder
 class LayoutBuilder {
 public:
-  LayoutBuilder(Context &Ctx, const NotNull<GlobalsStorage *> Globals,
-                const NotNull<UndefsContainer *> Undefs,
+  LayoutBuilder(Context &Ctx, const NotNull<UndefsContainer *> Undefs,
                 uint32_t NumCompilations);
   // no copying or assignment.
   LayoutBuilder(LayoutBuilder const &) = delete;
@@ -285,7 +284,6 @@ public:
 
 private:
   Context &Ctx_;
-  const NotNull<GlobalsStorage *> Globals_;
   const NotNull<UndefsContainer *> Undefs_;
   /// The number of compilations that are to be scanned by the front-end.
   uint32_t const NumCompilations_;
@@ -416,7 +414,8 @@ private:
                      const SpecialNames &Magics,
                      ContributionSpArray *IfxContributions);
 
-  void addAliasSymbol(StringAddress Alias, StringAddress Aliasee, bool Start);
+  void addAliasSymbol(StringAddress Alias, StringAddress Aliasee,
+                      SectionKind SectionK, bool Start);
 
   static std::uint64_t
   prevSectionEnd(OutputSection::ContributionVector const &Contributions);

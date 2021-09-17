@@ -419,7 +419,7 @@ public:
                            uint32_t InputOrdinal);
 
   bool setNextEmit(Symbol *const Next) {
-    assert(Next != nullptr);
+    assert(Next != nullptr && Next != this);
     if (Next->NextEmit != nullptr) {
       return false;
     }
@@ -704,6 +704,7 @@ struct SymbolOrder {
   void walk(const UndefsContainer &Undefs, Function F) const {
     auto W = [&F](const Symbol *S) {
       for (; S != nullptr; S = S->NextEmit) {
+        assert(S != S->NextEmit);
         F(*S);
       }
     };
@@ -838,9 +839,9 @@ SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
   for (const pstore::repo::definition &Def : Compilation) {
     Symbol *const Sym = this->defineSymbol(Globals, Undefs, Def, InputOrdinal);
     if (Sym != nullptr) {
-      // Definition succeeded. Record the symbol the corresponds to this name in
-      // this compilation. Fixup resolution will consult this map before falling
-      // back to the global symbol table.
+      // Definition succeeded. Record the symbol that corresponds to this name
+      // in this compilation. Fixup resolution will consult this map before
+      // falling back to the global symbol table.
       const std::pair<CompilationSymbolsView::Container::iterator, bool> Res =
           Locals.Map.try_emplace(Def.name, CompilationSymbolsView::Value{Sym});
       (void)Res;

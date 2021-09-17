@@ -226,7 +226,7 @@ int main(int Argc, char *Argv[]) {
       llvm::errs() << "Error: Too many input files\n";
       std::exit(EXIT_FAILURE);
     }
-    rld::LayoutBuilder Layout{Ctxt, GlobalSymbs.get(), &Undefs,
+    rld::LayoutBuilder Layout{Ctxt, &Undefs,
                               static_cast<uint32_t>(NumCompilations)};
     std::thread LayoutThread{&rld::LayoutBuilder::run, &Layout};
 

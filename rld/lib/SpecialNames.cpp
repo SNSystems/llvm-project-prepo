@@ -17,6 +17,8 @@ void SpecialNames::initialize(const pstore::database &Db) {
     GlobalDtors = findString(Db, *NameIndex, "llvm.global_dtors");
     InitArrayStart = findString(Db, *NameIndex, "__init_array_start");
     InitArrayEnd = findString(Db, *NameIndex, "__init_array_end");
+    FiniArrayStart = findString(Db, *NameIndex, "__fini_array_start");
+    FiniArrayEnd = findString(Db, *NameIndex, "__fini_array_end");
   }
 }
 

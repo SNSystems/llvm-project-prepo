@@ -1,0 +1,74 @@
+// This test verifies that rld correctly turns llvm_global_ctors into .init_array.
+
+// RUN: rm -rf %t && mkdir -p %t
+// RUN: pstore-import %t/db.db %s
+// RUN: repo-create-ticket --repo %t/db.db -o %t/t0.o 11111111111111111111111111111111
+// RUN: repo-create-ticket --repo %t/db.db -o %t/t1.o 22222222222222222222222222222222
+// RUN: rld --repo=%t/db.db -o %t/rld.out %t/t0.o %t/t1.o
+// RUN: llvm-readelf --hex-dump=.init_array %t/rld.out | FileCheck %s
+
+
+// CHECK: Hex dump of section '.init_array':
+// CHECK-NEXT: 0x00402000 00104000 00000000 08104000 00000000
+
+{
+  "version": 1,
+  "id": "1707F7A9-3424-4F8E-AA5E-4EA2838346F4",
+  "transactions": [
+    {
+      "names": [
+        "x86_64-pc-linux-gnu-repo", // 0
+        "llvm.global_ctors", // 1
+        "f", // 2
+        "g", // 3
+      ],
+
+      "fragments": {
+        // llvm.global_ctors for compilation 1..1
+        "11111111111111111111111111111111": {
+          "read_only": {
+            "data": "AAAAAAAAAAA=", // 8 bytes of zeroes.
+            "xfixups": [
+                {"name":2, "type":1, "offset":0, "addend":0} // "f"
+            ]
+          },
+        },
+
+        // llvm.global_ctors for compilation 2...2
+        "22222222222222222222222222222222": {
+          "read_only": {
+            "data": "AAAAAAAAAAA=", // 8 bytes of zeroes.
+            "xfixups": [
+                {"name":3, "type":1, "offset":0, "addend":0} // "g"
+            ]
+          },
+        },
+
+        "33333333333333333333333333333333": {
+          "text": {
+            "data": "AAAAAAAAAAA=", // 8 bytes of zeroes.
+          },
+        },
+      },
+
+      "compilations": {
+        "11111111111111111111111111111111": {
+          "triple": 0, // "x86_64-pc-linux-gnu-repo"
+          "definitions": [
+            { "digest": "11111111111111111111111111111111", "name": 1, "linkage": "append" }, // "llvm.global_ctors"
+            { "digest": "33333333333333333333333333333333", "name": 2, "linkage": "internal" }, // "f"
+          ]
+        },
+
+        "22222222222222222222222222222222": {
+          "triple": 0, // "x86_64-pc-linux-gnu-repo"
+          "definitions": [
+            { "digest": "22222222222222222222222222222222", "name": 1, "linkage": "append" }, // "llvm.global_ctors"
+            { "digest": "33333333333333333333333333333333", "name": 3, "linkage": "internal" }, // "g"
+          ]
+        },
+
+      }
+    }
+  ]
+}

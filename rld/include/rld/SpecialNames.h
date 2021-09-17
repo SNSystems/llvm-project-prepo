@@ -17,6 +17,8 @@ public:
   StringAddress GlobalDtors = StringAddress::null();
   StringAddress InitArrayStart = StringAddress::null();
   StringAddress InitArrayEnd = StringAddress::null();
+  StringAddress FiniArrayStart = StringAddress::null();
+  StringAddress FiniArrayEnd = StringAddress::null();
 
 private:
   template <std::size_t Size>

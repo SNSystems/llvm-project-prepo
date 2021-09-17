@@ -225,12 +225,11 @@ constexpr auto PageSize = 0x1000U;
 // (ctor)
 // ~~~~~~
 LayoutBuilder::LayoutBuilder(Context &Ctx,
-                             const NotNull<GlobalsStorage *> Globals,
                              const NotNull<UndefsContainer *> Undefs,
                              uint32_t NumCompilations)
-    : Ctx_{Ctx}, Globals_{Globals}, Undefs_{Undefs},
-      NumCompilations_{NumCompilations}, CompilationWaiter_{NumCompilations},
-      CUsMut_{}, CUs_{}, Layout_{std::make_unique<Layout>()},
+    : Ctx_{Ctx}, Undefs_{Undefs}, NumCompilations_{NumCompilations},
+      CompilationWaiter_{NumCompilations}, CUsMut_{}, CUs_{},
+      Layout_{std::make_unique<Layout>()},
       PLTs_{std::make_unique<LocalPLTsContainer>()}, LocalEmit_{},
       GlobalEmit_{} {
 
@@ -383,6 +382,10 @@ void LayoutBuilder::appendToEmitList(
   if (H == nullptr) {
     H = L = Sym;
   } else {
+
+    if (L == Sym || Sym->NextEmit != nullptr) {
+      return; // Already in the list.
+    }
     if (L->setNextEmit(Sym)) {
       L = Sym;
     }
@@ -515,6 +518,7 @@ using Elf_Rela = llvm::object::ELFFile<ELFT>::Elf_Rela;
 
 void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
                                    const StringAddress Aliasee,
+                                   const SectionKind SectionK,
                                    const bool Start) {
   if (Alias == StringAddress::null() || Aliasee == StringAddress::null()) {
     return;
@@ -545,14 +549,12 @@ void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
             assert(Sym != nullptr);
             if (Start) {
               Sym->setFirstContribution(
-                  &Layout_->Sections[SectionKind::init_array]
-                       .Contributions.front());
+                  &Layout_->Sections[SectionK].Contributions.front());
             } else {
               unsigned Alignment = 1;
               unsigned Size = 0;
 
-              OutputSection *const OutputSection =
-                  &Layout_->Sections[SectionKind::init_array];
+              OutputSection *const OutputSection = &Layout_->Sections[SectionK];
               OutputSection->Contributions.emplace_back(
                   nullptr, // The contribution's fragment section.
                   nullptr, // The array of external fixups to be applied when
@@ -563,8 +565,7 @@ void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
                   alignTo(LayoutBuilder::prevSectionEnd(
                               OutputSection->Contributions),
                           Alignment), // Offset
-                  Size, Alignment, InputOrdinal, SectionKind::init_array,
-                  Alias);
+                  Size, Alignment, InputOrdinal, SectionK, Alias);
               Sym->setFirstContribution(&OutputSection->Contributions.back());
             }
 
@@ -685,9 +686,14 @@ void LayoutBuilder::run() {
   }
 
   this->addAliasSymbol(Magics.InitArrayStart, Magics.GlobalCtors,
-                       true /*start?*/);
+                       SectionKind::init_array, true);
   this->addAliasSymbol(Magics.InitArrayEnd, Magics.GlobalCtors,
-                       false /*start?*/);
+                       SectionKind::init_array, false);
+
+  this->addAliasSymbol(Magics.FiniArrayStart, Magics.GlobalDtors,
+                       SectionKind::fini_array, true);
+  this->addAliasSymbol(Magics.FiniArrayEnd, Magics.GlobalDtors,
+                       SectionKind::fini_array, false);
 }
 
 // compute segment size
