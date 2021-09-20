@@ -37,22 +37,31 @@ VPATH = $(LLVM_REPO)/build_libunwind/lib/:\
 
 ALL_LIBS = $(LLVM_REPO)/build_libunwind/lib/libunwind.a  \
            $(LLVM_REPO)/build_libunwind/lib/libunwind.db \
+           $(LLVM_REPO)/build_libunwind/lib/libunwind.json \
            $(LLVM_REPO)/build_libcompiler-rt/lib/linux/libclang_rt.a \
            $(LLVM_REPO)/build_libcompiler-rt/lib/linux/libclang_rt.db \
+           $(LLVM_REPO)/build_libcompiler-rt/lib/linux/libclang_rt.json \
            $(CLANG_RT_LIB)/clang_rt.crtbegin-x86_64.t \
            $(CLANG_RT_LIB)/clang_rt.crtend-x86_64.t \
            $(LLVM_REPO)/build_libcxxabi/lib/libc++abi.a \
            $(LLVM_REPO)/build_libcxxabi/lib/libc++abi.db \
+           $(LLVM_REPO)/build_libcxxabi/lib/libc++abi.json \
            $(LLVM_REPO)/build_libcxx/lib/libc++.a \
-           $(LLVM_REPO)/build_libcxx/lib/libc++.db
+           $(LLVM_REPO)/build_libcxx/lib/libc++.db \
+           $(LLVM_REPO)/build_libcxx/lib/libc++.json
+
+DB = $(LLVM)/lib/stdlib.db
+TEXTUAL_DB = $(LLVM)/lib/stdlib.json
 
 .ONESHELL:
 $(LLVM_REPO)/build_libunwind/lib/%.a \
-$(LLVM_REPO)/build_libunwind/lib/%.db:
+$(LLVM_REPO)/build_libunwind/lib/%.db \
+$(LLVM_REPO)/build_libunwind/lib/%.json: $(MUSL)/lib/musl-prepo.json
 	-rm -rf $(LLVM_REPO)/build_libunwind
 	cd $(LLVM_REPO)
 	mkdir build_libunwind && cd build_libunwind
 	mkdir lib
+	pstore-import $(LLVM_REPO)/build_libunwind/lib/libunwind.db $<
 	export REPOFILE=$(LLVM_REPO)/build_libunwind/lib/libunwind.db
 	cmake -D musl=Yes                                                     \
 		-D CMAKE_BUILD_TYPE=Release                                   \
@@ -69,16 +78,20 @@ $(LLVM_REPO)/build_libunwind/lib/%.db:
 		../libunwind
 	make -j 8
 	make install
+	pstore-export $(LLVM_REPO)/build_libunwind/lib/libunwind.db > \
+	              $(LLVM_REPO)/build_libunwind/lib/libunwind.json
 
 .ONESHELL:
 $(LLVM_REPO)/build_libcompiler-rt/lib/linux/lib%.a \
 $(LLVM_REPO)/build_libcompiler-rt/lib/linux/lib%.db \
+$(LLVM_REPO)/build_libcompiler-rt/lib/linux/lib%.json \
 $(CLANG_RT_LIB)/%.crtbegin-x86_64.t \
-$(CLANG_RT_LIB)/%.crtend-x86_64.t:
+$(CLANG_RT_LIB)/%.crtend-x86_64.t: $(LLVM_REPO)/build_libunwind/lib/libunwind.json
 	-rm -rf $(LLVM_REPO)/build_libcompiler-rt
 	cd $(LLVM_REPO)
 	mkdir build_libcompiler-rt && cd build_libcompiler-rt
 	mkdir -p lib/linux
+	pstore-import $(LLVM_REPO)/build_libcompiler-rt/lib/linux/libclang_rt.db $<
 	export REPOFILE=$(LLVM_REPO)/build_libcompiler-rt/lib/linux/libclang_rt.db
 	cmake  -D musl=Yes                                                    \
 		-D CMAKE_BUILD_TYPE=Release                                   \
@@ -101,6 +114,8 @@ $(CLANG_RT_LIB)/%.crtend-x86_64.t:
 	make install
 	mv $(CLANG_RT_LIB)/clang_rt.crtbegin-x86_64.o $(CLANG_RT_LIB)/clang_rt.crtbegin-x86_64.t
 	mv $(CLANG_RT_LIB)/clang_rt.crtend-x86_64.o $(CLANG_RT_LIB)/clang_rt.crtend-x86_64.t
+	pstore-export $(LLVM_REPO)/build_libcompiler-rt/lib/linux/libclang_rt.db > \
+	              $(LLVM_REPO)/build_libcompiler-rt/lib/linux/libclang_rt.json
 
 $(CLANG_RT_LIB)/clang_rt.crtbegin-x86_64.o: clang_rt.crtbegin-x86_64.t
 	repo2obj --repo=$(LLVM_REPO)/build_libcompiler-rt/lib/linux/libclang_rt.db $< -o $@
@@ -110,11 +125,14 @@ $(CLANG_RT_LIB)/clang_rt.crtend-x86_64.o: clang_rt.crtend-x86_64.t
 
 .ONESHELL:
 $(LLVM_REPO)/build_libcxxabi/lib/%.a \
-$(LLVM_REPO)/build_libcxxabi/lib/%.db: libunwind.a libclang_rt.a
+$(LLVM_REPO)/build_libcxxabi/lib/%.db \
+$(LLVM_REPO)/build_libcxxabi/lib/%.json: $(LLVM_REPO)/build_libcompiler-rt/lib/linux/libclang_rt.json \
+                                         libunwind.a libclang_rt.a
 	-rm -rf $(LLVM_REPO)/build_libcxxabi
 	cd $(LLVM_REPO)
 	mkdir build_libcxxabi && cd build_libcxxabi
 	mkdir -p lib
+	pstore-import $(LLVM_REPO)/build_libcxxabi/lib/libc++abi.db $<
 	export REPOFILE=$(LLVM_REPO)/build_libcxxabi/lib/libc++abi.db
 	cmake -D musl=Yes                                                           \
 		-D CMAKE_BUILD_TYPE=Release                                         \
@@ -134,14 +152,19 @@ $(LLVM_REPO)/build_libcxxabi/lib/%.db: libunwind.a libclang_rt.a
 		../libcxxabi
 	make -j 8
 	make install
+	pstore-export $(LLVM_REPO)/build_libcxxabi/lib/libc++abi.db > \
+	              $(LLVM_REPO)/build_libcxxabi/lib/libc++abi.json
 
 .ONESHELL:
 $(LLVM_REPO)/build_libcxx/lib/%.a \
-$(LLVM_REPO)/build_libcxx/lib/%.db: libc++abi.a
+$(LLVM_REPO)/build_libcxx/lib/%.db \
+$(LLVM_REPO)/build_libcxx/lib/%.json: $(LLVM_REPO)/build_libcxxabi/lib/libc++abi.json \
+                                      libc++abi.a
 	-rm -rf $(LLVM_REPO)/build_libcxx
 	cd $(LLVM_REPO)
 	mkdir build_libcxx && cd build_libcxx
 	mkdir -p lib
+	pstore-import $(LLVM_REPO)/build_libcxx/lib/libc++.db $<
 	export REPOFILE=$(LLVM_REPO)/build_libcxx/lib/libc++.db
 	cmake -D musl=Yes                                                     \
 		-D CMAKE_BUILD_TYPE=Release                                   \
@@ -160,17 +183,13 @@ $(LLVM_REPO)/build_libcxx/lib/%.db: libc++abi.a
 		../libcxx
 	make -j 8
 	make install
+	pstore-export $(LLVM_REPO)/build_libcxx/lib/libc++.db > \
+	              $(LLVM_REPO)/build_libcxx/lib/libc++.json
 
-$(LLVM)/lib/libunwind.db: libunwind.db
+$(DB): libc++.db
 	cp $< $@
 
-$(CLANG_RT_LIB)/libclang_rt.db: libclang_rt.db
-	cp $< $@
-
-$(LLVM)/lib/libc++abi.db: libc++abi.db
-	cp $< $@
-
-$(LLVM)/lib/libc++.db: libc++.db
+$(TEXTUAL_DB): libc++.json
 	cp $< $@
 
 install-libs: $(ALL_LIBS) \
@@ -178,10 +197,8 @@ install-libs: $(ALL_LIBS) \
               $(CLANG_RT_LIB)/clang_rt.crtend-x86_64.o
 
 install-repo-libs-dbs: $(ALL_LIBS) \
-                       $(LLVM)/lib/libunwind.db \
-                       $(CLANG_RT_LIB)/libclang_rt.db \
-                       $(LLVM)/lib/libc++abi.db \
-                       $(LLVM)/lib/libc++.db \
+                       $(DB) \
+                       $(TEXTUAL_DB) \
                        clang_rt.crtbegin-x86_64.t \
                        clang_rt.crtend-x86_64.t
 	mv $(CLANG_RT_LIB)/clang_rt.crtbegin-x86_64.t $(CLANG_RT_LIB)/clang_rt.crtbegin-x86_64.o
