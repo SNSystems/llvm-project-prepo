@@ -61,10 +61,16 @@ if (MSVC_IDE)
   source_group("Header Files" FILES ${LIBUNWIND_HEADERS})
 endif()
 
+if (${CMAKE_CXX_COMPILER_TARGET} MATCHES "x86_64-pc-linux-gnu-repo")
+set(LIBUNWIND_SOURCES
+    ${LIBUNWIND_CXX_SOURCES}
+    ${LIBUNWIND_C_SOURCES})
+else()
 set(LIBUNWIND_SOURCES
     ${LIBUNWIND_CXX_SOURCES}
     ${LIBUNWIND_C_SOURCES}
     ${LIBUNWIND_ASM_SOURCES})
+endif()
 
 # Generate library list.
 add_library_flags_if(LIBUNWIND_HAS_C_LIB c)
