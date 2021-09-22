@@ -19,7 +19,7 @@ import wrap_tool
 def main (argv):
     try:
         logging.basicConfig ()
-        return wrap_tool.wrap_tool (tool='link', argv=['-target','x86_64-pc-linux-gnu-elf'] + argv[1:])
+        return wrap_tool.wrap_tool (tool='link', argv=['-target','x86_64-pc-linux-gnu'] + argv[1:])
     except subprocess.CalledProcessError:
         return 1
 
