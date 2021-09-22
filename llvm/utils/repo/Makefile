@@ -3,7 +3,7 @@
 # LLVM runtime libraries include the unwind library, compiler-rt, c++ ABI library
 # and libc++ library.
 # prerequisite: 1) installed the musl-prepo libc library in the $(MUSL) directory.
-#               2) built llvm-project-prepo in the $(LLVM_BUILD) directory. 
+#               2) installed llvm/clang tools, headers and libraries in the $(INSTALL_DIR) directory. 
 #
 
 # The path of the directory in which llvm-project-prepo sources is checked out from git.
@@ -14,10 +14,10 @@ ifdef FULL_REPO
 else
 	TOOLCHAIN_FILE=$(LLVM_REPO)/llvm/utils/repo/repo.cmake
 endif
-# The path of the llvm-project-prepo build directory.
-LLVM_BUILD = ${LLVM_REPO}/build
-# The path of the directory in which llvm libraries (except libcompiler-rt.a) are installed.
-LLVM = ${HOME}/LLVM
+# The path of the llvm/clang installed directory.
+INSTALL_DIR ?= /usr
+# The path of the directory in which llvm libraries (except libcompiler-rt.a) will be installed.
+LLVM ?= ${HOME}/LLVM
 # The LLVM version. Currently, the llvm-project-prepo repository is based on LLVM 11.0.0,
 # therefore the value is set to 11.0.0. Once the repository is updated to the later LLVM
 # version, this value needs to be updated correspondingly.
@@ -27,7 +27,7 @@ CLANG_RT = $(LLVM)/lib/clang/$(LLVM_VERSION)
 # The path of the directory in which libclang_rt.a, crtBegin.o, crtEnd.o and libclang_rt.db are installed.
 CLANG_RT_LIB = $(CLANG_RT)/lib/linux
 # The path of the directory in which musl libc is installed.
-MUSL = ${HOME}/musl
+MUSL ?= /usr/local/musl
 
 VPATH = $(LLVM_REPO)/build_libunwind/lib/:\
         $(LLVM_REPO)/build_libcompiler-rt/lib/linux/:\
@@ -70,8 +70,8 @@ $(LLVM_REPO)/build_libunwind/lib/%.json: $(MUSL)/lib/musl-prepo.json
 		-D LIBUNWIND_ENABLE_STATIC=Yes                                \
 		-D LLVM_ENABLE_UNWIND_TABLES=OFF                              \
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                     \
-		-D CMAKE_CXX_COMPILER=$(LLVM_BUILD)/bin/clang++               \
-		-D CMAKE_C_COMPILER=$(LLVM_BUILD)/bin/clang                   \
+		-D CMAKE_CXX_COMPILER=$(INSTALL_DIR)/bin/clang++              \
+		-D CMAKE_C_COMPILER=$(INSTALL_DIR)/bin/clang                  \
 		-D utils_dir=$(LLVM_REPO)/llvm/utils/repo                     \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                               \
 		-D musl_install=$(MUSL)                                       \
@@ -95,7 +95,7 @@ $(CLANG_RT_LIB)/%.crtend-x86_64.t: $(LLVM_REPO)/build_libunwind/lib/libunwind.js
 	export REPOFILE=$(LLVM_REPO)/build_libcompiler-rt/lib/linux/libclang_rt.db
 	cmake  -D musl=Yes                                                    \
 		-D CMAKE_BUILD_TYPE=Release                                   \
-		-D LLVM_CONFIG_PATH=$(LLVM_BUILD)/bin/llvm-config             \
+		-D LLVM_CONFIG_PATH=$(INSTALL_DIR)/bin/llvm-config            \
 		-D COMPILER_RT_DEFAULT_TARGET_ONLY=ON                         \
 		-D COMPILER_RT_BUILD_BUILTINS=ON                              \
 		-D COMPILER_RT_BUILD_SANITIZERS=OFF                           \
@@ -104,8 +104,8 @@ $(CLANG_RT_LIB)/%.crtend-x86_64.t: $(LLVM_REPO)/build_libunwind/lib/libunwind.js
 		-D COMPILER_RT_BUILD_PROFILE=OFF                              \
 		-D LLVM_ENABLE_UNWIND_TABLES=OFF                              \
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                     \
-		-D CMAKE_CXX_COMPILER=$(LLVM_BUILD)/bin/clang++               \
-		-D CMAKE_C_COMPILER=$(LLVM_BUILD)/bin/clang                   \
+		-D CMAKE_CXX_COMPILER=$(INSTALL_DIR)/bin/clang++              \
+		-D CMAKE_C_COMPILER=$(INSTALL_DIR)/bin/clang                  \
 		-D utils_dir=$(LLVM_REPO)/llvm/utils/repo                     \
 		-D CMAKE_INSTALL_PREFIX=$(CLANG_RT)                           \
 		-D musl_install=$(MUSL)                                       \
@@ -136,15 +136,15 @@ $(LLVM_REPO)/build_libcxxabi/lib/%.json: $(LLVM_REPO)/build_libcompiler-rt/lib/l
 	export REPOFILE=$(LLVM_REPO)/build_libcxxabi/lib/libc++abi.db
 	cmake -D musl=Yes                                                           \
 		-D CMAKE_BUILD_TYPE=Release                                         \
-		-D libcxxabi_include=-I$(LLVM_BUILD)/lib/clang/11.0.0/include/      \
+		-D libcxxabi_include=-I$(INSTALL_DIR)/lib/clang/11.0.0/include/     \
 		-D LIBCXXABI_ENABLE_EXCEPTIONS=OFF                                  \
 		-D LLVM_PATH=../                                                    \
 		-D LIBCXXABI_USE_COMPILER_RT=YES                                    \
 		-D LIBCXXABI_ENABLE_SHARED=No                                       \
 		-D LIBCXXABI_ENABLE_STATIC=Yes                                      \
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                           \
-		-D CMAKE_CXX_COMPILER=$(LLVM_BUILD)/bin/clang++                     \
-		-D CMAKE_C_COMPILER=$(LLVM_BUILD)/bin/clang                         \
+		-D CMAKE_CXX_COMPILER=$(INSTALL_DIR)/bin/clang++                    \
+		-D CMAKE_C_COMPILER=$(INSTALL_DIR)/bin/clang                        \
 		-D LLVM_ENABLE_UNWIND_TABLES=OFF                                    \
 		-D utils_dir=$(LLVM_REPO)/llvm/utils/repo                           \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                                     \
@@ -175,8 +175,8 @@ $(LLVM_REPO)/build_libcxx/lib/%.json: $(LLVM_REPO)/build_libcxxabi/lib/libc++abi
 		-D LIBCXX_HAS_MUSL_LIBC=ON                                    \
 		-D LLVM_ENABLE_UNWIND_TABLES=OFF                              \
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                     \
-		-D CMAKE_CXX_COMPILER=$(LLVM_BUILD)/bin/clang++               \
-		-D CMAKE_C_COMPILER=$(LLVM_BUILD)/bin/clang                   \
+		-D CMAKE_CXX_COMPILER=$(INSTALL_DIR)/bin/clang++              \
+		-D CMAKE_C_COMPILER=$(INSTALL_DIR)/bin/clang                  \
 		-D utils_dir=$(LLVM_REPO)/llvm/utils/repo                     \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                               \
 		-D musl_install=$(MUSL)                                       \
