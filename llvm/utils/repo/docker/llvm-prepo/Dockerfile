@@ -92,6 +92,7 @@ RUN rm -rf /var/lib/apt/lists/*
 
 COPY repo/archive.py /usr/share/repo/
 COPY repo/link.py /usr/share/repo/
+COPY repo/link++.py /usr/share/repo/
 COPY repo/repo.cmake /usr/share/repo/
 COPY repo/repo.json /usr/share/repo/
 COPY repo/wrap_tool.py /usr/share/repo/

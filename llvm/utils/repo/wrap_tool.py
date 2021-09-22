@@ -133,7 +133,7 @@ def _open_config_file(name='repo.json'):
     def try_path(p):
         try:
             fp = open (p)
-            _logger.debug('configuration file "%s" was found at "%s"', name, path)
+            _logger.info('configuration file "%s" was found at "%s"', name, path)
             return fp
         except:
             return None

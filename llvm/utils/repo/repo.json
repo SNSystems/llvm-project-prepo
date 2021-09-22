@@ -1,5 +1,6 @@
 {
   "ar": "/usr/bin/ar",
-  "link": "/usr/bin/clang++",
+  "link": "/usr/bin/clang",
+  "link++": "/usr/bin/clang++",
   "repo2obj": "/usr/bin/repo2obj"
 }
