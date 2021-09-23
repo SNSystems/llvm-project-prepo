@@ -259,6 +259,16 @@ if (NOT MSVC)
 endif ()
 
 if (NOT MSVC)
+  if (${CMAKE_CXX_COMPILER_TARGET} MATCHES "x86_64-pc-linux-gnu-repo")
+    set(x86_64_ASM_SOURCES "")
+  else ()
+    set(x86_64_ASM_SOURCES
+      x86_64/floatundidf.S
+      x86_64/floatundisf.S
+      x86_64/floatundixf.S
+    )
+  endif ()
+
   set(x86_64_SOURCES
     ${GENERIC_SOURCES}
     ${GENERIC_TF_SOURCES}
@@ -266,9 +276,7 @@ if (NOT MSVC)
     x86_64/floatdidf.c
     x86_64/floatdisf.c
     x86_64/floatdixf.c
-    x86_64/floatundidf.S
-    x86_64/floatundisf.S
-    x86_64/floatundixf.S
+    ${x86_64_ASM_SOURCES}
   )
 
   # Darwin x86_64 Haswell
