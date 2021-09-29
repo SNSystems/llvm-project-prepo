@@ -60,9 +60,42 @@ RUN ${scripts_dir}/build_install_llvm_prepo.sh \
     --install-dir ${install_dir} \
     ${build_args}
 
+
+# Generate the prepo user's password
 RUN apt-get install -y openssl
 RUN openssl passwd -1 prepo > "${workspace_dir}/prepo_pwd.txt"
 
+
+
+#
+# Checkout and build musl libc.
+#
+ARG musl_install_dir="/tmp/muslinstall"
+ARG musl_workspace="/tmp/muslworkspace"
+RUN echo hello
+RUN git clone --depth 1 --progress https://github.com/SNSystems/musl-prepo ${musl_workspace}
+ENV CC=${install_dir}/bin/clang
+ENV PATH=${install_dir}/bin:${PATH}
+RUN cd ${musl_workspace}; ./configure --disable-shared --prefix=${musl_install_dir}
+RUN rm -f ${musl_workspace}/clang.db
+RUN make -C ${musl_workspace} -j4 install-headers install-ticket-libs CC=${install_dir}/bin/clang
+
+
+
+#
+# Build libunwind, libcompiler-rt, libcxxabi, and libcxx.
+#
+#RUN make -C ${workspace_dir}/src/llvm/utils/repo \
+#         install                                 \
+#         LLVM_REPO=${workspace_dir}/src          \
+#         MUSL=${musl_install_dir}                \
+#         LLVM_BUILD=${install_dir}
+
+
+
+
+
+#####################################################################################################
 # Stage 2. Produce a minimal release image with build results.
 FROM ubuntu:20.04 as llvm-prepo-stage
 LABEL maintainer "paulhuggett@mac.com"
@@ -75,6 +108,22 @@ COPY --from=builder /tmp/install/bin /usr/bin/
 COPY --from=builder /tmp/install/lib /usr/lib/
 COPY --from=builder /tmp/install/etc/init.d/pstore-brokerd /etc/init.d/
 
+COPY --from=builder /tmp/muslinstall/ /usr/local/musl
+
+# Copy the wrap tools (which can run repo2obj before passing the command to a
+# traditional ELF linker or archiver).
+COPY repo/archive.py /usr/share/repo/
+COPY repo/link.py /usr/share/repo/
+COPY repo/link++.py /usr/share/repo/
+COPY repo/repo.cmake /usr/share/repo/
+COPY repo/wrap_tool.py /usr/share/repo/
+
+# The wrap tools configuration file.
+COPY repo/repo.json /usr/share/repo/
+
+# A CMake toolchain file for building with traditional ELF linker or archives.
+COPY repo/repo.cmake /usr/share/repo/
+
 # Add links from cc/c++ to clang/clang++
 RUN update-alternatives --install /usr/bin/cc cc /usr/bin/clang 30
 RUN update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++ 30
@@ -83,19 +132,17 @@ RUN update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++ 30
 RUN apt-get update
 RUN apt-get install -y --no-install-recommends \
             binutils         \
-            libc6-dev        \
-            libgcc-10-dev    \
-            libstdc++-10-dev \
             make             \
             sudo
+# GNU libc and libstd++. To be removed once musl libc and LLVM libstdc++ are done.
+RUN apt-get install -y --no-install-recommends \
+            libc6-dev        \
+            libgcc-10-dev    \
+            libstdc++-10-dev
+
 RUN rm -rf /var/lib/apt/lists/*
 
-COPY repo/archive.py /usr/share/repo/
-COPY repo/link.py /usr/share/repo/
-COPY repo/link++.py /usr/share/repo/
-COPY repo/repo.cmake /usr/share/repo/
-COPY repo/repo.json /usr/share/repo/
-COPY repo/wrap_tool.py /usr/share/repo/
+
 
 
 # Create the "prepo" user (password "prepo") with sudo privileges.
@@ -112,4 +159,3 @@ WORKDIR /home/prepo
 RUN rm -rf ${install_dir}
 RUN rm -rf ${scripts_dir}
 RUN rm -rf ${workspace_dir}
-
