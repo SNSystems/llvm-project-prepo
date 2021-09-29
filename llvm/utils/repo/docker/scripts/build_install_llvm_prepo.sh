@@ -108,6 +108,6 @@ ninja $CMAKE_INSTALL_TARGETS
 popd
 
 # Cleanup.
-rm -rf "$WORKSPACE_DIR/build"
+#rm -rf "$WORKSPACE_DIR/build"
 
 echo "Done"
