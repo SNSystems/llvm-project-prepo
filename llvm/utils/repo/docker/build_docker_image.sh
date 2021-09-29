@@ -125,12 +125,13 @@ cp -r "$SOURCE_DIR/scripts" "$BUILD_DIR/scripts"
 
 # Copy the repo build utility tools to the docker build directory.
 mkdir "$BUILD_DIR/repo"
-cp "$SOURCE_DIR/../archive.py"   \
-   "$SOURCE_DIR/../link.py"      \
-   "$SOURCE_DIR/../link++.py"    \
-   "$SOURCE_DIR/../repo.json"    \
-   "$SOURCE_DIR/../wrap_tool.py" \
-   "$SOURCE_DIR/../repo.cmake"   \
+cp "$SOURCE_DIR/../archive.py"      \
+   "$SOURCE_DIR/../link.py"         \
+   "$SOURCE_DIR/../link++.py"       \
+   "$SOURCE_DIR/../repo.json"       \
+   "$SOURCE_DIR/../wrap_tool.py"    \
+   "$SOURCE_DIR/../repo.cmake"      \
+   "$SOURCE_DIR/../full_repo.cmake" \
    "$BUILD_DIR/repo/"
 
 

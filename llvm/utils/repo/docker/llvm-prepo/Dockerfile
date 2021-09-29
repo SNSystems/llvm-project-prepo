@@ -72,19 +72,38 @@ RUN openssl passwd -1 prepo > "${workspace_dir}/prepo_pwd.txt"
 #
 ARG musl_install_dir="/tmp/muslinstall"
 ARG musl_workspace="/tmp/muslworkspace"
-RUN echo hello
 RUN git clone --depth 1 --progress https://github.com/SNSystems/musl-prepo ${musl_workspace}
 ENV CC=${install_dir}/bin/clang
 ENV PATH=${install_dir}/bin:${PATH}
 RUN cd ${musl_workspace}; ./configure --disable-shared --prefix=${musl_install_dir}
 RUN rm -f ${musl_workspace}/clang.db
-RUN make -C ${musl_workspace} -j4 install-headers install-ticket-libs CC=${install_dir}/bin/clang
+# TODO: remove install-repo2obj-libs.
+RUN make -C ${musl_workspace} -j4 install-headers install-ticket-libs install-repo2obj-libs CC=${install_dir}/bin/clang utils_dir=${workspace_dir}/src/llvm/utils/repo
 
 
 
 #
 # Build libunwind, libcompiler-rt, libcxxabi, and libcxx.
 #
+RUN echo "{ \"ar\": \"/usr/bin/ar\", \"link\": \"${install_dir}/bin/clang\", \"link++\": \"${install_dir}/bin/clang++\", \"repo2obj\": \"${install_dir}/bin/repo2obj\" }" > ${workspace_dir}/repo.json
+
+# Run cmake to create the libunwind build.
+
+RUN REPOFILE=${workspace_dir}/cmake.db cmake               \
+  -S ${workspace_dir}/src/libunwind                        \
+  -B ${workspace_dir}/build/libunwind                      \
+  -D CMAKE_BUILD_TYPE=Debug                                \
+  -D CMAKE_CXX_COMPILER=${install_dir}/bin/clang++         \
+  -D CMAKE_C_COMPILER=${install_dir}/bin/clang             \
+  -D CMAKE_TOOLCHAIN_FILE=${workspace_dir}/src/llvm/utils/repo/repo.cmake \
+  -D LIBUNWIND_ENABLE_SHARED=No                            \
+  -D LIBUNWIND_ENABLE_STATIC=Yes                           \
+  -D LLVM_ENABLE_UNWIND_TABLES=No                          \
+  -D LLVM_PATH=${workspace_dir}/src/llvm                   \
+  -D musl=Yes                                              \
+  -D musl_install=${musl_install_dir}              \
+  -D utils_dir=${workspace_dir}/src/llvm/utils/repo
+
 #RUN make -C ${workspace_dir}/src/llvm/utils/repo \
 #         install                                 \
 #         LLVM_REPO=${workspace_dir}/src          \
@@ -123,6 +142,8 @@ COPY repo/repo.json /usr/share/repo/
 
 # A CMake toolchain file for building with traditional ELF linker or archives.
 COPY repo/repo.cmake /usr/share/repo/
+# A CMake toolchain file for building without intermediate ELF files.
+COPY repo/full_repo.cmake /usr/share/repo/
 
 # Add links from cc/c++ to clang/clang++
 RUN update-alternatives --install /usr/bin/cc cc /usr/bin/clang 30
