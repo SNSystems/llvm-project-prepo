@@ -18,14 +18,20 @@ SET (CMAKE_CXX_COMPILER "clang++"  CACHE FILEPATH "Compiler")
 option(libcxx "Build the project using the LLVM libc++ library." OFF)
 option(musl "Build the project using the musl libc library." OFF)
 
-# The user may specify the utils_dir by giving
-# '-Dutils_dir:STRING=/path/to/llvm/utils/repo' on the command line
+# The user may specify the path of the "wrap" utilities by passing
+# '-Dutils_dir:STRING=/path/to/llvm/utils/repo' on the command line.
+#
+# We set the '_utils_dir' environment variable to communicate this path to
+# child instances of cmake (during compiler identification, for example).
 if (utils_dir)
-    # Environment variables are always preserved.
-    set(ENV{_utils_dir} "${utils_dir}")
+    set (ENV{_utils_dir} "${utils_dir}")
+elseif (DEFINED ENV{_utils_dir})
+    set (utils_dir "$ENV{_utils_dir}")
 else ()
     set (utils_dir /usr/share/repo)
+    set (ENV{_utils_dir} "${utils_dir}")
 endif ()
+
 
 # libcxxabi_include: the path of the directory containing the clang's include files.
 # The user may specify the libcxxabi_include by giving
