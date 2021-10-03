@@ -76,14 +76,22 @@ RUN echo "{ \"ar\": \"/usr/bin/ar\", \"link\": \"${install_dir}/bin/clang\", \"l
 #############
 
 ARG musl_install_dir="/tmp/muslinstall"
-ARG musl_workspace=${workspace_dir}/musl
-RUN git clone --depth 1 --progress https://github.com/SNSystems/musl-prepo ${musl_workspace}
-ENV CC=${install_dir}/bin/clang
-ENV PATH=${install_dir}/bin:${PATH}
-RUN cd ${musl_workspace}; ./configure --disable-shared --prefix=${musl_install_dir}
-RUN rm -f ${musl_workspace}/clang.db
+ARG musl_workspace=$workspace_dir/musl
+
+RUN git clone --depth 1 --progress https://github.com/SNSystems/musl-prepo $musl_workspace
+ENV CC=$install_dir/bin/clang
+ENV PATH=$install_dir/bin:$PATH
+RUN cd $musl_workspace; ./configure --disable-shared --prefix=$musl_install_dir
+RUN rm -f $musl_workspace/clang.db
+
 # TODO: remove install-repo2obj-libs.
-RUN make -C ${musl_workspace} -j4 install-headers install-ticket-libs install-repo2obj-libs CC=${install_dir}/bin/clang  utils_dir=${workspace_dir}/src/llvm/utils/repo
+RUN make -C $musl_workspace \
+  -j$(nproc)                \
+  install-headers           \
+  install-ticket-libs       \
+  install-repo2obj-libs     \
+  CC=$install_dir/bin/clang \
+  utils_dir=$workspace_dir/src/llvm/utils/repo/wrap
 
 
 
@@ -91,119 +99,90 @@ RUN make -C ${musl_workspace} -j4 install-headers install-ticket-libs install-re
 # libunwind #
 #############
 
-ARG stdlib_db="${install_dir}/lib/stdlib.db"
-ARG cmake_db="${workspace_dir}/cmake.db"
+ARG stdlib_db="$install_dir/lib/stdlib.db"
+ARG cmake_db="$workspace_dir/cmake.db"
 
-RUN REPOFILE=${cmake_db} cmake       \
-  -S ${workspace_dir}/src/libunwind                \
-  -B ${workspace_dir}/libbuild/unwind              \
-  -D LIBUNWIND_ENABLE_SHARED=No                    \
-  -D LIBUNWIND_ENABLE_STATIC=Yes                   \
-\
-  -G Ninja \
-  -D CMAKE_BUILD_TYPE=Debug                        \
-  -D CMAKE_CXX_COMPILER=${install_dir}/bin/clang++ \
-  -D CMAKE_C_COMPILER=${install_dir}/bin/clang     \
-  -D CMAKE_INSTALL_PREFIX=${install_dir}           \
-  -D CMAKE_TOOLCHAIN_FILE=${workspace_dir}/src/llvm/utils/repo/full_repo.cmake \
-  -D LLVM_CONFIG_PATH=${workspace_dir}/build/bin/llvm-config \
-  -D LLVM_ENABLE_LIBCXX=Yes                        \
-  -D LLVM_PATH=${workspace_dir}/src/llvm           \
-  -D musl=Yes                                      \
-  -D musl_install=${musl_install_dir}              \
-  -D utils_dir=${workspace_dir}/src/llvm/utils/repo
+# A directory to contain the standard library builds.
+ARG libbuild_dir="$workspace_dir/libbuild"
 
-RUN REPOFILE=${stdlib_db} ninja -C ${workspace_dir}/libbuild/unwind install
+# Arguments common to the runs of cmake for each of the standard libraries.
+ARG cmake_common="\
+  -G Ninja                                                 \
+  -D CMAKE_BUILD_TYPE=Debug                                \
+  -D CMAKE_CXX_COMPILER=$install_dir/bin/clang++           \
+  -D CMAKE_C_COMPILER=$install_dir/bin/clang               \
+  -D CMAKE_INSTALL_PREFIX=$install_dir                     \
+  -D CMAKE_TOOLCHAIN_FILE=$workspace_dir/src/llvm/utils/repo/full_repo.cmake \
+  -D LLVM_CONFIG_PATH=$workspace_dir/build/bin/llvm-config \
+  -D LLVM_ENABLE_LIBCXX=Yes                                \
+  -D LLVM_PATH=$workspace_dir/src/llvm                     \
+  -D musl=Yes                                              \
+  -D musl_install=$musl_install_dir                        \
+  -D utils_dir=$workspace_dir/src/llvm/utils/repo/wrap     \
+"
+
+RUN REPOFILE=$cmake_db cmake      \
+  -S $workspace_dir/src/libunwind \
+  -B $libbuild_dir/unwind         \
+  -D LIBUNWIND_ENABLE_SHARED=No   \
+  -D LIBUNWIND_ENABLE_STATIC=Yes  \
+  $cmake_common
+
+RUN REPOFILE=$stdlib_db ninja -C $libbuild_dir/unwind install
 
 
 ##################
 # libcompiler-rt #
 ##################
 
-RUN ls -l ${workspace_dir}/build/bin
+RUN REPOFILE=$cmake_db cmake             \
+  -S $workspace_dir/src/compiler-rt      \
+  -B $libbuild_dir/compiler-rt           \
+  -D COMPILER_RT_DEFAULT_TARGET_ONLY=Yes \
+  -D COMPILER_RT_BUILD_BUILTINS=Yes      \
+  -D COMPILER_RT_BUILD_SANITIZERS=No     \
+  -D COMPILER_RT_BUILD_XRAY=No           \
+  -D COMPILER_RT_BUILD_LIBFUZZER=No      \
+  -D COMPILER_RT_BUILD_PROFILE=No        \
+  $cmake_common
 
-RUN REPOFILE=${cmake_db} cmake \
-  -S ${workspace_dir}/src/compiler-rt        \
-  -B ${workspace_dir}/libbuild/compiler-rt      \
-  -D COMPILER_RT_DEFAULT_TARGET_ONLY=Yes     \
-  -D COMPILER_RT_BUILD_BUILTINS=Yes          \
-  -D COMPILER_RT_BUILD_SANITIZERS=No         \
-  -D COMPILER_RT_BUILD_XRAY=No               \
-  -D COMPILER_RT_BUILD_LIBFUZZER=No          \
-  -D COMPILER_RT_BUILD_PROFILE=No            \
-\
-  -G Ninja \
-  -D CMAKE_BUILD_TYPE=Debug                        \
-  -D CMAKE_CXX_COMPILER=${install_dir}/bin/clang++ \
-  -D CMAKE_C_COMPILER=${install_dir}/bin/clang     \
-  -D CMAKE_INSTALL_PREFIX=${install_dir}           \
-  -D CMAKE_TOOLCHAIN_FILE=${workspace_dir}/src/llvm/utils/repo/full_repo.cmake \
-  -D LLVM_CONFIG_PATH=${workspace_dir}/build/bin/llvm-config \
-  -D LLVM_PATH=${workspace_dir}/src/llvm           \
-  -D musl=Yes                                      \
-  -D musl_install=${musl_install_dir}              \
-  -D utils_dir=${workspace_dir}/src/llvm/utils/repo
-
-RUN REPOFILE=${stdlib_db} ninja -C ${workspace_dir}/libbuild/compiler-rt install
+RUN REPOFILE=$stdlib_db ninja -C $libbuild_dir/compiler-rt install
 
 
 #############
 # libcxxabi #
 #############
 
-RUN REPOFILE=${cmake_db} cmake \
-  -S ${workspace_dir}/src/libcxxabi \
-  -B ${workspace_dir}/libbuild/cxxabi \
-  -D libcxxabi_include=-I${workspace_dir}/build/lib/clang/11.0.0/include/ \
-  -D LIBCXXABI_ENABLE_EXCEPTIONS=No \
-  -D LIBCXXABI_USE_COMPILER_RT=Yes                                    \
-  -D LIBCXXABI_ENABLE_SHARED=No                                       \
-  -D LIBCXXABI_ENABLE_STATIC=Yes                                      \
-  -D LLVM_ENABLE_LIBCXX=Yes                        \
-  \
-  -G Ninja \
-  -D CMAKE_BUILD_TYPE=Debug                        \
-  -D CMAKE_CXX_COMPILER=${install_dir}/bin/clang++ \
-  -D CMAKE_C_COMPILER=${install_dir}/bin/clang     \
-  -D CMAKE_INSTALL_PREFIX=${install_dir}           \
-  -D CMAKE_TOOLCHAIN_FILE=${workspace_dir}/src/llvm/utils/repo/full_repo.cmake \
-  -D LLVM_CONFIG_PATH=${workspace_dir}/build/bin/llvm-config \
-  -D LLVM_PATH=${workspace_dir}/src/llvm           \
-  -D musl=Yes                                      \
-  -D musl_install=${musl_install_dir}              \
-  -D utils_dir=${workspace_dir}/src/llvm/utils/repo
+RUN REPOFILE=$cmake_db cmake \
+  -S $workspace_dir/src/libcxxabi                                       \
+  -B $libbuild_dir/cxxabi                                               \
+  -D libcxxabi_include=-I$workspace_dir/build/lib/clang/11.0.0/include/ \
+  -D LIBCXXABI_ENABLE_EXCEPTIONS=No                                     \
+  -D LIBCXXABI_USE_COMPILER_RT=Yes                                      \
+  -D LIBCXXABI_ENABLE_SHARED=No                                         \
+  -D LIBCXXABI_ENABLE_STATIC=Yes                                        \
+  -D LLVM_ENABLE_LIBCXX=Yes                                             \
+  $cmake_common
 
-RUN REPOFILE=${stdlib_db} ninja -C ${workspace_dir}/libbuild/cxxabi install
+RUN REPOFILE=$stdlib_db ninja -C $libbuild_dir/cxxabi install
 
 
 ##########
 # libcxx #
 ##########
 
-RUN REPOFILE=${cmake_db} cmake \
-  -S ${workspace_dir}/src/libcxx \
-  -B ${workspace_dir}/libbuild/cxx \
-  -D LIBCXX_ENABLE_SHARED=No                                    \
-  -D LIBCXX_ENABLE_STATIC=Yes                                   \
-  -D LIBCXX_CXX_ABI=libcxxabi                                   \
-  -D LIBCXX_CXX_ABI_INCLUDE_PATHS=${workspace_dir}/src/libcxxabi/include          \
-  -D LIBCXX_HAS_MUSL_LIBC=No                                   \
-\
-  -G Ninja \
-  -D CMAKE_BUILD_TYPE=Debug                        \
-  -D CMAKE_CXX_COMPILER=${install_dir}/bin/clang++ \
-  -D CMAKE_C_COMPILER=${install_dir}/bin/clang     \
-  -D CMAKE_INSTALL_PREFIX=${install_dir}           \
-  -D CMAKE_TOOLCHAIN_FILE=${workspace_dir}/src/llvm/utils/repo/full_repo.cmake \
-  -D LLVM_CONFIG_PATH=${workspace_dir}/build/bin/llvm-config \
-  -D LLVM_ENABLE_LIBCXX=Yes                        \
-  -D LLVM_PATH=${workspace_dir}/src/llvm           \
-  -D musl=Yes                                      \
-  -D musl_install=${musl_install_dir}              \
-  -D utils_dir=${workspace_dir}/src/llvm/utils/repo
+RUN REPOFILE=$cmake_db cmake                                           \
+  -S $workspace_dir/src/libcxx                                         \
+  -B $libbuild_dir/cxx                                                 \
+  -D LIBCXX_ENABLE_SHARED=No                                           \
+  -D LIBCXX_ENABLE_STATIC=Yes                                          \
+  -D LIBCXX_CXX_ABI=libcxxabi                                          \
+  -D LIBCXX_CXX_ABI_INCLUDE_PATHS=$workspace_dir/src/libcxxabi/include \
+  -D LIBCXX_HAS_MUSL_LIBC=No                                           \
+  $cmake_common
 
 # FIXME: Fails at time of writing.
-# RUN REPOFILE={stdlib_db} ninja -C ${workspace_dir}/libbuild/cxx install
+# RUN REPOFILE=$stdlib_db ninja -C $libbuild_dir/cxx install
 
 
 #####################################################################################################
@@ -213,7 +192,7 @@ LABEL maintainer "paulhuggett@mac.com"
 ENTRYPOINT /bin/bash
 
 # Copy build results of stage 1 to /usr/local.
-#COPY --from=builder ${install_dir}/ ${user_dir}/
+#COPY --from=builder $install_dir/ $user_dir/
 # Unfortunately, the COPY command does not support variables.
 COPY --from=builder /tmp/install/bin /usr/bin/
 COPY --from=builder /tmp/install/lib /usr/lib/
@@ -240,10 +219,11 @@ RUN update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++ 30
 # Install a collection of packages that will allow us to build things.
 RUN apt-get update
 RUN apt-get install -y --no-install-recommends \
-            binutils                           \
-            make                               \
-            sudo                               \
-            linux-headers-$(uname -r)
+  binutils                                     \
+  linux-headers-$(uname -r)                    \
+  make                                         \
+  sudo
+
 
 # GNU libc and libstd++. TODO: remove once musl libc and LLVM libstdc++ are done.
 RUN apt-get install -y --no-install-recommends libc6-dev
@@ -251,8 +231,6 @@ RUN apt-get install -y --no-install-recommends libgcc-10-dev
 RUN apt-get install -y --no-install-recommends libstdc++-10-dev
 
 RUN rm -rf /var/lib/apt/lists/*
-
-
 
 
 # Create the "prepo" user (password "prepo") with sudo privileges.
@@ -266,6 +244,6 @@ USER prepo
 WORKDIR /home/prepo
 
 # Cleanup.
-RUN rm -rf ${install_dir}
-RUN rm -rf ${scripts_dir}
-RUN rm -rf ${workspace_dir}
+RUN rm -rf $install_dir
+RUN rm -rf $scripts_dir
+RUN rm -rf $workspace_dir
