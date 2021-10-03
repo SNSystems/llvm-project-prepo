@@ -105,7 +105,7 @@ RUN REPOFILE=${cmake_db} cmake       \
   -D CMAKE_CXX_COMPILER=${install_dir}/bin/clang++ \
   -D CMAKE_C_COMPILER=${install_dir}/bin/clang     \
   -D CMAKE_INSTALL_PREFIX=${install_dir}           \
-  -D CMAKE_TOOLCHAIN_FILE=${workspace_dir}/src/llvm/utils/repo/repo.cmake \
+  -D CMAKE_TOOLCHAIN_FILE=${workspace_dir}/src/llvm/utils/repo/full_repo.cmake \
   -D LLVM_CONFIG_PATH=${workspace_dir}/build/bin/llvm-config \
   -D LLVM_ENABLE_LIBCXX=Yes                        \
   -D LLVM_PATH=${workspace_dir}/src/llvm           \
@@ -137,7 +137,7 @@ RUN REPOFILE=${cmake_db} cmake \
   -D CMAKE_CXX_COMPILER=${install_dir}/bin/clang++ \
   -D CMAKE_C_COMPILER=${install_dir}/bin/clang     \
   -D CMAKE_INSTALL_PREFIX=${install_dir}           \
-  -D CMAKE_TOOLCHAIN_FILE=${workspace_dir}/src/llvm/utils/repo/repo.cmake \
+  -D CMAKE_TOOLCHAIN_FILE=${workspace_dir}/src/llvm/utils/repo/full_repo.cmake \
   -D LLVM_CONFIG_PATH=${workspace_dir}/build/bin/llvm-config \
   -D LLVM_PATH=${workspace_dir}/src/llvm           \
   -D musl=Yes                                      \
@@ -166,7 +166,7 @@ RUN REPOFILE=${cmake_db} cmake \
   -D CMAKE_CXX_COMPILER=${install_dir}/bin/clang++ \
   -D CMAKE_C_COMPILER=${install_dir}/bin/clang     \
   -D CMAKE_INSTALL_PREFIX=${install_dir}           \
-  -D CMAKE_TOOLCHAIN_FILE=${workspace_dir}/src/llvm/utils/repo/repo.cmake \
+  -D CMAKE_TOOLCHAIN_FILE=${workspace_dir}/src/llvm/utils/repo/full_repo.cmake \
   -D LLVM_CONFIG_PATH=${workspace_dir}/build/bin/llvm-config \
   -D LLVM_PATH=${workspace_dir}/src/llvm           \
   -D musl=Yes                                      \
@@ -194,7 +194,7 @@ RUN REPOFILE=${cmake_db} cmake \
   -D CMAKE_CXX_COMPILER=${install_dir}/bin/clang++ \
   -D CMAKE_C_COMPILER=${install_dir}/bin/clang     \
   -D CMAKE_INSTALL_PREFIX=${install_dir}           \
-  -D CMAKE_TOOLCHAIN_FILE=${workspace_dir}/src/llvm/utils/repo/repo.cmake \
+  -D CMAKE_TOOLCHAIN_FILE=${workspace_dir}/src/llvm/utils/repo/full_repo.cmake \
   -D LLVM_CONFIG_PATH=${workspace_dir}/build/bin/llvm-config \
   -D LLVM_ENABLE_LIBCXX=Yes                        \
   -D LLVM_PATH=${workspace_dir}/src/llvm           \
@@ -223,11 +223,7 @@ COPY --from=builder /tmp/muslinstall/ /usr/local/musl
 
 # Copy the wrap tools (which can run repo2obj before passing the command to a
 # traditional ELF linker or archiver).
-COPY repo/archive.py /usr/share/repo/
-COPY repo/link.py /usr/share/repo/
-COPY repo/link++.py /usr/share/repo/
-COPY repo/repo.cmake /usr/share/repo/
-COPY repo/wrap_tool.py /usr/share/repo/
+COPY repo/wrap /usr/share/repo/
 
 # The wrap tools configuration file.
 COPY repo/repo.json /usr/share/repo/
@@ -244,15 +240,15 @@ RUN update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++ 30
 # Install a collection of packages that will allow us to build things.
 RUN apt-get update
 RUN apt-get install -y --no-install-recommends \
-            binutils         \
-            make             \
-            sudo
-            
+            binutils                           \
+            make                               \
+            sudo                               \
+            linux-headers-$(uname -r)
+
 # GNU libc and libstd++. TODO: remove once musl libc and LLVM libstdc++ are done.
-RUN apt-get install -y --no-install-recommends \
-            libc6-dev        \
-            libgcc-10-dev    \
-            libstdc++-10-dev
+RUN apt-get install -y --no-install-recommends libc6-dev
+RUN apt-get install -y --no-install-recommends libgcc-10-dev
+RUN apt-get install -y --no-install-recommends libstdc++-10-dev
 
 RUN rm -rf /var/lib/apt/lists/*
 
