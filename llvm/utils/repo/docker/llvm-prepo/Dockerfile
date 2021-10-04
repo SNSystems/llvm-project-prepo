@@ -213,6 +213,8 @@ RUN REPOFILE=$configure_repo cmake                                     \
 
 RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/cxx install
 
+# Give all users read permission for the stdlib database.
+RUN chmod a+r $stdlib_repo
 
 #####################################################################################################
 # Stage 2. Produce a minimal release image with build results.
