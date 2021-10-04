@@ -1,4 +1,4 @@
-#===- llvm/utils/repo/docker/pstore/Dockerfile ----------------------------===//
+#===- llvm/utils/repo/docker/llvm-prepo/Dockerfile ------------------------===//
 #
 # Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
@@ -19,14 +19,17 @@ RUN grep deb /etc/apt/sources.list | \
 # Install compiler, python, ninja and cmake.
 RUN DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC \
     apt-get update
+# TODO: we'll eventually want linux-headers for building the standard
+# libraries, but they're not yet being used properly.
 RUN DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC \
     apt-get install -y --no-install-recommends \
-            apt-utils       \
-            build-essential \
-            ca-certificates \
-            cmake           \
-            git             \
-            ninja-build     \
+            apt-utils                 \
+            build-essential           \
+            ca-certificates           \
+            cmake                     \
+            git                       \
+            linux-headers-$(uname -r) \
+            ninja-build               \
             python
 
 RUN rm -rf /var/lib/apt/lists/*
@@ -68,7 +71,21 @@ RUN openssl passwd -1 prepo > "${workspace_dir}/prepo_pwd.txt"
 
 
 
-RUN echo "{ \"ar\": \"/usr/bin/ar\", \"link\": \"${install_dir}/bin/clang\", \"link++\": \"${install_dir}/bin/clang++\", \"repo2obj\": \"${install_dir}/bin/repo2obj\" }" > ${workspace_dir}/repo.json
+# Write the repo.json file which will tell the "wrap" tools how to archive
+# things, link, and run repo2obj.
+RUN echo "{ \
+  \"ar\":       \"/usr/bin/ar\",\
+  \"link\":     \"$install_dir/bin/clang\",\
+  \"link++\":   \"$install_dir/bin/clang++\",\
+  \"repo2obj\": \"$install_dir/bin/repo2obj\"\
+}" > $workspace_dir/repo.json
+
+
+ARG stdlib_repo="$install_dir/lib/stdlib.repo"
+ARG configure_repo="$workspace_dir/configure.repo"
+
+# The directory containing the "wrap" tools.
+ARG wrap_dir="$workspace_dir/src/llvm/utils/repo/wrap"
 
 
 #############
@@ -78,29 +95,36 @@ RUN echo "{ \"ar\": \"/usr/bin/ar\", \"link\": \"${install_dir}/bin/clang\", \"l
 ARG musl_install_dir="/tmp/muslinstall"
 ARG musl_workspace=$workspace_dir/musl
 
-RUN git clone --depth 1 --progress https://github.com/SNSystems/musl-prepo $musl_workspace
+# FIXME: clone the main branch when PR is accepted.
+RUN git clone --depth 1 --single-branch --branch paulhuggett/repofile --progress https://github.com/SNSystems/musl-prepo $musl_workspace
 ENV CC=$install_dir/bin/clang
 ENV PATH=$install_dir/bin:$PATH
-RUN cd $musl_workspace; ./configure --disable-shared --prefix=$musl_install_dir
+RUN cd $musl_workspace; \
+  REPOFILE=$configure_repo ./configure \
+    --disable-shared                   \
+    --prefix=$musl_install_dir
 RUN rm -f $musl_workspace/clang.db
 
-# TODO: remove install-repo2obj-libs.
-RUN make -C $musl_workspace \
-  -j$(nproc)                \
-  install-headers           \
-  install-ticket-libs       \
-  install-repo2obj-libs     \
-  CC=$install_dir/bin/clang \
-  utils_dir=$workspace_dir/src/llvm/utils/repo/wrap
+RUN REPOFILE=$stdlib_repo make -C $musl_workspace \
+  -j $(nproc)                                     \
+  install-headers                                 \
+  install-ticket-libs                             \
+  CC=$install_dir/bin/clang                       \
+  utils_dir=$wrap_dir
 
+# TODO: remove once running cmake doesn't require an ELF linker.
+RUN REPOFILE=$stdlib_repo make -C $musl_workspace \
+  -j $(nproc)                                     \
+  install-repo2obj-libs                           \
+  CC=$install_dir/bin/clang                       \
+  utils_dir=$wrap_dir
+RUN mkdir -p $musl_install_dir/include/linux
+COPY llvm-prepo/futex.h $musl_install_dir/include/linux/futex.h
 
 
 #############
 # libunwind #
 #############
-
-ARG stdlib_db="$install_dir/lib/stdlib.db"
-ARG cmake_db="$workspace_dir/cmake.db"
 
 # A directory to contain the standard library builds.
 ARG libbuild_dir="$workspace_dir/libbuild"
@@ -118,24 +142,24 @@ ARG cmake_common="\
   -D LLVM_PATH=$workspace_dir/src/llvm                     \
   -D musl=Yes                                              \
   -D musl_install=$musl_install_dir                        \
-  -D utils_dir=$workspace_dir/src/llvm/utils/repo/wrap     \
+  -D utils_dir=$wrap_dir                                   \
 "
 
-RUN REPOFILE=$cmake_db cmake      \
-  -S $workspace_dir/src/libunwind \
-  -B $libbuild_dir/unwind         \
-  -D LIBUNWIND_ENABLE_SHARED=No   \
-  -D LIBUNWIND_ENABLE_STATIC=Yes  \
+RUN REPOFILE=$configure_repo cmake \
+  -S $workspace_dir/src/libunwind  \
+  -B $libbuild_dir/unwind          \
+  -D LIBUNWIND_ENABLE_SHARED=No    \
+  -D LIBUNWIND_ENABLE_STATIC=Yes   \
   $cmake_common
 
-RUN REPOFILE=$stdlib_db ninja -C $libbuild_dir/unwind install
+RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/unwind install
 
 
 ##################
 # libcompiler-rt #
 ##################
 
-RUN REPOFILE=$cmake_db cmake             \
+RUN REPOFILE=$configure_repo cmake       \
   -S $workspace_dir/src/compiler-rt      \
   -B $libbuild_dir/compiler-rt           \
   -D COMPILER_RT_DEFAULT_TARGET_ONLY=Yes \
@@ -146,14 +170,14 @@ RUN REPOFILE=$cmake_db cmake             \
   -D COMPILER_RT_BUILD_PROFILE=No        \
   $cmake_common
 
-RUN REPOFILE=$stdlib_db ninja -C $libbuild_dir/compiler-rt install
+RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/compiler-rt install
 
 
 #############
 # libcxxabi #
 #############
 
-RUN REPOFILE=$cmake_db cmake \
+RUN REPOFILE=$configure_repo cmake                                      \
   -S $workspace_dir/src/libcxxabi                                       \
   -B $libbuild_dir/cxxabi                                               \
   -D libcxxabi_include=-I$workspace_dir/build/lib/clang/11.0.0/include/ \
@@ -164,14 +188,14 @@ RUN REPOFILE=$cmake_db cmake \
   -D LLVM_ENABLE_LIBCXX=Yes                                             \
   $cmake_common
 
-RUN REPOFILE=$stdlib_db ninja -C $libbuild_dir/cxxabi install
+RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/cxxabi install
 
 
 ##########
 # libcxx #
 ##########
 
-RUN REPOFILE=$cmake_db cmake                                           \
+RUN REPOFILE=$configure_repo cmake                                     \
   -S $workspace_dir/src/libcxx                                         \
   -B $libbuild_dir/cxx                                                 \
   -D LIBCXX_ENABLE_SHARED=No                                           \
@@ -182,7 +206,7 @@ RUN REPOFILE=$cmake_db cmake                                           \
   $cmake_common
 
 # FIXME: Fails at time of writing.
-# RUN REPOFILE=$stdlib_db ninja -C $libbuild_dir/cxx install
+# RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/cxx install
 
 
 #####################################################################################################
