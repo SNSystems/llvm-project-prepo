@@ -95,8 +95,9 @@ ARG wrap_dir="$workspace_dir/src/llvm/utils/repo/wrap"
 ARG musl_install_dir="/tmp/muslinstall"
 ARG musl_workspace=$workspace_dir/musl
 
-# FIXME: clone the main branch when PR is accepted.
-RUN git clone --depth 1 --single-branch --branch paulhuggett/repofile --progress https://github.com/SNSystems/musl-prepo $musl_workspace
+RUN git clone --depth 1 --single-branch --progress \
+  https://github.com/SNSystems/musl-prepo          \
+  $musl_workspace
 ENV CC=$install_dir/bin/clang
 ENV PATH=$install_dir/bin:$PATH
 RUN cd $musl_workspace; \
