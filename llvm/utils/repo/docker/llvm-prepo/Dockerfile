@@ -103,7 +103,6 @@ RUN cd $musl_workspace; \
   REPOFILE=$configure_repo ./configure \
     --disable-shared                   \
     --prefix=$musl_install_dir
-RUN rm -f $musl_workspace/clang.db
 
 RUN REPOFILE=$stdlib_repo make -C $musl_workspace \
   -j $(nproc)                                     \
@@ -119,8 +118,14 @@ RUN REPOFILE=$stdlib_repo make -C $musl_workspace \
   CC=$install_dir/bin/clang                       \
   utils_dir=$wrap_dir
 RUN mkdir -p $musl_install_dir/include/linux
-COPY llvm-prepo/futex.h $musl_install_dir/include/linux/futex.h
 
+
+# TODO: libcxx requires linux/futex.h and linux/version.h. ATM I can't use
+# copies in /usr/include because of the risk of mixing pieces of musl libc and
+# glibc. Need to move the build of standard libraries onto a third docker image
+# so that the build environment can be carefully controlled.
+COPY llvm-prepo/futex.h $musl_install_dir/include/linux/futex.h
+RUN cp /usr/include/linux/version.h $musl_install_dir/include/linux/version.h
 
 #############
 # libunwind #
@@ -177,15 +182,15 @@ RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/compiler-rt install
 # libcxxabi #
 #############
 
-RUN REPOFILE=$configure_repo cmake                                      \
-  -S $workspace_dir/src/libcxxabi                                       \
-  -B $libbuild_dir/cxxabi                                               \
-  -D libcxxabi_include=-I$workspace_dir/build/lib/clang/11.0.0/include/ \
-  -D LIBCXXABI_ENABLE_EXCEPTIONS=No                                     \
-  -D LIBCXXABI_USE_COMPILER_RT=Yes                                      \
-  -D LIBCXXABI_ENABLE_SHARED=No                                         \
-  -D LIBCXXABI_ENABLE_STATIC=Yes                                        \
-  -D LLVM_ENABLE_LIBCXX=Yes                                             \
+RUN REPOFILE=$configure_repo cmake                                     \
+  -S $workspace_dir/src/libcxxabi                                      \
+  -B $libbuild_dir/cxxabi                                              \
+  -D libcxxabi_include=-I$workspace_dir/build/lib/clang/11.0.0/include \
+  -D LIBCXXABI_ENABLE_EXCEPTIONS=No                                    \
+  -D LIBCXXABI_USE_COMPILER_RT=Yes                                     \
+  -D LIBCXXABI_ENABLE_SHARED=No                                        \
+  -D LIBCXXABI_ENABLE_STATIC=Yes                                       \
+  -D LLVM_ENABLE_LIBCXX=Yes                                            \
   $cmake_common
 
 RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/cxxabi install
@@ -202,11 +207,10 @@ RUN REPOFILE=$configure_repo cmake                                     \
   -D LIBCXX_ENABLE_STATIC=Yes                                          \
   -D LIBCXX_CXX_ABI=libcxxabi                                          \
   -D LIBCXX_CXX_ABI_INCLUDE_PATHS=$workspace_dir/src/libcxxabi/include \
-  -D LIBCXX_HAS_MUSL_LIBC=No                                           \
+  -D LIBCXX_HAS_MUSL_LIBC=Yes                                          \
   $cmake_common
 
-# FIXME: Fails at time of writing.
-# RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/cxx install
+RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/cxx install
 
 
 #####################################################################################################
