@@ -138,7 +138,7 @@ ARG libbuild_dir="$workspace_dir/libbuild"
 # Arguments common to the runs of cmake for each of the standard libraries.
 ARG cmake_common="\
   -G Ninja                                                 \
-  -D CMAKE_BUILD_TYPE=Debug                                \
+  -D CMAKE_BUILD_TYPE=Release                              \
   -D CMAKE_CXX_COMPILER=$install_dir/bin/clang++           \
   -D CMAKE_C_COMPILER=$install_dir/bin/clang               \
   -D CMAKE_INSTALL_PREFIX=$install_dir                     \
@@ -194,7 +194,8 @@ RUN REPOFILE=$configure_repo cmake                                     \
   -D LLVM_ENABLE_LIBCXX=Yes                                            \
   $cmake_common
 
-RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/cxxabi install
+# TODO: the check-cxxabi stage is missing.
+RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/cxxabi cxxabi install-cxxabi
 
 
 ##########
@@ -211,7 +212,8 @@ RUN REPOFILE=$configure_repo cmake                                     \
   -D LIBCXX_HAS_MUSL_LIBC=Yes                                          \
   $cmake_common
 
-RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/cxx install
+# TODO: the check-cxx stage is missing.
+RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/cxx cxx install-cxx
 
 # Give all users read permission for the stdlib database.
 RUN chmod a+r $stdlib_repo
@@ -226,6 +228,7 @@ ENTRYPOINT /bin/bash
 #COPY --from=builder $install_dir/ $user_dir/
 # Unfortunately, the COPY command does not support variables.
 COPY --from=builder /tmp/install/bin /usr/bin/
+COPY --from=builder /tmp/install/include /usr/include
 COPY --from=builder /tmp/install/lib /usr/lib/
 COPY --from=builder /tmp/install/etc/init.d/pstore-brokerd /etc/init.d/
 
@@ -257,9 +260,9 @@ RUN apt-get install -y --no-install-recommends \
 
 
 # GNU libc and libstd++. TODO: remove once musl libc and LLVM libstdc++ are done.
-RUN apt-get install -y --no-install-recommends libc6-dev
-RUN apt-get install -y --no-install-recommends libgcc-10-dev
-RUN apt-get install -y --no-install-recommends libstdc++-10-dev
+#RUN apt-get install -y --no-install-recommends libc6-dev
+#RUN apt-get install -y --no-install-recommends libgcc-10-dev
+#RUN apt-get install -y --no-install-recommends libstdc++-10-dev
 
 RUN rm -rf /var/lib/apt/lists/*
 
