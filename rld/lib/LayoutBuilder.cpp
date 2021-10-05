@@ -109,10 +109,16 @@ void LayoutBuilder::Visited::visit(uint32_t Index) {
   CV_.notify_one();
 }
 
-void LayoutBuilder::Visited::waitFor(uint32_t Index) {
+bool LayoutBuilder::Visited::waitFor(uint32_t Index) {
   std::unique_lock<std::mutex> Lock{Mut_};
-  CV_.wait(Lock, [this, Index] { return Visited_[Index]; });
-  assert(Visited_[Index]);
+  CV_.wait(Lock, [this, Index] { return Error_ || Visited_[Index]; });
+  assert(Error_ || Visited_[Index]);
+  return Error_;
+}
+
+void LayoutBuilder::Visited::error() {
+  Error_ = true;
+  CV_.notify_all();
 }
 
 void LayoutBuilder::Visited::resize(uint32_t NumCompilations) {
@@ -582,6 +588,10 @@ void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
       });
 }
 
+// error
+// ~~~~~
+void LayoutBuilder::error() { CompilationWaiter_.error(); }
+
 // run
 // ~~~
 void LayoutBuilder::run() {
@@ -591,7 +601,13 @@ void LayoutBuilder::run() {
   Magics.initialize(Ctx_.Db);
 
   for (auto Ordinal = uint32_t{0}; Ordinal < NumCompilations_; ++Ordinal) {
-    CompilationWaiter_.waitFor(Ordinal);
+    if (CompilationWaiter_.waitFor(Ordinal)) {
+      // An error was signalled.
+      llvmDebug(DebugType, Ctx_.IOMut, [&] {
+        llvm::dbgs() << "An error was encountered. Stopping.\n";
+      });
+      return;
+    }
 
     llvmDebug(DebugType, Ctx_.IOMut, [&] {
       llvm::dbgs() << "Starting layout for #" << Ordinal << '\n';

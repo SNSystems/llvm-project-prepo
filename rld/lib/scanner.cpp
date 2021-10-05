@@ -51,7 +51,7 @@ namespace rld {
 
 // run
 // ~~~
-void Scanner::run(
+bool Scanner::run(
     const llvm::StringRef &Path,
     const NotNull<GlobalSymbolsContainer *> GlobalSymbols,
     const NotNull<FixupStorage::Container *> FixupStorage,
@@ -81,9 +81,9 @@ void Scanner::run(
   llvm::Optional<CompilationSymbolsView> Locals = Resolver.defineSymbols(
       GlobalSymbols, Undefs_, Compilation, InputOrdinal, ErrorFn);
 
-  bool Error = !Locals.hasValue();
-  if (Error) {
-    // FIXME: handle the error somehow
+  if (!Locals.hasValue()) {
+    // There was an error found in symbol resolution.
+    return false;
   }
 
   assert(Locals->Map.size() == Compilation.size());
@@ -96,6 +96,7 @@ void Scanner::run(
   auto &&LocalsValue = Locals.getValue();
   Layout_.visited(InputOrdinal, std::make_tuple(std::move(LocalsValue),
                                                 std::move(PLTSymbols)));
+  return true;
 }
 
 } // namespace rld

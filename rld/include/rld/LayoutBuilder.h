@@ -264,6 +264,9 @@ public:
   /// The main layout thread entry point.
   void run();
 
+  /// Signals that an error was encountered and stops the layout.
+  void error();
+
   /// Takes the two-dimensional layout produced by the main layout thread where
   /// each segment starts at address 0 and flattens it into a single-dimensional
   /// structure where each segment follows the previous in memory.
@@ -300,13 +303,17 @@ private:
     explicit Visited(uint32_t NumCompilations);
     /// Marks given index as visited.
     void visit(uint32_t Index);
-    /// Blocks until a specified index is visited.
-    void waitFor(uint32_t Index);
+    /// Blocks until a specified index is visited. Returns true if an error was
+    /// signalled, false otherwise.
+    bool waitFor(uint32_t Index);
+    /// Signals that an error was encountered and wakes up any waiting threads.
+    void error();
 
   private:
     void resize(uint32_t NumCompilations);
 
     std::vector<bool> Visited_;
+    bool Error_ = false;
     std::mutex Mut_;
     std::condition_variable CV_;
   };

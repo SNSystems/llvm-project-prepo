@@ -239,22 +239,28 @@ int main(int Argc, char *Argv[]) {
                                        rld::TimerGroupDescription);
 
       rld::Scanner Scan{Ctxt, Layout, &Undefs};
+      std::atomic<bool> ScanError{false};
       for (const auto &C : Identified->Compilations) {
         WorkPool.async(
-            [&Scan, &GlobalSymbs, &FixupStorage](
+            [&Scan, &GlobalSymbs, &FixupStorage, &ScanError](
                 const rld::Identifier::CompilationVector::value_type &V) {
-              Scan.run(std::get<std::string>(V), // path
-                       GlobalSymbs->getThreadStorage(),
-                       FixupStorage->getThreadStorage(),
-                       std::get<pstore::extent<pstore::repo::compilation>>(
-                           V),             // compilation extent
-                       std::get<size_t>(V) // input ordinal
-              );
+              if (!Scan.run(std::get<std::string>(V), // path
+                            GlobalSymbs->getThreadStorage(),
+                            FixupStorage->getThreadStorage(),
+                            std::get<pstore::extent<pstore::repo::compilation>>(
+                                V),             // compilation extent
+                            std::get<size_t>(V) // input ordinal
+                            )) {
+                ScanError.store(true, std::memory_order_relaxed);
+              }
             },
             std::cref(C));
       }
 
       WorkPool.wait();
+      if (ScanError) {
+        ExitCode = EXIT_FAILURE;
+      }
 
       assert(
           Undefs.strongUndefCountIsCorrect() &&
@@ -269,7 +275,6 @@ int main(int Argc, char *Argv[]) {
                          << loadStdString(Ctxt.Db, U.name()) << '\n';
           }
         }
-        // FIXME: need a means of cancelling the layout thread.
         ExitCode = EXIT_FAILURE;
       }
 
@@ -278,10 +283,13 @@ int main(int Argc, char *Argv[]) {
         if (!Triple) {
           std::lock_guard<decltype(Ctxt.IOMut)> Lock{Ctxt.IOMut};
           llvm::errs() << "Error: The output triple could not be determined.\n";
-          // FIXME: need a means of cancelling the layout thread.
           ExitCode = EXIT_FAILURE;
         }
       }
+    }
+
+    if (ExitCode != EXIT_SUCCESS) {
+      Layout.error();
     }
     LayoutThread.join();
 
