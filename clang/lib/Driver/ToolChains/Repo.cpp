@@ -33,9 +33,6 @@ static void constructRepoLinkArgs(Compilation &C, const JobAction &JA,
   CmdArgs.push_back("-o");
   CmdArgs.push_back(Output.getFilename());
 
-  assert(RTC.getTriple().isMusl() &&
-         "The linker should be only run on the musl-libc environment.");
-
   std::string MuslRoot = D.SysRoot.empty() ? "/usr/local/musl" : D.SysRoot;
   if (!Args.hasArg(options::OPT_nostartfiles, options::OPT_nostdlib)) {
     CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/crt1.t.o"));
@@ -134,11 +131,8 @@ Tool *RepoToolChain::buildLinker() const {
 void RepoToolChain::addClangTargetOptions(const ArgList &DriverArgs,
                                           ArgStringList &CC1Args,
                                           Action::OffloadKind) const {
-
-  bool UseInitArrayDefault = getTriple().isMusl();
-
   if (!DriverArgs.hasFlag(options::OPT_fuse_init_array,
-                          options::OPT_fno_use_init_array, UseInitArrayDefault))
+                          options::OPT_fno_use_init_array, true))
     CC1Args.push_back("-fno-use-init-array");
 }
 
@@ -159,7 +153,7 @@ void RepoToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
   if (DriverArgs.hasArg(options::OPT_nostdlibinc))
     return;
 
-  if (!DriverArgs.hasArg(options::OPT_nobuiltininc) && getTriple().isMusl()) {
+  if (!DriverArgs.hasArg(options::OPT_nobuiltininc)) {
     if (!D.SysRoot.empty()) {
       SmallString<128> P(D.SysRoot);
       llvm::sys::path::append(P, "include");

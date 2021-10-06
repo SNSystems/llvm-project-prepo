@@ -55,10 +55,7 @@ public:
   void addLibCxxIncludePaths(const llvm::opt::ArgList &DriverArgs,
                              llvm::opt::ArgStringList &CC1Args) const override;
 
-  const char *getDefaultLinker() const override {
-    return getTriple().isMusl() ? "rld"
-                                : "ld.lld";
-  }
+  const char *getDefaultLinker() const override { return "rld"; }
 
   CXXStdlibType GetCXXStdlibType(const llvm::opt::ArgList &Args) const override;
 

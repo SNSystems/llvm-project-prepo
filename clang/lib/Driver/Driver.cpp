@@ -4939,8 +4939,7 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
                                                               Args);
       else if (Target.getArch() == llvm::Triple::ve)
         TC = std::make_unique<toolchains::VEToolChain>(*this, Target, Args);
-      else if (Target.getObjectFormat() == llvm::Triple::Repo &&
-               Target.getEnvironment() == llvm::Triple::Musl)
+      else if (Target.getObjectFormat() == llvm::Triple::Repo)
         TC = std::make_unique<toolchains::RepoToolChain>(*this, Target, Args);
       else
         TC = std::make_unique<toolchains::Linux>(*this, Target, Args);
@@ -5047,8 +5046,7 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
           TC = std::make_unique<toolchains::Generic_ELF>(*this, Target, Args);
         else if (Target.isOSBinFormatMachO())
           TC = std::make_unique<toolchains::MachO>(*this, Target, Args);
-        else if (Target.isOSBinFormatRepo() &&
-                 Target.getEnvironment() == llvm::Triple::Musl)
+        else if (Target.isOSBinFormatRepo())
           TC = std::make_unique<toolchains::RepoToolChain>(*this, Target, Args);
         else
           TC = std::make_unique<toolchains::Generic_GCC>(*this, Target, Args);
