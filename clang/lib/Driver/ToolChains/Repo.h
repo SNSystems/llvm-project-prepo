@@ -35,7 +35,9 @@ public:
 
 namespace toolchains {
 
-class LLVM_LIBRARY_VISIBILITY RepoToolChain : public Linux {
+class LLVM_LIBRARY_VISIBILITY RepoToolChain : public ToolChain {
+  friend class Linux;
+
 protected:
   Tool *buildLinker() const override;
 
@@ -44,6 +46,10 @@ public:
                 const llvm::opt::ArgList &Args);
   ~RepoToolChain() override;
 
+  bool isPICDefault() const override;
+  bool isPIEDefault() const override;
+  bool isPICDefaultForced() const override;
+
   void
   addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
                         llvm::opt::ArgStringList &CC1Args,
@@ -51,9 +57,6 @@ public:
   void
   AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
                             llvm::opt::ArgStringList &CC1Args) const override;
-
-  void addLibCxxIncludePaths(const llvm::opt::ArgList &DriverArgs,
-                             llvm::opt::ArgStringList &CC1Args) const override;
 
   const char *getDefaultLinker() const override { return "rld"; }
 

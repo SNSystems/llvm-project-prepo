@@ -405,6 +405,7 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   const bool HasCRTBeginEndFiles =
       ToolChain.getTriple().hasEnvironment() ||
       (ToolChain.getTriple().getVendor() != llvm::Triple::MipsTechnologies);
+  const bool IsRepo = ToolChain.getTriple().isOSBinFormatRepo();
 
   ArgStringList CmdArgs;
 
@@ -464,14 +465,17 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   ToolChain.addExtraOpts(CmdArgs);
 
-  CmdArgs.push_back("--eh-frame-hdr");
+  if (!IsRepo) {
 
-  if (const char *LDMOption = getLDMOption(ToolChain.getTriple(), Args)) {
-    CmdArgs.push_back("-m");
-    CmdArgs.push_back(LDMOption);
-  } else {
-    D.Diag(diag::err_target_unknown_triple) << Triple.str();
-    return;
+    CmdArgs.push_back("--eh-frame-hdr");
+
+    if (const char *LDMOption = getLDMOption(ToolChain.getTriple(), Args)) {
+      CmdArgs.push_back("-m");
+      CmdArgs.push_back(LDMOption);
+    } else {
+      D.Diag(diag::err_target_unknown_triple) << Triple.str();
+      return;
+    }
   }
 
   if (IsStatic) {
@@ -488,7 +492,7 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     if (Args.hasArg(options::OPT_rdynamic))
       CmdArgs.push_back("-export-dynamic");
 
-    if (!Args.hasArg(options::OPT_shared) && !IsStaticPIE) {
+    if (!Args.hasArg(options::OPT_shared) && !IsStaticPIE && !IsRepo) {
       CmdArgs.push_back("-dynamic-linker");
       CmdArgs.push_back(Args.MakeArgString(Twine(D.DyldPrefix) +
                                            ToolChain.getDynamicLinker(Args)));
@@ -499,7 +503,7 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   CmdArgs.push_back(Output.getFilename());
 
   if (!Args.hasArg(options::OPT_nostdlib, options::OPT_nostartfiles)) {
-    if (!isAndroid && !IsIAMCU) {
+    if (!isAndroid && !IsIAMCU && !IsRepo) {
       const char *crt1 = nullptr;
       if (!Args.hasArg(options::OPT_shared)) {
         if (Args.hasArg(options::OPT_pg))
@@ -517,6 +521,12 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back(Args.MakeArgString(ToolChain.GetFilePath("crti.o")));
     }
 
+    if (IsRepo) {
+      std::string MuslRoot = D.SysRoot.empty() ? "/usr/local/musl" : D.SysRoot;
+      CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/crt1.t"));
+      CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/crt1_asm.t"));
+    }
+
     if (IsVE) {
       CmdArgs.push_back("-z");
       CmdArgs.push_back("max-page-size=0x4000000");
@@ -524,7 +534,14 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
     if (IsIAMCU)
       CmdArgs.push_back(Args.MakeArgString(ToolChain.GetFilePath("crt0.o")));
-    else if (HasCRTBeginEndFiles) {
+    else if (IsRepo &&
+             !Args.hasArg(options::OPT_nostartfiles, options::OPT_nostdlib)) {
+      auto CRTPath = ToolChain.getCompilerRTPath();
+      CmdArgs.push_back(
+          Args.MakeArgString(CRTPath + "/clang_rt.crtbegin-x86_64.o"));
+      CmdArgs.push_back(
+          Args.MakeArgString(CRTPath + "/clang_rt.crtend-x86_64.o"));
+    } else if (HasCRTBeginEndFiles) {
       std::string P;
       if (ToolChain.GetRuntimeLibType(Args) == ToolChain::RLT_CompilerRT &&
           !isAndroid) {
@@ -555,7 +572,8 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   Args.AddAllArgs(CmdArgs, options::OPT_L);
   Args.AddAllArgs(CmdArgs, options::OPT_u);
 
-  ToolChain.AddFilePathLibArgs(Args, CmdArgs);
+  if (!IsRepo)
+    ToolChain.AddFilePathLibArgs(Args, CmdArgs);
 
   if (D.isUsingLTO()) {
     assert(!Inputs.empty() && "Must have at least one input.");
@@ -615,7 +633,8 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
         // FIXME: Does this really make sense for all GNU toolchains?
         WantPthread = true;
 
-      AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
+      if (!IsRepo)
+        AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 
       if (WantPthread && !isAndroid)
         CmdArgs.push_back("-lpthread");
@@ -623,7 +642,7 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
       if (Args.hasArg(options::OPT_fsplit_stack))
         CmdArgs.push_back("--wrap=pthread_create");
 
-      if (!Args.hasArg(options::OPT_nolibc))
+      if (!Args.hasArg(options::OPT_nolibc) && !IsRepo)
         CmdArgs.push_back("-lc");
 
       // Add IAMCU specific libs, if needed.
@@ -632,7 +651,7 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
       if (IsStatic || IsStaticPIE)
         CmdArgs.push_back("--end-group");
-      else
+      else if (!IsRepo)
         AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 
       // Add IAMCU specific libs (outside the group), if needed.
@@ -643,7 +662,7 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
       }
     }
 
-    if (!Args.hasArg(options::OPT_nostartfiles) && !IsIAMCU) {
+    if (!Args.hasArg(options::OPT_nostartfiles) && !IsIAMCU && !IsRepo) {
       if (HasCRTBeginEndFiles) {
         std::string P;
         if (ToolChain.GetRuntimeLibType(Args) == ToolChain::RLT_CompilerRT &&
@@ -665,7 +684,7 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
         }
         CmdArgs.push_back(Args.MakeArgString(P));
       }
-      if (!isAndroid)
+      if (!isAndroid && !IsRepo)
         CmdArgs.push_back(Args.MakeArgString(ToolChain.GetFilePath("crtn.o")));
     }
   }
