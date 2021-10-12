@@ -39,7 +39,7 @@ namespace repo {
 extern const uint64_t TicketFileSize;
 
 const std::error_category &ticketErrorCategory();
-enum class TicketError { CorruptedTicket = 1, DatabaseIDMismatch };
+enum class TicketError { NotATicket = 1, DatabaseIDMismatch };
 inline std::error_code make_error_code(TicketError E) {
   return {static_cast<int>(E), ticketErrorCategory()};
 }

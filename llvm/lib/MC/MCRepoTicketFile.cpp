@@ -40,8 +40,8 @@ class TicketErrorCategory final : public std::error_category {
 
   std::string message(int IE) const override {
     switch (static_cast<mc::repo::TicketError>(IE)) {
-    case mc::repo::TicketError::CorruptedTicket:
-      return "Corrupted Ticket File";
+    case mc::repo::TicketError::NotATicket:
+      return "Not a Ticket File";
     case mc::repo::TicketError::DatabaseIDMismatch:
       return "Database ID mismatch";
     }
@@ -216,7 +216,7 @@ static ErrorOr<TicketFile> getTicket(const llvm::MemoryBufferRef &Buffer,
   assert(mc::repo::TicketFileSize == sizeof(TicketFile) &&
          "TicketFileSize must be sizeof(TicketFile)");
   if (Contents.size() != sizeof(TicketFile)) {
-    return mc::repo::TicketError::CorruptedTicket;
+    return mc::repo::TicketError::NotATicket;
   }
 
   TicketFile Ticket = *reinterpret_cast<const TicketFile *>(Contents.data());
@@ -227,7 +227,7 @@ static ErrorOr<TicketFile> getTicket(const llvm::MemoryBufferRef &Buffer,
   } else if (Ticket.Magic == BERepoMagic) {
     Endian = support::big;
   } else {
-    return mc::repo::TicketError::CorruptedTicket;
+    return mc::repo::TicketError::NotATicket;
   }
 
   const uint32_t ExpectedCRC = ticketCRC(Ticket);
@@ -237,7 +237,7 @@ static ErrorOr<TicketFile> getTicket(const llvm::MemoryBufferRef &Buffer,
   Ticket.Digest = support::endian::byte_swap(Ticket.Digest, Endian);
 
   if (Ticket.Version != TicketFileVersion || Ticket.CRC != ExpectedCRC) {
-    return mc::repo::TicketError::CorruptedTicket;
+    return mc::repo::TicketError::NotATicket;
   }
 
   if (Owner != nullptr) {
@@ -269,7 +269,7 @@ openTicketFile(StringRef TicketPath) {
   }
   const uint64_t FileSize = Status.getSize();
   if (FileSize != mc::repo::TicketFileSize) {
-    return mc::repo::TicketError::CorruptedTicket;
+    return mc::repo::TicketError::NotATicket;
   }
 
   return MemoryBuffer::getOpenFile(sys::fs::convertFDToNativeFile(FD),

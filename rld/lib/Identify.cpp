@@ -255,7 +255,7 @@ auto rld::Identifier::getFileKind(MemoryBufferRef Memory) -> ErrorOr<FileKind> {
       return FileKind::Ticket;
     }
     if (DigestOrError.getError() !=
-        make_error_code(mc::repo::TicketError::CorruptedTicket)) {
+        make_error_code(mc::repo::TicketError::NotATicket)) {
       return DigestOrError.getError();
     }
   }
