@@ -63,7 +63,7 @@ $(LLVM_REPO)/build_libunwind/lib/%.db:
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                     \
 		-D CMAKE_CXX_COMPILER=$(LLVM_BUILD)/bin/clang++               \
 		-D CMAKE_C_COMPILER=$(LLVM_BUILD)/bin/clang                   \
-		-D utils_dir=$(LLVM_REPO)/llvm/utils/repo                     \
+		-D utils_dir=$(LLVM_REPO)/llvm/utils/repo/wrap                \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                               \
 		-D musl_install=$(MUSL)                                       \
 		../libunwind
@@ -93,7 +93,7 @@ $(CLANG_RT_LIB)/%.crtend-x86_64.t:
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                     \
 		-D CMAKE_CXX_COMPILER=$(LLVM_BUILD)/bin/clang++               \
 		-D CMAKE_C_COMPILER=$(LLVM_BUILD)/bin/clang                   \
-		-D utils_dir=$(LLVM_REPO)/llvm/utils/repo                     \
+		-D utils_dir=$(LLVM_REPO)/llvm/utils/repo/wrap                \
 		-D CMAKE_INSTALL_PREFIX=$(CLANG_RT)                           \
 		-D musl_install=$(MUSL)                                       \
 		../compiler-rt
@@ -128,7 +128,7 @@ $(LLVM_REPO)/build_libcxxabi/lib/%.db: libunwind.a libclang_rt.a
 		-D CMAKE_CXX_COMPILER=$(LLVM_BUILD)/bin/clang++                     \
 		-D CMAKE_C_COMPILER=$(LLVM_BUILD)/bin/clang                         \
 		-D LLVM_ENABLE_UNWIND_TABLES=OFF                                    \
-		-D utils_dir=$(LLVM_REPO)/llvm/utils/repo                           \
+		-D utils_dir=$(LLVM_REPO)/llvm/utils/repo/wrap                      \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                                     \
 		-D musl_install=$(MUSL)                                             \
 		../libcxxabi
@@ -154,7 +154,7 @@ $(LLVM_REPO)/build_libcxx/lib/%.db: libc++abi.a
 		-D CMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE)                     \
 		-D CMAKE_CXX_COMPILER=$(LLVM_BUILD)/bin/clang++               \
 		-D CMAKE_C_COMPILER=$(LLVM_BUILD)/bin/clang                   \
-		-D utils_dir=$(LLVM_REPO)/llvm/utils/repo                     \
+		-D utils_dir=$(LLVM_REPO)/llvm/utils/repo/wrap                \
 		-D CMAKE_INSTALL_PREFIX=$(LLVM)                               \
 		-D musl_install=$(MUSL)                                       \
 		../libcxx
