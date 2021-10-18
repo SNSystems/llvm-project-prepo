@@ -386,22 +386,6 @@ public:
                                const NotNull<UndefsContainer *> Undefs,
                                uint32_t InputOrdinal);
 
-  /// Process the definition of a symbol with link-once linkage that "collides"
-  /// with an existing definition.
-  ///
-  /// \param Db  The owning database.
-  /// \param Def  The new definition.
-  /// \param Undefs  The collection of undefined symbols.
-  /// \param InputOrdinal  The command-line index of the defining ticket file.
-  ///   Used to impose an order on the symbol definitions that is not related to
-  ///   the order in which the files are scanned.
-  /// \returns  The symbol (i.e. 'this') or null (if there was an existing
-  ///   incompatible definition of the symbol).
-  Symbol *updateLinkOnceSymbol(const pstore::database &Db,
-                               const pstore::repo::definition &Def,
-                               const NotNull<UndefsContainer *> Undefs,
-                               uint32_t InputOrdinal);
-
   /// Process the definition of a symbol with weak linkage that "collides" with
   /// an existing definition.
   ///

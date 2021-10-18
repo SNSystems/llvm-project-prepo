@@ -424,8 +424,26 @@ INSTANTIATE_TEST_CASE_P(
     Weak, LowestOrdinal,
     testing::Values(TwoLinkages{linkage::weak_any, linkage::weak_any},
                     TwoLinkages{linkage::weak_any, linkage::weak_odr},
-                    TwoLinkages{linkage::weak_odr, linkage::weak_odr},
-                    TwoLinkages{linkage::weak_odr, linkage::weak_any}), );
+                    TwoLinkages{linkage::weak_odr, linkage::weak_any},
+                    TwoLinkages{linkage::weak_odr, linkage::weak_odr}), );
+
+// Checks cases where we have an existing weak definition and then see a
+// link-once definition.
+INSTANTIATE_TEST_CASE_P(
+    WeakLinkOnce, LowestOrdinal,
+    testing::Values(TwoLinkages{linkage::weak_any, linkage::link_once_any},
+                    TwoLinkages{linkage::weak_any, linkage::link_once_odr},
+                    TwoLinkages{linkage::weak_odr, linkage::link_once_any},
+                    TwoLinkages{linkage::weak_odr, linkage::link_once_odr}), );
+
+// Checks cases where we have an existing link-once definition and then see a
+// weak definition.
+INSTANTIATE_TEST_CASE_P(
+    LinkOnceWeak, LowestOrdinal,
+    testing::Values(TwoLinkages{linkage::link_once_any, linkage::weak_any},
+                    TwoLinkages{linkage::link_once_any, linkage::weak_odr},
+                    TwoLinkages{linkage::link_once_odr, linkage::weak_any},
+                    TwoLinkages{linkage::link_once_odr, linkage::weak_odr}), );
 
 //*  ___          _                 *
 //* | _ \___ _ __| |__ _ __ ___ ___ *
@@ -474,8 +492,12 @@ INSTANTIATE_TEST_CASE_P(Common, Replaces,
 
 INSTANTIATE_TEST_CASE_P(
     Weak, Replaces,
-    testing::Values(TwoLinkages{linkage::weak_any, linkage::common},
+    testing::Values(TwoLinkages{linkage::link_once_any, linkage::common},
+                    TwoLinkages{linkage::link_once_odr, linkage::common},
+                    TwoLinkages{linkage::weak_any, linkage::common},
                     TwoLinkages{linkage::weak_odr, linkage::common},
+                    TwoLinkages{linkage::link_once_any, linkage::external},
+                    TwoLinkages{linkage::link_once_odr, linkage::external},
                     TwoLinkages{linkage::weak_any, linkage::external},
                     TwoLinkages{linkage::weak_odr, linkage::external}), );
 
@@ -597,43 +619,27 @@ INSTANTIATE_TEST_CASE_P(
                     TwoLinkages{linkage::append, linkage::weak_odr}), );
 
 // Symbols colliding with a common definition.
-INSTANTIATE_TEST_CASE_P(
-    Common, Collision,
-    testing::Values(TwoLinkages{linkage::common, linkage::append},
-                    TwoLinkages{linkage::common, linkage::link_once_any},
-                    TwoLinkages{linkage::common, linkage::link_once_odr}), );
+INSTANTIATE_TEST_CASE_P(Common, Collision,
+                        testing::Values(TwoLinkages{linkage::common,
+                                                    linkage::append}), );
 
 // Symbols colliding with an external definition.
 INSTANTIATE_TEST_CASE_P(
     External, Collision,
     testing::Values(TwoLinkages{linkage::external, linkage::append},
-                    TwoLinkages{linkage::external, linkage::external},
-                    TwoLinkages{linkage::external, linkage::link_once_any},
-                    TwoLinkages{linkage::external, linkage::link_once_odr}), );
+                    TwoLinkages{linkage::external, linkage::external}), );
 
 // Symbols colliding with a link-once-any or link-once-ODR definition.
 INSTANTIATE_TEST_CASE_P(
     LinkOnce, Collision,
     testing::Values(TwoLinkages{linkage::link_once_any, linkage::append},
-                    TwoLinkages{linkage::link_once_any, linkage::common},
-                    TwoLinkages{linkage::link_once_any, linkage::external},
-                    TwoLinkages{linkage::link_once_any, linkage::weak_any},
-                    TwoLinkages{linkage::link_once_any, linkage::weak_odr},
-                    TwoLinkages{linkage::link_once_odr, linkage::append},
-                    TwoLinkages{linkage::link_once_odr, linkage::common},
-                    TwoLinkages{linkage::link_once_odr, linkage::external},
-                    TwoLinkages{linkage::link_once_odr, linkage::weak_any},
-                    TwoLinkages{linkage::link_once_odr, linkage::weak_odr}), );
+                    TwoLinkages{linkage::link_once_odr, linkage::append}), );
 
 // Symbols colliding with a weak-any or weak-ODR definition.
 INSTANTIATE_TEST_CASE_P(
     Weak, Collision,
     testing::Values(TwoLinkages{linkage::weak_any, linkage::append},
-                    TwoLinkages{linkage::weak_any, linkage::link_once_any},
-                    TwoLinkages{linkage::weak_any, linkage::link_once_odr},
-                    TwoLinkages{linkage::weak_odr, linkage::append},
-                    TwoLinkages{linkage::weak_odr, linkage::link_once_any},
-                    TwoLinkages{linkage::weak_odr, linkage::link_once_odr}), );
+                    TwoLinkages{linkage::weak_odr, linkage::append}), );
 
 namespace {
 

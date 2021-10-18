@@ -276,8 +276,8 @@ Symbol *Symbol::updateExternalSymbol(const pstore::database &Db,
   // allowing replacement.
   assert(Definition_->size() == 1 &&
          "An external symbol definition must have exactly 1 body");
-  if (isAnyOf<linkage::append, linkage::external, linkage::link_once_any,
-              linkage::link_once_odr>((*Definition_)[0].linkage())) {
+  if (isAnyOf<linkage::append, linkage::external>(
+          (*Definition_)[0].linkage())) {
     return nullptr; // Error.
   }
   return this->replaceImpl(Lock, Db, Def, InputOrdinal);
@@ -302,12 +302,12 @@ Symbol *Symbol::updateCommonSymbol(const pstore::database &Db,
   case linkage::external:
     return this; // common hits external: ignored
   case linkage::append:
-  case linkage::link_once_any:
-  case linkage::link_once_odr:
-    return nullptr; // common hits append/link-once: error
+    return nullptr; // common hits append: error
   case linkage::internal:
   case linkage::internal_no_symbol:
     llvm_unreachable("Internal symbols can't collide");
+  case linkage::link_once_any:
+  case linkage::link_once_odr:
   case linkage::weak_any:
   case linkage::weak_odr:
     return this->replaceImpl(Lock, Db, Def, InputOrdinal);
@@ -342,41 +342,14 @@ Symbol *Symbol::updateCommonSymbol(const pstore::database &Db,
   llvm_unreachable("Unknown linkage type");
 }
 
-// update link once symbol
-// ~~~~~~~~~~~~~~~~~~~~~~~
-Symbol *Symbol::updateLinkOnceSymbol(const pstore::database &Db,
-                                     const pstore::repo::definition &Def,
-                                     const NotNull<UndefsContainer *> Undefs,
-                                     const uint32_t InputOrdinal) {
-  assert(Def.linkage() == linkage::link_once_any ||
-         Def.linkage() == linkage::link_once_odr);
-
-  std::unique_lock<decltype(Mut_)> Lock{Mut_};
-  if (!Definition_) {
-    return this->defineImpl(std::move(Lock), Db, Def, Undefs, InputOrdinal);
-  }
-  assert(Definition_->size() == 1);
-  // Link-once may collide with link-once, but nothing else.
-  if (!isAnyOf<linkage::link_once_any, linkage::link_once_odr>(
-          Definition_->front().linkage())) {
-    return nullptr; // Error.
-  }
-
-  // If we're an earlier input file than the one
-  // which was responsible for this definition, then
-  // ours beats it out; if we're later than ours is
-  // discarded.
-  return this->replaceIfLowerOrdinal(Lock, Db, Def, InputOrdinal);
-}
-
 // update weak symbol
 // ~~~~~~~~~~~~~~~~~~
 Symbol *Symbol::updateWeakSymbol(const pstore::database &Db,
                                  const pstore::repo::definition &Def,
                                  const NotNull<UndefsContainer *> Undefs,
                                  const uint32_t InputOrdinal) {
-  assert(Def.linkage() == linkage::weak_any ||
-         Def.linkage() == linkage::weak_odr);
+  assert((isAnyOf<linkage::link_once_any, linkage::link_once_odr,
+                  linkage::weak_any, linkage::weak_odr>(Def.linkage())));
 
   std::unique_lock<decltype(Mut_)> Lock{Mut_};
   if (!Definition_) {
@@ -386,8 +359,6 @@ Symbol *Symbol::updateWeakSymbol(const pstore::database &Db,
          "The should be exactly 1 weak symbol definition");
   switch (Definition_->front().linkage()) {
   case linkage::append:
-  case linkage::link_once_any:
-  case linkage::link_once_odr:
     // We've already got a definition for this symbol and we're not
     // allowing replacement.
     return nullptr; // Error.
@@ -398,6 +369,8 @@ Symbol *Symbol::updateWeakSymbol(const pstore::database &Db,
   case linkage::internal:
   case linkage::internal_no_symbol:
     llvm_unreachable("Internal symbols can't collide");
+  case linkage::link_once_any:
+  case linkage::link_once_odr:
   case linkage::weak_any:
   case linkage::weak_odr:
     // If we're an earlier input file than the one which was responsible
@@ -537,7 +510,6 @@ Symbol *SymbolResolver::updateSymbol(Symbol *const Sym,
     return Sym->updateExternalSymbol(Context_.Db, Def, Undefs, InputOrdinal);
   case linkage::link_once_any:
   case linkage::link_once_odr:
-    return Sym->updateLinkOnceSymbol(Context_.Db, Def, Undefs, InputOrdinal);
   case linkage::weak_any:
   case linkage::weak_odr:
     return Sym->updateWeakSymbol(Context_.Db, Def, Undefs, InputOrdinal);
