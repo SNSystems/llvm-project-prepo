@@ -18,6 +18,7 @@ configure_file (config.h.in "${CMAKE_CURRENT_BINARY_DIR}/include/rld/config.h" E
 
 
 set (LLVM_LINK_COMPONENTS
+  Demangle
   Object
   Support
 )

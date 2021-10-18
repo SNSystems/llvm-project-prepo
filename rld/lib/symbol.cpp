@@ -511,10 +511,11 @@ NotNull<Symbol *> SymbolResolver::addReference(
 
 // add
 // ~~~
-Symbol *SymbolResolver::add(const NotNull<GlobalSymbolsContainer *> Globals,
-                            const pstore::address Name, const size_t Length,
-                            const pstore::repo::definition &Def,
-                            const uint32_t InputOrdinal) {
+NotNull<Symbol *>
+SymbolResolver::add(const NotNull<GlobalSymbolsContainer *> Globals,
+                    const pstore::address Name, const size_t Length,
+                    const pstore::repo::definition &Def,
+                    const uint32_t InputOrdinal) {
   return &Globals->emplace_back(
       Name, Length,
       Symbol::Body(&Def, pstore::repo::fragment::load(Context_.Db, Def.fext),
@@ -549,7 +550,7 @@ Symbol *SymbolResolver::updateSymbol(Symbol *const Sym,
 
 // define symbol
 // ~~~~~~~~~~~~~
-Symbol *
+std::tuple<NotNull<Symbol *>, bool>
 SymbolResolver::defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
                              const NotNull<UndefsContainer *> Undefs,
                              const pstore::repo::definition &Def,
@@ -574,7 +575,7 @@ SymbolResolver::defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
 
   if (Def.linkage() == linkage::internal ||
       Def.linkage() == linkage::internal_no_symbol) {
-    return AddSymbol();
+    return std::make_tuple(AddSymbol(), true);
   }
 
   return setSymbolShadow(
@@ -585,7 +586,7 @@ SymbolResolver::defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
 
 // reference symbol
 // ~~~~~~~~~~~~~~~~
-NotNull<Symbol *>
+std::tuple<NotNull<Symbol *>, bool>
 referenceSymbol(Context &Ctxt, const CompilationSymbolsView &Locals,
                 const NotNull<GlobalSymbolsContainer *> Globals,
                 const NotNull<UndefsContainer *> Undefs, StringAddress Name,
@@ -595,7 +596,7 @@ referenceSymbol(Context &Ctxt, const CompilationSymbolsView &Locals,
   const auto NamePos = Locals.Map.find(Name);
   if (NamePos != Locals.Map.end()) {
     // Yes, the symbol was defined by this module. Use it.
-    return NamePos->second.Sym;
+    return std::make_tuple(NamePos->second.Sym, true);
   }
 
   return setSymbolShadow(

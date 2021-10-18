@@ -545,8 +545,8 @@ class Collision : public TwoCompilations {};
 TEST_P(Collision, OtherHits) {
   ErrorFn ErrorCallback;
   EXPECT_CALL(ErrorCallback, invoke(_))
-      .WillOnce(Invoke([this](rld::StringAddress Addr) {
-        EXPECT_EQ(rld::loadStdString(this->Db(), Addr), "f");
+      .WillOnce(Invoke([this](rld::Symbol const *const Sym) {
+        EXPECT_EQ(rld::loadStdString(this->Db(), Sym->name()), "f");
       }));
 
   rld::UndefsContainer Undefs;
@@ -1005,7 +1005,7 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
     EXPECT_EQ(rld::referenceSymbol(Ctx_, *S1, &Globals, &Undefs,
                                    this->getStringAddress(Name),
                                    reference_strength::strong),
-              &Symbol0);
+              std::make_tuple(&Symbol0, true));
   }
 }
 
@@ -1070,11 +1070,11 @@ TEST_P(InternalCollision, InternalAfter) {
   EXPECT_EQ(rld::referenceSymbol(Ctx_, *C0, &Globals, &Undefs,
                                  this->getStringAddress(Name_),
                                  reference_strength::strong),
-            &Symbol0);
+            std::make_tuple(&Symbol0, true));
   EXPECT_EQ(rld::referenceSymbol(Ctx_, *C1, &Globals, &Undefs,
                                  this->getStringAddress(Name_),
                                  reference_strength::strong),
-            &Symbol1);
+            std::make_tuple(&Symbol1, true));
   EXPECT_TRUE(Undefs.empty());
   EXPECT_EQ(Undefs.strongUndefCount(), 0U);
   EXPECT_TRUE(Undefs.strongUndefCountIsCorrect());
@@ -1118,11 +1118,11 @@ TEST_P(InternalCollision, InternalBefore) {
   EXPECT_EQ(rld::referenceSymbol(Ctx_, *C0, &Globals, &Undefs,
                                  this->getStringAddress(Name_),
                                  reference_strength::strong),
-            &Symbol0);
+            std::make_tuple(&Symbol0, true));
   EXPECT_EQ(rld::referenceSymbol(Ctx_, *C1, &Globals, &Undefs,
                                  this->getStringAddress(Name_),
                                  reference_strength::strong),
-            &Symbol1);
+            std::make_tuple(&Symbol1, true));
 }
 
 INSTANTIATE_TEST_CASE_P(InternalWithCollision, InternalCollision,

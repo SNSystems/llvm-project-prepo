@@ -67,7 +67,7 @@ template <typename Function> bool rld::Identifier::error(Function F) {
 // add
 // ~~~
 std::pair<bool, size_t> rld::Identifier::add(const StringRef Path,
-                                             const size_t InputOrdinal) {
+                                             const uint32_t InputOrdinal) {
   auto FD = 0;
   if (const std::error_code Erc = sys::fs::openFileForRead(Path, FD /*out!*/)) {
     return {this->error([&](raw_ostream &OS) {

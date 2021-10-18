@@ -129,6 +129,17 @@ public:
 
   uint64_t baseAddress() const { return BaseAddress_; }
 
+  void setOrdinalName(uint32_t InputOrdinal, llvm::StringRef Name) {
+    std::lock_guard<std::mutex> const _{OrdinalNamesMut_};
+    OrdinalNames_[InputOrdinal] = std::string{Name};
+  }
+
+  const std::string ordinalName(uint32_t InputOrdinal) const {
+    std::lock_guard<std::mutex> const _{OrdinalNamesMut_};
+    const auto Pos = OrdinalNames_.find(InputOrdinal);
+    return Pos != OrdinalNames_.end() ? Pos->second : std::string{""};
+  }
+
 private:
   class MmapDeleter {
   public:
@@ -149,6 +160,9 @@ private:
 
   std::mutex CompilationsMut_;
   std::list<std::shared_ptr<pstore::repo::compilation const>> Compilations_;
+
+  mutable std::mutex OrdinalNamesMut_;
+  llvm::DenseMap<uint32_t, std::string> OrdinalNames_;
 
   uint64_t BaseAddress_ = 0x0000000000400000;
 };

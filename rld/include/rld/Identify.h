@@ -51,8 +51,7 @@ struct ArchiveSymbolInfo {
   Ordinals Ordinal;
 };
 
-  using ArchiveSymbolMap =
-      llvm::DenseMap<rld::StringAddress, ArchiveSymbolInfo>;
+using ArchiveSymbolMap = llvm::DenseMap<rld::StringAddress, ArchiveSymbolInfo>;
 
 class Identifier {
 public:
@@ -71,11 +70,11 @@ public:
   /// output regardless of how threads are scheduled.
   ///
   /// \param Path  The path of the file to be added to the link.
-  /// \param InputOrdinal  The input-ordinal of the file to be added to the
+  /// \param InputOrdinal  The input ordinal of the file to be added to the
   /// link.
   /// \returns A bool indicating success or failure, and a size_t giving
   /// the number of archive members in the file.
-  std::pair<bool, size_t> add(llvm::StringRef Path, size_t InputOrdinal);
+  std::pair<bool, size_t> add(llvm::StringRef Path, uint32_t InputOrdinal);
 
   /// Retrieves the collection of archive symbols. Call this function once all
   /// of the input files have been processed by add().

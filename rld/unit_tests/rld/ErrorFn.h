@@ -15,21 +15,22 @@
 #ifndef RLD_UNIT_TESTS_ERROR_FN_H
 #define RLD_UNIT_TESTS_ERROR_FN_H
 
-#include "pstore/core/address.hpp"
 #include "gmock/gmock.h"
+
+namespace rld {
+class Symbol;
+}
 
 class ErrorFnInterface {
 public:
-  using StringAddress = pstore::typed_address<pstore::indirect_string>;
-
   virtual ~ErrorFnInterface() = default;
-  virtual void invoke(StringAddress) const = 0;
-  void operator()(StringAddress Addr) const { return invoke(Addr); }
+  virtual void invoke(rld::Symbol const *) const = 0;
+  void operator()(rld::Symbol const *Sym) const { return invoke(Sym); }
 };
 
 class ErrorFn final : public ErrorFnInterface {
 public:
-  MOCK_CONST_METHOD1(invoke, void(StringAddress));
+  MOCK_CONST_METHOD1(invoke, void(rld::Symbol const *));
 };
 
 #endif // RLD_UNIT_TESTS_ERROR_FN_H

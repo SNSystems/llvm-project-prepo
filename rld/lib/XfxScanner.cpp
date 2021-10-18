@@ -69,8 +69,9 @@ Symbol **resolve(State &S, const pstore::repo::fragment &Fragment,
                    << loadStdString(S.Ctxt.Db, Xfx.name) << '\n';
     });
 
-    Symbol *const Sym = referenceSymbol(S.Ctxt, *S.Locals, S.Globals, S.Undefs,
-                                        Xfx.name, Xfx.strength());
+    const std::tuple<NotNull<Symbol *>, bool> Ref = referenceSymbol(
+        S.Ctxt, *S.Locals, S.Globals, S.Undefs, Xfx.name, Xfx.strength());
+    Symbol *const Sym = std::get<NotNull<Symbol *>>(Ref);
     assert(Sym != nullptr && "referenceSymbol must not return nullptr");
     // FIXME: PLT relocation handling is currently disabled.
 #if 0

@@ -622,23 +622,24 @@ symbolShadow(const Context &Ctx, pstore::typed_address<T> Addr) {
 /// \param Update A function which is called if this is an occurrence of a
 ///   previously encountered symbol. It should return the symbol to be used
 ///   (normally the function's input value).
-/// \returns  A pointer to the symbol (i.e. 'this') or null (if there was
-///   an existing incompatible definition of the symbol).
+/// \returns  A tuple containing a pointer to the symbol (i.e. 'this') or null
+///   (if there was an existing incompatible definition of the symbol) and a
+///   boolean indicating success.
 template <typename CreateOp, typename UpdateOp>
-Symbol *setSymbolShadow(std::atomic<Symbol *> *Sptr, CreateOp Create,
-                        UpdateOp Update) {
+std::tuple<NotNull<Symbol *>, bool>
+setSymbolShadow(std::atomic<Symbol *> *Sptr, CreateOp Create, UpdateOp Update) {
   static auto *const Busy =
       reinterpret_cast<Symbol *>(std::numeric_limits<std::uintptr_t>::max());
   // Is it defined (or in the process of being defined) by another module?
-  Symbol *Symbol = nullptr;
-  if (Sptr->compare_exchange_strong(Symbol, Busy, std::memory_order_acq_rel,
+  Symbol *Sym = nullptr;
+  if (Sptr->compare_exchange_strong(Sym, Busy, std::memory_order_acq_rel,
                                     std::memory_order_relaxed)) {
     assert(Sptr->load(std::memory_order_acquire) == Busy);
     // This is the first time we've encountered this symbol name.
-    Symbol = Create();
-    assert(Symbol != Busy);
-    Sptr->store(Symbol, std::memory_order_release);
-    return Symbol;
+    Sym = Create();
+    assert(Sym != Busy);
+    Sptr->store(Sym, std::memory_order_release);
+    return std::make_tuple(Sym, true);
   }
 
   // We've previously seen either a reference or a definition of this symbol.
@@ -646,15 +647,15 @@ Symbol *setSymbolShadow(std::atomic<Symbol *> *Sptr, CreateOp Create,
   // Spin until *ns != busy. This ensures that no other thread is in in the
   // process of creating the symbol instance.
   auto Count = uint64_t{0};
-  while ((Symbol = Sptr->load(std::memory_order_acquire)) == Busy) {
+  while ((Sym = Sptr->load(std::memory_order_acquire)) == Busy) {
     if (++Count > SpinLock::SpinsBeforeYield) {
       std::this_thread::yield();
     }
   }
-  assert(Symbol != nullptr);
-  return Update(Symbol);
+  assert(Sym != nullptr);
+  Symbol *const S = Update(Sym);
+  return std::make_tuple(Sym, S != nullptr);
 }
-
 
 /// A view on of the global symbol table from the point of view of an individual
 /// compilation.
@@ -810,14 +811,15 @@ public:
                pstore::repo::reference_strength Strength);
 
 private:
-  Symbol *defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
-                       const NotNull<UndefsContainer *> Undefs,
-                       const pstore::repo::definition &Def,
-                       uint32_t InputCount);
+  std::tuple<NotNull<Symbol *>, bool>
+  defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
+               const NotNull<UndefsContainer *> Undefs,
+               const pstore::repo::definition &Def, uint32_t InputCount);
 
-  Symbol *add(const NotNull<GlobalSymbolsContainer *> Globals,
-              pstore::address Name, size_t Length,
-              const pstore::repo::definition &Def, uint32_t InputOrdinal);
+  NotNull<Symbol *> add(const NotNull<GlobalSymbolsContainer *> Globals,
+                        pstore::address Name, size_t Length,
+                        const pstore::repo::definition &Def,
+                        uint32_t InputOrdinal);
 
   Context &Context_;
 };
@@ -837,8 +839,13 @@ SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
 
   // Define the symbols in this module.
   for (const pstore::repo::definition &Def : Compilation) {
-    Symbol *const Sym = this->defineSymbol(Globals, Undefs, Def, InputOrdinal);
-    if (Sym != nullptr) {
+    const auto DS = this->defineSymbol(Globals, Undefs, Def, InputOrdinal);
+    Symbol *const Sym = std::get<NotNull<Symbol *>>(DS);
+    const bool Ok = std::get<bool>(DS);
+    if (!Ok || Sym == nullptr) {
+      Error = true;
+      ErrorFn(Sym); // Allow the error to be reported to the user.
+    } else {
       // Definition succeeded. Record the symbol that corresponds to this name
       // in this compilation. Fixup resolution will consult this map before
       // falling back to the global symbol table.
@@ -846,11 +853,6 @@ SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
           Locals.Map.try_emplace(Def.name, CompilationSymbolsView::Value{Sym});
       (void)Res;
       assert(Res.second);
-    } else {
-      // defineSymbol() returns a null symbol pointer to indicate that the
-      // definition was rejected. We must issue an error.
-      Error = true;
-      ErrorFn(Def.name); // Allow the error to be reported to the user.
     }
   }
 
@@ -874,7 +876,7 @@ SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
 /// \param Strength  The strength of the reference (weak/strong) that caused
 ///   the creation of this symbol.
 /// \return  A pointer to the referenced symbol.
-NotNull<Symbol *>
+std::tuple<NotNull<Symbol *>, bool>
 referenceSymbol(Context &Ctxt, const CompilationSymbolsView &Locals,
                 const NotNull<GlobalSymbolsContainer *> Globals,
                 const NotNull<UndefsContainer *> Undefs, StringAddress Name,

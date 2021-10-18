@@ -206,6 +206,12 @@ int main(int Argc, char *Argv[]) {
     std::exit(EXIT_FAILURE);
   }
 
+  // Record the input-ordinal/name mapping in the context.
+  // TODO: this can be done by identifyPass().
+  for (const auto &C : Identified->Compilations) {
+    Ctxt.setOrdinalName(std::get<size_t>(C), std::get<std::string>(C));
+  }
+
   rld::UndefsContainer Undefs;
   auto GlobalSymbs =
       std::make_unique<rld::GlobalsStorage>(NumWorkers.getValue());
@@ -240,7 +246,7 @@ int main(int Argc, char *Argv[]) {
 
       rld::Scanner Scan{Ctxt, Layout, &Undefs};
       std::atomic<bool> ScanError{false};
-      for (const auto &C : Identified->Compilations) {
+      for (const auto &Compilation : Identified->Compilations) {
         WorkPool.async(
             [&Scan, &GlobalSymbs, &FixupStorage, &ScanError](
                 const rld::Identifier::CompilationVector::value_type &V) {
@@ -254,7 +260,7 @@ int main(int Argc, char *Argv[]) {
                 ScanError.store(true, std::memory_order_relaxed);
               }
             },
-            std::cref(C));
+            std::cref(Compilation));
       }
 
       WorkPool.wait();
@@ -271,8 +277,8 @@ int main(int Argc, char *Argv[]) {
           assert(!U.hasDefinition());
           if (!U.allReferencesAreWeak()) {
             // TODO: also need to show where the reference is made.
-            llvm::errs() << "Undefined symbol: "
-                         << loadStdString(Ctxt.Db, U.name()) << '\n';
+            llvm::errs() << "Error: Undefined symbol '"
+                         << loadStdString(Ctxt.Db, U.name()) << "'\n";
           }
         }
         ExitCode = EXIT_FAILURE;

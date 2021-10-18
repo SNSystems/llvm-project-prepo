@@ -16,6 +16,7 @@
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/BinaryFormat/Magic.h"
+#include "llvm/Demangle/Demangle.h"
 #include "llvm/MC/MCRepoTicketFile.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Support/Debug.h"
@@ -70,10 +71,24 @@ bool Scanner::run(
     // FIXME: handle the error somehow
   }
 
-  auto const ErrorFn = [this, &Path](StringAddress Name) {
+  auto const ErrorFn = [this, &Path](Symbol const *const Sym) {
+    // TODO: make demangling optional.
+    const std::string Name =
+        llvm::demangle(loadStdString(Context_.Db, Sym->name()));
+    {
+      auto Def = Sym->definition();
+      if (const auto &Bodies = std::get<const Symbol::OptionalBodies &>(Def)) {
+        const std::string Previous =
+            Context_.ordinalName((*Bodies)[0].inputOrdinal());
+        std::lock_guard<decltype(Context_.IOMut)> const Lock{Context_.IOMut};
+        llvm::errs() << "Error: Duplicate symbol '" << Name << "' in \"" << Path
+                     << "\" previously defined by \"" << Previous << "\"\n";
+        return;
+      }
+    }
+
     std::lock_guard<decltype(Context_.IOMut)> const Lock{Context_.IOMut};
-    llvm::errs() << "Error: cannot define symbol ("
-                 << loadStdString(Context_.Db, Name) << ") in \"" << Path
+    llvm::errs() << "Error: Duplicate symbol '" << Name << "' in \"" << Path
                  << "\"\n";
   };
 
