@@ -31,11 +31,35 @@ static constexpr auto DebugType = "rld-copy";
 using ExternalFixup = pstore::repo::external_fixup;
 using InternalFixup = pstore::repo::internal_fixup;
 
+#ifndef NDEBUG
+static const char *relocationName(uint8_t Relocation) {
+  const char *N = "Unknown";
+  switch (Relocation) {
+#define ELF_RELOC(Name, Value)                                                 \
+  case Value:                                                                  \
+    N = #Name;                                                                 \
+    break;
+#include "llvm/BinaryFormat/ELFRelocs/x86_64.def"
+#undef ELF_RELOC
+  }
+  return N;
+}
+#endif
+
 template <uint8_t Relocation>
 static void applyExternal(uint8_t *const Out, const Contribution &Src,
                           const Layout &Layout, const Symbol &Sym,
                           const ExternalFixup &XFixup) {
-  llvm_unreachable("Relocation type is unsupported");
+#ifndef NDEBUG
+  std::string Str;
+  llvm::raw_string_ostream OS{Str};
+  OS << "Relocation type " << relocationName(Relocation) << " ("
+     << static_cast<unsigned>(Relocation) << ") is unsupported";
+  const char *Msg = OS.str().c_str();
+#else
+  const char *Msg = "Relocation type is unsupported";
+#endif
+  llvm_unreachable(Msg);
 }
 
 template <uint8_t Relocation>
@@ -183,6 +207,26 @@ inline void applyExternal<llvm::ELF::R_X86_64_PLT32>(
   const uint64_t P =
       Contribution.OScn->VirtualAddr + Contribution.Offset + XFixup.offset;
   llvm::support::little32_t::ref{Out} = L + A - P;
+}
+
+template <typename TargetType, typename FixupType>
+static inline void
+apply_R_X86_64_GOTPCREL(uint8_t *const Out, const Contribution &Src,
+                        const Layout & /*Layout*/, const TargetType &Target,
+                        const FixupType &Fixup) {
+  // FIXME: implement!
+}
+template <>
+inline void applyExternal<llvm::ELF::R_X86_64_GOTPCREL>(
+    uint8_t *const Out, const Contribution &Src, const Layout &Layout,
+    const Symbol &Target, const ExternalFixup &Fixup) {
+  return apply_R_X86_64_GOTPCREL(Out, Src, Layout, Target, Fixup);
+}
+template <>
+inline void applyInternal<llvm::ELF::R_X86_64_GOTPCREL>(
+    uint8_t *const Out, const Contribution &Src, const Layout &Layout,
+    const Contribution &Target, const InternalFixup &Fixup) {
+  return apply_R_X86_64_GOTPCREL(Out, Src, Layout, Target, Fixup);
 }
 
 #if 0
