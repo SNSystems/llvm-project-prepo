@@ -445,11 +445,14 @@ GlobalSymbolsContainer GlobalsStorage::all() {
 //*                                                                     *
 //-MARK: UndefsContainer
 bool UndefsContainer::strongUndefCountIsCorrect() const {
-  return std::accumulate(std::begin(List_), std::end(List_), 0UL,
-                         [](const unsigned long Acc, const Symbol &S) {
-                           return Acc + static_cast<unsigned long>(
-                                            !S.allReferencesAreWeak());
-                         }) == StrongUndefCount_;
+  const auto Count =
+      std::accumulate(std::begin(List_), std::end(List_), 0UL,
+                      [](const unsigned long Acc, const Symbol &S) {
+                        const bool IsStrongUndef =
+                            !S.hasDefinition() && !S.allReferencesAreWeak();
+                        return Acc + static_cast<unsigned long>(IsStrongUndef);
+                      });
+  return Count == StrongUndefCount_;
 }
 
 //*  ___            _         _   ___             _              *
