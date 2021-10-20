@@ -73,11 +73,12 @@ static constexpr bool hasFileData(pstore::repo::section_kind Kind) {
 static constexpr bool hasFileData(rld::SectionKind Kind) {
   switch (Kind) {
     PSTORE_MCREPO_SECTION_KINDS
-  case rld::SectionKind::rela_plt:
-  case rld::SectionKind::gotplt:
-  case rld::SectionKind::plt:
-  case rld::SectionKind::init_array:
   case rld::SectionKind::fini_array:
+  case rld::SectionKind::got:
+  case rld::SectionKind::gotplt:
+  case rld::SectionKind::init_array:
+  case rld::SectionKind::plt:
+  case rld::SectionKind::rela_plt:
     return true;
   case rld::SectionKind::shstrtab:
   case rld::SectionKind::strtab:
@@ -193,6 +194,7 @@ LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
     // section-kinds added by rld.
     {SectionKind::init_array, SegmentKind::data},
     {SectionKind::fini_array, SegmentKind::data},
+    {SectionKind::got, SegmentKind::data},
     {SectionKind::gotplt, SegmentKind::data},
     {SectionKind::plt, SegmentKind::text},
     {SectionKind::rela_plt, SegmentKind::rodata},
@@ -236,7 +238,7 @@ LayoutBuilder::LayoutBuilder(Context &Ctx,
     : Ctx_{Ctx}, Undefs_{Undefs}, NumCompilations_{NumCompilations},
       CompilationWaiter_{NumCompilations}, CUsMut_{}, CUs_{},
       Layout_{std::make_unique<Layout>()},
-      PLTs_{std::make_unique<LocalPLTsContainer>()}, LocalEmit_{},
+      GOTPLTs_{std::make_unique<GOTPLTContainer>()}, LocalEmit_{},
       GlobalEmit_{} {
 
   for (auto SegmentK = firstSegmentKind(); SegmentK < SegmentKind::last;
@@ -253,7 +255,7 @@ LayoutBuilder::LayoutBuilder(Context &Ctx,
 // ~~~~~~~
 void LayoutBuilder::visited(
     uint32_t Index,
-    std::tuple<CompilationSymbolsView, LocalPLTsContainer> &&Locals) {
+    std::tuple<CompilationSymbolsView, GOTPLTContainer> &&Locals) {
   {
     std::lock_guard<std::mutex> const _{CUsMut_};
     assert(CUs_.find(Index) == CUs_.end() &&
@@ -367,11 +369,11 @@ LayoutBuilder::addSectionToLayout(const StringAddress Name,
 // We were handed the compilation's definitions when its scan completed.
 // Recover it from where we stashed it in the CUs_ map.
 auto LayoutBuilder::recoverDefinitionsFromCUMap(const std::size_t Ordinal)
-    -> std::tuple<CompilationSymbolsView, LocalPLTsContainer> {
+    -> std::tuple<CompilationSymbolsView, GOTPLTContainer> {
   std::lock_guard<std::mutex> const _{CUsMut_};
   const auto Pos = CUs_.find(Ordinal);
   assert(Pos != CUs_.end() && "Ordinal must be in the CUs map");
-  std::tuple<CompilationSymbolsView, LocalPLTsContainer> D =
+  std::tuple<CompilationSymbolsView, GOTPLTContainer> D =
       std::move(Pos->second);
   CUs_.erase(Pos);
   return D;
@@ -613,7 +615,7 @@ void LayoutBuilder::run() {
       llvm::dbgs() << "Starting layout for #" << Ordinal << '\n';
     });
 
-    std::tuple<CompilationSymbolsView, LocalPLTsContainer> PerCompilation =
+    std::tuple<CompilationSymbolsView, GOTPLTContainer> PerCompilation =
         recoverDefinitionsFromCUMap(Ordinal);
 
     for (auto const &Definition :
@@ -667,12 +669,10 @@ void LayoutBuilder::run() {
       }
     }
 
-    LocalPLTsContainer const &PLTs =
-        std::get<LocalPLTsContainer>(PerCompilation);
-    PLTs_->reserve(PLTs_->size() + PLTs.size());
-    std::copy(std::begin(PLTs), std::end(PLTs), std::back_inserter(*PLTs_));
+    GOTPLTs_->append(std::get<GOTPLTContainer>(PerCompilation));
   } // input file loop.
 
+#if 0
   if (const unsigned PLTEntries = Ctx_.PLTEntries.load()) {
     assert(PLTEntries == PLTs_->size());
     std::sort(std::begin(*PLTs_), std::end(*PLTs_),
@@ -686,7 +686,7 @@ void LayoutBuilder::run() {
 
     llvmDebug(DebugType, Ctx_.IOMut, [&] {
       llvm::dbgs() << "PLT symbols:" << '\n';
-      for (Symbol const *const PLTSym : *PLTs_) {
+      for (const Symbol *const PLTSym : *PLTs_) {
         llvm::dbgs() << "  " << loadStdString(Ctx_.Db, PLTSym->name()) << '\n';
       }
     });
@@ -700,6 +700,36 @@ void LayoutBuilder::run() {
     rela_plt->Link = rld::SectionKind::symtab;
     rela_plt->Info = rld::SectionKind::gotplt;
   }
+#endif // PLT
+#if 1  // GOT
+  if (const unsigned GOTEntries = Ctx_.GOTEntries.load()) {
+    assert(GOTEntries == GOTPLTs_->GOT.size());
+    std::sort(std::begin(GOTPLTs_->GOT), std::end(GOTPLTs_->GOT),
+              [](const Symbol *const A, const Symbol *const B) {
+                return A->name() < B->name();
+              });
+    auto Count = 0U;
+    for (Symbol *const S : GOTPLTs_->GOT) {
+      S->setGOTIndex(Count++);
+    }
+
+    llvmDebug(DebugType, Ctx_.IOMut, [&] {
+      llvm::dbgs() << "GOT symbols:" << '\n';
+      std::for_each(std::begin(GOTPLTs_->GOT), std::end(GOTPLTs_->GOT),
+                    [this](const Symbol *const Sym) {
+                      llvm::dbgs()
+                          << "  " << loadStdString(Ctx_.Db, Sym->name())
+                          << '\n';
+                    });
+    });
+
+    // Each entry is a 64-bit address. The zeroth element is reserved to hold
+    // the address of the dynamic structure, referenced with the symbol
+    // _DYNAMIC.
+    this->addToOutputSection(rld::SectionKind::got,
+                             (size_t{GOTEntries} + 1U) * 8U, 8U);
+  }
+#endif // GOT
 
   this->addAliasSymbol(Magics.InitArrayStart, Magics.GlobalCtors,
                        SectionKind::init_array, true);
@@ -824,7 +854,7 @@ uint64_t positionSegment<SegmentKind::gnu_relro>(uint64_t Base,
 
 // flatten segments
 // ~~~~~~~~~~~~~~~~
-std::tuple<std::unique_ptr<Layout>, std::unique_ptr<LocalPLTsContainer>>
+std::tuple<std::unique_ptr<Layout>, std::unique_ptr<GOTPLTContainer>>
 LayoutBuilder::flattenSegments(uint64_t Base, const uint64_t HeaderBlockSize) {
   assert(Base % PageSize == 0U);
   Layout_->HeaderBlockSize = HeaderBlockSize;
@@ -832,7 +862,7 @@ LayoutBuilder::flattenSegments(uint64_t Base, const uint64_t HeaderBlockSize) {
   RLD_SEGMENT_KIND
 #undef X
   llvmDebug("rld-Layout", Ctx_.IOMut, [this] { debugDumpLayout(); });
-  return {std::move(Layout_), std::move(PLTs_)};
+  return {std::move(Layout_), std::move(GOTPLTs_)};
 }
 
 } // namespace rld

@@ -29,6 +29,7 @@ namespace rld {
 #define RLD_SECTION_KINDS                                                      \
   RLD_X(init_array)                                                            \
   RLD_X(fini_array)                                                            \
+  RLD_X(got)                                                                   \
   RLD_X(gotplt)                                                                \
   RLD_X(plt)                                                                   \
   RLD_X(rela_plt)                                                              \

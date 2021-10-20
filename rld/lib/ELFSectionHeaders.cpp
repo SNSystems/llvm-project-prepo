@@ -40,6 +40,7 @@ static constexpr auto elfSectionType(const SectionKind Kind) {
   case SectionKind::mergeable_const_32:
   case SectionKind::mergeable_const_4:
   case SectionKind::mergeable_const_8:
+  case SectionKind::got:
   case SectionKind::gotplt:
   case SectionKind::plt:
   case SectionKind::read_only:
@@ -76,7 +77,6 @@ static constexpr auto elfSectionType(const SectionKind Kind) {
 template <typename ELFT>
 static constexpr auto elfSectionFlags(const SectionKind Kind) {
   using Elf_Word = typename llvm::object::ELFFile<ELFT>::Elf_Word;
-
   switch (Kind) {
   case SectionKind::text:
   case SectionKind::plt:
@@ -85,6 +85,7 @@ static constexpr auto elfSectionFlags(const SectionKind Kind) {
   case SectionKind::bss:
   case SectionKind::data:
   case SectionKind::fini_array:
+  case SectionKind::got:
   case SectionKind::gotplt:
   case SectionKind::init_array:
   case SectionKind::rel_ro:
@@ -147,6 +148,7 @@ static constexpr auto elfSectionEntSize(const SectionKind Kind) {
     return Elf_Word{32};
   case SectionKind::symtab:
     return Elf_Word{sizeof(typename llvm::object::ELFFile<ELFT>::Elf_Sym)};
+  case SectionKind::got:
   case SectionKind::gotplt:
   case SectionKind::plt:
   case SectionKind::init_array:

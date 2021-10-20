@@ -17,6 +17,7 @@ using namespace rld;
   ELF_SECTION_NAME(mergeable_const_32, ".rodata.cst32")                        \
   ELF_SECTION_NAME(mergeable_const_4, ".rodata.cst4")                          \
   ELF_SECTION_NAME(mergeable_const_8, ".rodata.cst8")                          \
+  ELF_SECTION_NAME(got, ".got")                                                \
   ELF_SECTION_NAME(gotplt, ".got.plt")                                         \
   ELF_SECTION_NAME(rela_plt, ".rela.plt")                                      \
   ELF_SECTION_NAME(plt, ".plt")                                                \

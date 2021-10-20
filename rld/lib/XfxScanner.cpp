@@ -56,7 +56,7 @@ struct State {
 template <pstore::repo::section_kind Kind>
 Symbol **resolve(State &S, const pstore::repo::fragment &Fragment,
                  const NotNull<FixupStorage::Container *> ResolvedFixups,
-                 const NotNull<LocalPLTsContainer *> PLTSymbols) {
+                 const NotNull<GOTPLTContainer *> GOTPLTs) {
   const auto *const Section = Fragment.atp<Kind>();
 
   pstore::repo::container<pstore::repo::external_fixup> const XFixups =
@@ -73,17 +73,26 @@ Symbol **resolve(State &S, const pstore::repo::fragment &Fragment,
         S.Ctxt, *S.Locals, S.Globals, S.Undefs, Xfx.name, Xfx.strength());
     Symbol *const Sym = std::get<NotNull<Symbol *>>(Ref);
     assert(Sym != nullptr && "referenceSymbol must not return nullptr");
-    // FIXME: PLT relocation handling is currently disabled.
+    switch (Xfx.type) {
+
+      // FIXME: PLT relocation handling is currently disabled.
 #if 0
-    if (Xfx.type == llvm::ELF::R_X86_64_PLT32) {
+    case llvm::ELF::R_X86_64_PLT32:
       // Note that there's currently no consideration given to whether this PLT
       // relocation can be relaxed.
       if (Sym->shouldCreatePLTEntry()) {
         PLTSymbols->push_back(Sym);
         S.Ctxt.PLTEntries.fetch_add(1U, std::memory_order_relaxed);
       }
-    }
+      break;
 #endif
+    case llvm::ELF::R_X86_64_GOTPCREL:
+      if (Sym->shouldCreateGOTEntry()) {
+        GOTPLTs->GOT.push_back(Sym);
+        S.Ctxt.GOTEntries.fetch_add(1U, std::memory_order_relaxed);
+      }
+      break;
+    }
     *(Resolved++) = Sym;
   }
   return Result;
@@ -93,7 +102,7 @@ template <>
 inline Symbol **resolve<pstore::repo::section_kind::linked_definitions>(
     State & /*S*/, const pstore::repo::fragment & /*Fragment*/,
     const NotNull<FixupStorage::Container *> ResolvedFixups,
-    const NotNull<LocalPLTsContainer *> /* PLTSymbols*/) {
+    const NotNull<GOTPLTContainer *> GOTPLTs) {
 
   return nullptr;
 }
@@ -151,7 +160,7 @@ void forEachNewFragment(Context &Context,
 static void externals(State &S, Symbol::Body &Def,
                       const NotNull<FixupStorage::Container *> ResolvedFixups,
                       uint32_t InputOrdinal,
-                      const NotNull<LocalPLTsContainer *> PLTSymbols) {
+                      const NotNull<GOTPLTContainer *> GOTPLTs) {
 
   const FragmentPtr &Fragment = Def.fragment();
   Symbol::Body::ResType &ResolveMap = Def.resolveMap();
@@ -160,7 +169,7 @@ static void externals(State &S, Symbol::Body &Def,
   case pstore::repo::section_kind::a:                                          \
     ResolveMap[pstore::repo::section_kind::a] =                                \
         resolve<pstore::repo::section_kind::a>(S, *Fragment, ResolvedFixups,   \
-                                               PLTSymbols);                    \
+                                               GOTPLTs);                       \
     break;
 
     switch (Kind) {
@@ -196,20 +205,20 @@ internals(Symbol::Body &Def, const NotNull<FixupStorage::Container *> Storage) {
 
 // resolve fixups
 // ~~~~~~~~~~~~~~
-LocalPLTsContainer rld::resolveFixups(
+GOTPLTContainer rld::resolveFixups(
     Context &Context, const NotNull<CompilationSymbolsView *> Locals,
     const NotNull<GlobalSymbolsContainer *> Globals,
     const NotNull<UndefsContainer *> Undefs, uint32_t InputOrdinal,
     const NotNull<FixupStorage::Container *> Storage) {
 
-  LocalPLTsContainer PLTSymbols;
+  GOTPLTContainer GOTPLTs;
   State S{Context, Locals, Globals, Undefs};
 
   forEachNewFragment(Context, Locals, InputOrdinal,
                      [&](CompilationSymbolsView::Container::value_type &NS,
                          Symbol::Body &Def) {
-                       externals(S, Def, Storage, InputOrdinal, &PLTSymbols);
+                       externals(S, Def, Storage, InputOrdinal, &GOTPLTs);
                        NS.second.Ifx = internals(Def, Storage);
                      });
-  return PLTSymbols;
+  return GOTPLTs;
 }

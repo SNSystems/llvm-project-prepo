@@ -175,7 +175,7 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
                const GlobalSymbolsContainer &Globals,
                const SymbolOrder &SymOrder, const UndefsContainer &Undefs,
                llvm::ThreadPool &WorkPool, Layout *const Layout,
-               const LocalPLTsContainer &PLTs) {
+               const GOTPLTContainer &GOTPLTs) {
   using Elf_Ehdr = typename llvm::object::ELFFile<ELFT>::Elf_Ehdr;
   using Elf_Shdr = typename llvm::object::ELFFile<ELFT>::Elf_Shdr;
   using Elf_Phdr = typename llvm::object::ELFFile<ELFT>::Elf_Phdr;
@@ -355,7 +355,7 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
     });
   }
 
-  copyToOutput(Context, WorkPool, BufferStart, *Layout, PLTs,
+  copyToOutput(Context, WorkPool, BufferStart, *Layout, GOTPLTs,
                SectionFileOffsets, FileRegions[Region::SectionData].offset());
   WorkPool.wait();
 
@@ -366,19 +366,19 @@ template llvm::Error rld::elfOutput<llvm::object::ELF64LE>(
     const llvm::StringRef &OutputFileName, Context &Ctxt,
     const GlobalSymbolsContainer &Globals, const SymbolOrder &SymOrder,
     const UndefsContainer &Undefs, llvm::ThreadPool &WorkPool,
-    Layout *const Lout, const LocalPLTsContainer &PLTs);
+    Layout *const Lout, const GOTPLTContainer &GOTPLTs);
 template llvm::Error rld::elfOutput<llvm::object::ELF64BE>(
     const llvm::StringRef &OutputFileName, Context &Ctxt,
     const GlobalSymbolsContainer &Globals, const SymbolOrder &SymOrder,
     const UndefsContainer &Undefs, llvm::ThreadPool &WorkPool,
-    Layout *const Lout, const LocalPLTsContainer &PLTs);
+    Layout *const Lout, const GOTPLTContainer &GOTPLTs);
 template llvm::Error rld::elfOutput<llvm::object::ELF32LE>(
     const llvm::StringRef &OutputFileName, Context &Ctxt,
     const GlobalSymbolsContainer &Globals, const SymbolOrder &SymOrder,
     const UndefsContainer &Undefs, llvm::ThreadPool &WorkPool,
-    Layout *const Lout, const LocalPLTsContainer &PLTs);
+    Layout *const Lout, const GOTPLTContainer &GOTPLTs);
 template llvm::Error rld::elfOutput<llvm::object::ELF32BE>(
     const llvm::StringRef &OutputFileName, Context &Ctxt,
     const GlobalSymbolsContainer &Globals, const SymbolOrder &SymOrder,
     const UndefsContainer &Undefs, llvm::ThreadPool &WorkPool,
-    Layout *const Lout, const LocalPLTsContainer &PLTs);
+    Layout *const Lout, const GOTPLTContainer &GOTPLTs);

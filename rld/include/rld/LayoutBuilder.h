@@ -123,6 +123,7 @@ inline SegmentKind operator++(SegmentKind &SK, int) noexcept {
   RLD_X(SectionKind::init_array)                                               \
   RLD_X(SectionKind::fini_array)                                               \
   RLD_X(SectionKind::data)                                                     \
+  RLD_X(SectionKind::got)                                                      \
   RLD_X(SectionKind::bss)                                                      \
                                                                                \
   RLD_X(SectionKind::debug_line)                                               \
@@ -259,7 +260,7 @@ public:
 
   /// Call when a compilation scan has been completed.
   void visited(uint32_t Ordinal,
-               std::tuple<CompilationSymbolsView, LocalPLTsContainer> &&Locals);
+               std::tuple<CompilationSymbolsView, GOTPLTContainer> &&Locals);
 
   /// The main layout thread entry point.
   void run();
@@ -270,7 +271,7 @@ public:
   /// Takes the two-dimensional layout produced by the main layout thread where
   /// each segment starts at address 0 and flattens it into a single-dimensional
   /// structure where each segment follows the previous in memory.
-  std::tuple<std::unique_ptr<Layout>, std::unique_ptr<LocalPLTsContainer>>
+  std::tuple<std::unique_ptr<Layout>, std::unique_ptr<GOTPLTContainer>>
   flattenSegments(uint64_t Base, uint64_t HeaderBlockSize);
 
   template <typename ELFT> uint64_t elfHeaderBlockSize() const;
@@ -320,8 +321,7 @@ private:
   Visited CompilationWaiter_;
 
   std::mutex CUsMut_;
-  llvm::DenseMap<uint32_t,
-                 std::tuple<CompilationSymbolsView, LocalPLTsContainer>>
+  llvm::DenseMap<uint32_t, std::tuple<CompilationSymbolsView, GOTPLTContainer>>
       CUs_;
 
   struct SectionMapping {
@@ -355,8 +355,10 @@ private:
 
   /// The Layout_ container is built as layout runs.
   std::unique_ptr<Layout> Layout_;
-  /// The PLTS_ container is built as each compilation finishes scan.
-  std::unique_ptr<LocalPLTsContainer> PLTs_;
+  /// The GOTPLTs_ container is built as each compilation finishes scan. If
+  /// contains the GOT and PLT entries that have been allocated during the scan
+  /// of that compilation.
+  std::unique_ptr<GOTPLTContainer> GOTPLTs_;
 
   enum { HeadIndex, LastIndex };
   std::pair<Symbol *, Symbol *> LocalEmit_;
@@ -413,7 +415,7 @@ private:
   OutputSection *addToOutputSection(SectionKind SKind, size_t Size,
                                     unsigned Alignment);
 
-  std::tuple<CompilationSymbolsView, LocalPLTsContainer>
+  std::tuple<CompilationSymbolsView, GOTPLTContainer>
   recoverDefinitionsFromCUMap(std::size_t Ordinal);
 
   void addSymbolBody(Symbol *const Sym, const Symbol::Body &Body,

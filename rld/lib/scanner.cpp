@@ -102,7 +102,7 @@ bool Scanner::run(
   }
 
   assert(Locals->Map.size() == Compilation.size());
-  LocalPLTsContainer PLTSymbols =
+  GOTPLTContainer PLTGOTSymbols =
       resolveFixups(Context_, &Locals.getValue(), GlobalSymbols, Undefs_,
                     InputOrdinal, FixupStorage.get());
 
@@ -110,7 +110,7 @@ bool Scanner::run(
   // about its definitions.
   auto &&LocalsValue = Locals.getValue();
   Layout_.visited(InputOrdinal, std::make_tuple(std::move(LocalsValue),
-                                                std::move(PLTSymbols)));
+                                                std::move(PLTGOTSymbols)));
   return true;
 }
 

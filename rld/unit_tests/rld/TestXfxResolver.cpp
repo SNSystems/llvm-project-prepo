@@ -116,9 +116,9 @@ TEST_F(XfxScannerTest, Empty) {
 
   rld::FixupStorage::Container FixupStorage;
   constexpr auto InputOrdinal = uint32_t{0};
-  const rld::LocalPLTsContainer PLTSymbols = resolveFixups(
+  const rld::GOTPLTContainer GOTPLTs = resolveFixups(
       Context_, &Locals, &Globals_, &Undefs_, InputOrdinal, &FixupStorage);
-  EXPECT_TRUE(PLTSymbols.empty());
+  EXPECT_TRUE(GOTPLTs.empty());
   EXPECT_TRUE(Undefs_.empty());
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U);
   EXPECT_TRUE(Undefs_.strongUndefCountIsCorrect());
@@ -141,10 +141,10 @@ TEST_F(XfxScannerTest, StrongRefToUndefined) {
 
   // Resolve the external fixups in our compilation.
   rld::FixupStorage::Container FixupStorage;
-  const rld::LocalPLTsContainer PLTSymbols =
+  const rld::GOTPLTContainer GOTPLTs =
       resolveFixups(Context_, Locals.getPointer(), &Globals_, &Undefs_,
                     InputOrdinal, &FixupStorage);
-  EXPECT_TRUE(PLTSymbols.empty());
+  EXPECT_TRUE(GOTPLTs.empty());
 
   EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
   EXPECT_EQ(Undefs_.strongUndefCount(), 1U)
@@ -186,10 +186,10 @@ TEST_F(XfxScannerTest, WeakRefToUndefined) {
 
   // Resolve the external fixups in our compilation.
   rld::FixupStorage::Container FixupStorage;
-  const rld::LocalPLTsContainer PLTSymbols =
+  const rld::GOTPLTContainer GOTPLTs =
       resolveFixups(Context_, Locals.getPointer(), &Globals_, &Undefs_,
                     InputOrdinal, &FixupStorage);
-  EXPECT_TRUE(PLTSymbols.empty());
+  EXPECT_TRUE(GOTPLTs.empty());
 
   EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U)
@@ -234,10 +234,10 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
     ASSERT_TRUE(Locals1.hasValue()) << "Expected defineSymbols to succeed";
     EXPECT_EQ(Locals1->Map.size(), 1U);
     // Resolve the external fixups in compilation #1.
-    const rld::LocalPLTsContainer PLTSymbols1 =
+    const rld::GOTPLTContainer GOTPLTs1 =
         resolveFixups(Context_, Locals1.getPointer(), &Globals_, &Undefs_,
                       InputOrdinal1, &FixupStorage);
-    EXPECT_TRUE(PLTSymbols1.empty());
+    EXPECT_TRUE(GOTPLTs1.empty());
   }
 
   // Check the state after the first compilation has been processed.
@@ -260,10 +260,10 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
     ASSERT_TRUE(Locals2.hasValue()) << "Expected defineSymbols to succeed";
     EXPECT_EQ(Locals2->Map.size(), 1U);
     // Resolve the external fixups in compilation #2.
-    const rld::LocalPLTsContainer PLTSymbols2 =
+    const rld::GOTPLTContainer GOTPLTs2 =
         resolveFixups(Context_, Locals2.getPointer(), &Globals_, &Undefs_,
                       InputOrdinal2, &FixupStorage);
-    EXPECT_TRUE(PLTSymbols2.empty());
+    EXPECT_TRUE(GOTPLTs2.empty());
   }
 
   EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
@@ -288,10 +288,10 @@ TEST_F(XfxScannerTest, StrongRefToExternalDef) {
   ASSERT_TRUE(Locals.hasValue()) << "Expected defineSymbols to succeed";
 
   // Resolve the external fixups in our compilation.
-  const rld::LocalPLTsContainer PLTSymbols =
+  const rld::GOTPLTContainer GOTPLTs =
       resolveFixups(Context_, Locals.getPointer(), &Globals_, &Undefs_,
                     InputOrdinal, &FixupStorage);
-  EXPECT_TRUE(PLTSymbols.empty());
+  EXPECT_TRUE(GOTPLTs.empty());
 
   EXPECT_TRUE(Undefs_.empty());
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U);
@@ -321,17 +321,17 @@ TEST_F(XfxScannerTest, RefToAppendDef) {
 
   auto L0 = this->defineSymbols(C0, InputOrdinal0);
   ASSERT_TRUE(L0.hasValue()) << "Expected defineSymbols for C0 to succeed";
-  const rld::LocalPLTsContainer PLTSymbols0 =
+  const rld::GOTPLTContainer GOTPLTs0 =
       resolveFixups(Context_, L0.getPointer(), &Globals_, &Undefs_,
                     InputOrdinal0, &FixupStorage);
-  EXPECT_TRUE(PLTSymbols0.empty());
+  EXPECT_TRUE(GOTPLTs0.empty());
 
   auto L1 = this->defineSymbols(C1, InputOrdinal1);
   ASSERT_TRUE(L1.hasValue()) << "Expected defineSymbols for C1 to succeed";
-  const rld::LocalPLTsContainer PLTSymbols1 =
+  const rld::GOTPLTContainer GOTPLTs1 =
       resolveFixups(Context_, L1.getPointer(), &Globals_, &Undefs_,
                     InputOrdinal1, &FixupStorage);
-  EXPECT_TRUE(PLTSymbols1.empty());
+  EXPECT_TRUE(GOTPLTs1.empty());
 
   EXPECT_TRUE(Undefs_.empty());
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U);

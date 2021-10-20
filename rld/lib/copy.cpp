@@ -209,33 +209,34 @@ inline void applyExternal<llvm::ELF::R_X86_64_PLT32>(
   llvm::support::little32_t::ref{Out} = L + A - P;
 }
 
-template <typename TargetType, typename FixupType>
-static inline void
-apply_R_X86_64_GOTPCREL(uint8_t *const Out, const Contribution &Src,
-                        const Layout & /*Layout*/, const TargetType &Target,
-                        const FixupType &Fixup) {
-  // FIXME: implement!
-}
+// Field: word32
+// Calculation: G + GOT + A - P
+// A    The addend used to compute the value of the relocatable field.
+// G    The offset into the global offset table at which the relocation entry’s
+//        symbol will reside during execution.
+// GOT  The address of the global offset table.
+// P    The place (section offset or address) of the storage unit being
+//        relocated.
 template <>
 inline void applyExternal<llvm::ELF::R_X86_64_GOTPCREL>(
     uint8_t *const Out, const Contribution &Src, const Layout &Layout,
     const Symbol &Target, const ExternalFixup &Fixup) {
-  return apply_R_X86_64_GOTPCREL(Out, Src, Layout, Target, Fixup);
+
+  const auto A = Fixup.addend;
+  const auto G = (Target.gotIndex() + 1) * 8U;
+  const auto GOT = Layout.Sections[SectionKind::got].VirtualAddr;
+  const uint64_t P = Src.OScn->VirtualAddr + Src.Offset + Fixup.offset;
+
+  llvm::support::little32_t::ref{Out} = G + GOT + A - P;
 }
 template <>
 inline void applyInternal<llvm::ELF::R_X86_64_GOTPCREL>(
     uint8_t *const Out, const Contribution &Src, const Layout &Layout,
     const Contribution &Target, const InternalFixup &Fixup) {
-  return apply_R_X86_64_GOTPCREL(Out, Src, Layout, Target, Fixup);
+  // TODO: mark unreachable.
 }
 
 #if 0
-template <>
-inline void apply<llvm::ELF::R_X86_64_GOTPCREL>(uint8_t *const Out,
-                                            const Contribution &Contribution,
-                                            const Layout &Layout,
-                                            const Symbol *const Sym,
-                                            const ExternalFixup &XFixup) {}
 template <>
 inline void apply<llvm::ELF::R_X86_64_TLSGD>(uint8_t *const Out,
                                             const Contribution &Contribution,
@@ -368,7 +369,7 @@ uint8_t *copyContribution<SectionKind::linked_definitions>(uint8_t *Dest,
 
 template <SectionKind SectionK>
 uint8_t *copySection(uint8_t *Data, Context &Ctxt, const Layout &Lout,
-                     const LocalPLTsContainer & /*PLT*/) {
+                     const GOTPLTContainer & /*GOTPLTs*/) {
   auto *Dest = Data;
   for (Contribution const &Contribution :
        Lout.Sections[SectionK].Contributions) {
@@ -401,34 +402,34 @@ template <>
 uint8_t *
 copySection<SectionKind::shstrtab>(uint8_t *Dest, Context & /*Ctxt*/,
                                    const Layout & /*Lout*/,
-                                   const LocalPLTsContainer & /*PLT*/) {
+                                   const GOTPLTContainer & /*GOTPLTs*/) {
   return Dest;
 }
 template <>
 uint8_t *copySection<SectionKind::strtab>(uint8_t *Dest, Context & /*Ctxt*/,
                                           const Layout & /*Lout*/,
-                                          const LocalPLTsContainer & /*PLT*/) {
+                                          const GOTPLTContainer & /*GOTPLTs*/) {
   return Dest;
 }
 template <>
 uint8_t *copySection<SectionKind::symtab>(uint8_t *Dest, Context & /*Ctxt*/,
                                           const Layout & /*Lout*/,
-                                          const LocalPLTsContainer & /*PLT*/) {
+                                          const GOTPLTContainer & /*GOTPLTs*/) {
   return Dest;
 }
 
 template <>
-uint8_t *
-copySection<SectionKind::gotplt>(std::uint8_t *Dest, Context &Ctxt,
-                                 const Layout &Lout,
-                                 const LocalPLTsContainer &PLTSymbols) {
+uint8_t *copySection<SectionKind::gotplt>(std::uint8_t *Dest, Context &Ctxt,
+                                          const Layout &Lout,
+                                          const GOTPLTContainer & /*GOTPLTs*/) {
   return Dest;
 }
 
 template <>
 uint8_t *copySection<SectionKind::plt>(std::uint8_t *Dest, Context &Ctxt,
                                        const Layout &Lout,
-                                       const LocalPLTsContainer &PLTSymbols) {
+                                       const GOTPLTContainer &GOTPLTs) {
+  const auto &PLTSymbols = GOTPLTs.PLT;
   assert(!PLTSymbols.empty());
 
   {
@@ -471,6 +472,34 @@ uint8_t *copySection<SectionKind::plt>(std::uint8_t *Dest, Context &Ctxt,
   return Dest;
 }
 
+template <>
+uint8_t *copySection<SectionKind::got>(std::uint8_t *Dest, Context &Ctxt,
+                                       const Layout &Lout,
+                                       const GOTPLTContainer &GOTPLTs) {
+  const auto &GOTSymbols = GOTPLTs.GOT;
+  assert(!GOTSymbols.empty());
+#ifndef NDEBUG
+  {
+    // Verify that the values returned by gotIndex() and the order in the
+    // GOTSymbols array are consistent.
+    auto Count = 1U;
+    for (const Symbol *const Sym : GOTSymbols) {
+      assert(Sym->gotIndex() + 1U == Count);
+      ++Count;
+    }
+  }
+#endif
+  auto Write = [&Dest](std::uint64_t V) {
+    llvm::support::endian::write64le(Dest, V);
+    Dest += 8;
+  };
+  Write(0); // FIXME: the first entry must point to _DYNAMIC.
+  for (const Symbol *const Sym : GOTSymbols) {
+    Write(Sym->value());
+  }
+  return Dest;
+}
+
 static constexpr char const *jobName(const SectionKind SectionK) {
   switch (SectionK) {
 #define X(K)                                                                   \
@@ -502,6 +531,9 @@ bool hasDataToCopy(SectionKind SectionK, const Context &Ctxt,
 
     PSTORE_MCREPO_SECTION_KINDS
 #undef X
+  case SectionKind::got:
+    return Ctxt.GOTEntries.load() > 0U;
+
   case SectionKind::rela_plt:
   case SectionKind::gotplt:
   case SectionKind::plt:
@@ -520,7 +552,7 @@ namespace rld {
 
 void copyToOutput(
     Context &Ctxt, llvm::ThreadPool &Workers, uint8_t *const Data,
-    const Layout &Lout, const LocalPLTsContainer &PLTs,
+    const Layout &Lout, const GOTPLTContainer &PLTs,
     const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     uint64_t TargetDataOffset) {
 

@@ -35,7 +35,7 @@ llvm::Error elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,
                       const GlobalSymbolsContainer &Globals,
                       const SymbolOrder &SymOrder,
                       const UndefsContainer &Undefs, llvm::ThreadPool &WorkPool,
-                      Layout *const Lout, const LocalPLTsContainer &PLTs);
+                      Layout *const Lout, const GOTPLTContainer &GOTPLTs);
 
 } // end namespace rld
 

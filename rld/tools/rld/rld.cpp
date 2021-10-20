@@ -131,9 +131,11 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, rld::SectionKind SKind) {
 
   switch (SKind) {
     PSTORE_MCREPO_SECTION_KINDS
-
   case rld::SectionKind::fini_array:
     OS << "fini_array";
+    break;
+  case rld::SectionKind::got:
+    OS << "got";
     break;
   case rld::SectionKind::gotplt:
     OS << "gotplt";
@@ -218,7 +220,7 @@ int main(int Argc, char *Argv[]) {
   auto FixupStorage =
       std::make_unique<rld::FixupStorage>(NumWorkers.getValue());
   std::unique_ptr<rld::Layout> LO;
-  std::unique_ptr<rld::LocalPLTsContainer> PLTs;
+  std::unique_ptr<rld::GOTPLTContainer> GOTPLTs;
   SymbolOrder SymOrder;
 
   {
@@ -299,7 +301,7 @@ int main(int Argc, char *Argv[]) {
     }
     LayoutThread.join();
 
-    std::tie(LO, PLTs) = Layout.flattenSegments(
+    std::tie(LO, GOTPLTs) = Layout.flattenSegments(
         Ctxt.baseAddress(), Layout.elfHeaderBlockSize<llvm::object::ELF64LE>());
 
     // Get the lists of local and global symbols from layout.
@@ -322,13 +324,14 @@ int main(int Argc, char *Argv[]) {
   // Now we set about emitting an ELF executable...
   rld::llvmDebug(DebugType, Ctxt.IOMut,
                  [] { llvm::dbgs() << "Beginning output\n"; });
-  ExitOnErr(rld::elfOutput<llvm::object::ELF64LE>(OutputFileName, Ctxt,
-                                                  *AllSymbols, SymOrder, Undefs,
-                                                  WorkPool, LO.get(), *PLTs));
+  ExitOnErr(rld::elfOutput<llvm::object::ELF64LE>(
+      OutputFileName, Ctxt, *AllSymbols, SymOrder, Undefs, WorkPool, LO.get(),
+      *GOTPLTs));
 
   // Avoid calling the destructors of some of our global objects. We can simply
   // let the O/S do that instead. Remove these calls if looking for memoryleaks,
   // though!
+  GOTPLTs.release();
   AllSymbols.release();
   GlobalSymbs.release();
   LO.release();

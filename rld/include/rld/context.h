@@ -123,6 +123,8 @@ public:
 
   std::atomic<uint64_t> ELFStringTableSize;
   std::atomic<unsigned> PLTEntries;
+  std::atomic<unsigned>
+      GOTEntries; // The number of GOT entries to create in the output.
 
   pstore::repo::compilation const &recordCompilation(
       pstore::extent<pstore::repo::compilation> const &CompilationExtent);

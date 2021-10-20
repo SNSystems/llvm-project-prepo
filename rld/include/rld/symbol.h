@@ -239,7 +239,7 @@ public:
   /// \param Definition The initial body (value) of the symbol.
   Symbol(pstore::address N, size_t NameLength, Body &&Definition)
       : Name_{N.absolute()}, WeakUndefined_{false}, NameLength_{NameLength},
-        Contribution_{nullptr}, HasPLT_{false} {
+        Contribution_{nullptr}, HasPLT_{false}, HasGOT_{false} {
     assert(name() == N &&
            N.absolute() < (UINT64_C(1) << StringAddress::total_bits));
 
@@ -291,6 +291,8 @@ public:
 
   void setPLTIndex(unsigned Index) { PLTIndex_ = Index; }
   unsigned pltIndex() const { return PLTIndex_; }
+  void setGOTIndex(unsigned Index) { GOTIndex_ = Index; }
+  unsigned gotIndex() const { return GOTIndex_; }
 
   Contribution *setFirstContribution(Contribution *const C) {
     Contribution *expected = nullptr;
@@ -305,6 +307,13 @@ public:
   bool shouldCreatePLTEntry() {
     bool Expected = false;
     return HasPLT_.compare_exchange_strong(Expected, true);
+  }
+  /// Invoked when a GOT-related fixup targeting this symbol is encountered. The
+  /// first time the function is called it will return true telling the caller
+  /// to create a GOT entry; subsequent calls will return false.
+  bool shouldCreateGOTEntry() {
+    bool Expected = false;
+    return HasGOT_.compare_exchange_strong(Expected, true);
   }
 
   /// Records a reference from an external fixup.
@@ -495,9 +504,12 @@ private:
 
   /// True if an associated PLT entry has been created for this symbol.
   std::atomic<bool> HasPLT_;
+  /// True if an associated GOT entry has been created for this symbol.
+  std::atomic<bool> HasGOT_;
   /// The index of this symbol's entry in the PLT (if present).
   unsigned PLTIndex_ = 0;
-
+  /// The index for this symbol's entry in the GOT (if present).
+  unsigned GOTIndex_ = 0;
   /// We allow an array of definitions so that append symbols can associate
   /// multiple definitions with a single name.
   llvm::Optional<BodyContainer> Definition_;
@@ -674,7 +686,25 @@ struct CompilationSymbolsView {
   Container Map;
 };
 
-using LocalPLTsContainer = llvm::SmallVector<Symbol *, 256>;
+using SymbolVector = llvm::SmallVector<Symbol *, 256>;
+class GOTPLTContainer {
+public:
+  SymbolVector GOT;
+  SymbolVector PLT;
+
+  void append(GOTPLTContainer const &C) {
+    append(&GOT, C.GOT);
+    append(&PLT, C.PLT);
+  }
+
+  bool empty() const { return GOT.empty() && PLT.empty(); }
+
+private:
+  static void append(SymbolVector *const Out, SymbolVector const &In) {
+    Out->reserve(Out->size() + In.size());
+    std::copy(std::begin(In), std::end(In), std::back_inserter(*Out));
+  }
+};
 
 /// The Global symbols are allocated in chunks of 4MiB.
 using GlobalSymbolsContainer =

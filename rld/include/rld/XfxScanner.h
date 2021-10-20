@@ -30,11 +30,12 @@ namespace rld {
 /// \param Storage  A container for the results of resolving external and
 ///   internal fixups.
 
-LocalPLTsContainer
-resolveFixups(Context &Context, const NotNull<CompilationSymbolsView *> Locals,
-              const NotNull<GlobalSymbolsContainer *> Globals,
-              const NotNull<UndefsContainer *> Undefs, uint32_t InputOrdinal,
-              const NotNull<FixupStorage::Container *> Storage);
+GOTPLTContainer resolveFixups(Context &Context,
+                              const NotNull<CompilationSymbolsView *> Locals,
+                              const NotNull<GlobalSymbolsContainer *> Globals,
+                              const NotNull<UndefsContainer *> Undefs,
+                              uint32_t InputOrdinal,
+                              const NotNull<FixupStorage::Container *> Storage);
 
 } // end namespace rld
 
