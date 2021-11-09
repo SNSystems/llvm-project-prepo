@@ -239,7 +239,7 @@ public:
   /// \param Definition The initial body (value) of the symbol.
   Symbol(pstore::address N, size_t NameLength, Body &&Definition)
       : Name_{N.absolute()}, WeakUndefined_{false}, NameLength_{NameLength},
-        Contribution_{nullptr}, HasPLT_{false}, HasGOT_{false} {
+        Contribution_{nullptr} {
     assert(name() == N &&
            N.absolute() < (UINT64_C(1) << StringAddress::total_bits));
 
@@ -503,9 +503,9 @@ private:
   std::atomic<Contribution *> Contribution_;
 
   /// True if an associated PLT entry has been created for this symbol.
-  std::atomic<bool> HasPLT_;
+  std::atomic<bool> HasPLT_{false};
   /// True if an associated GOT entry has been created for this symbol.
-  std::atomic<bool> HasGOT_;
+  std::atomic<bool> HasGOT_{false};
   /// The index of this symbol's entry in the PLT (if present).
   unsigned PLTIndex_ = 0;
   /// The index for this symbol's entry in the GOT (if present).
