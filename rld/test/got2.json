@@ -1,0 +1,74 @@
+// This test verifies that rld correctly generates a GOT entry for a GOTPCREL fixup.
+// Here we have two definitions in two compilations competing to add a GOT entry
+// for the 'h' symbol.
+
+// RUN: rm -rf %t && mkdir -p %t
+// RUN: pstore-import %t/db.db %s
+// RUN: repo-create-ticket --repo %t/db.db -o %t/f.o 11111111111111111111111111111111
+// RUN: repo-create-ticket --repo %t/db.db -o %t/g.o 22222222222222222222222222222222
+// RUN: repo-create-ticket --repo %t/db.db -o %t/h.o 33333333333333333333333333333333
+// RUN: rld --repo=%t/db.db -o %t/rld.out %t/f.o %t/g.o %t/h.o
+// RUN: llvm-readelf --hex-dump=.got %t/rld.out | FileCheck %s
+
+// CHECK: Hex dump of section '.got':
+// CHECK-NEXT: 0x00402000 00000000 00000000 20104000 00000000
+
+{
+  "version": 1,
+  "id": "C5F8C88E-3297-4AC8-A8B2-DF7F4FABF0D6",
+  "transactions": [
+    {
+      "names": [
+        "x86_64-pc-linux-gnu-repo", // 0
+        "f", // 1
+        "g", // 2
+        "h", // 3
+      ],
+
+      "fragments": {
+        // used for the definition of 'f' and 'g'
+        "11111111111111111111111111111111": {
+          "text": {
+            "data": "AAAAAAAAAAAAAAAAAAAAAA==", // 16 bytes of zeroes.
+            "xfixups": [
+                { "name":3, "type": 9, "offset": 0, "addend": 0 }, // name="h", type 9 = R_X86_64_GOTPCREL
+            ],
+          },
+        },
+
+        // used for the definition of 'h'
+        "22222222222222222222222222222222": {
+          "text": {
+            "data": "AAAAAAAAAAAAAAAAAAAAAA==", // 16 bytes of zeroes.
+          },
+        },
+
+      },
+
+      "compilations": {
+        "11111111111111111111111111111111": {
+          "triple": 0,
+          "definitions": [
+            { "digest": "11111111111111111111111111111111", "name": 1, "linkage": "external" }, // "f"
+
+          ]
+        },
+
+        "22222222222222222222222222222222": {
+          "triple": 0,
+          "definitions": [
+            { "digest": "11111111111111111111111111111111", "name": 2, "linkage": "external" }, // "g"
+          ]
+        },
+
+        "33333333333333333333333333333333": {
+          "triple": 0,
+          "definitions": [
+            { "digest": "22222222222222222222222222222222", "name": 3, "linkage": "external" }, // "h"
+          ]
+        },
+
+      }
+    }
+  ]
+}

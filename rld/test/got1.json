@@ -1,0 +1,61 @@
+// This test verifies that rld correctly generates a GOT entry for a GOTPCREL fixup.
+
+// RUN: rm -rf %t && mkdir -p %t
+// RUN: pstore-import %t/db.db %s
+// RUN: repo-create-ticket --repo %t/db.db -o %t/f.o 11111111111111111111111111111111
+// RUN: repo-create-ticket --repo %t/db.db -o %t/g.o 22222222222222222222222222222222
+// RUN: rld --repo=%t/db.db -o %t/rld.out %t/f.o %t/g.o
+// RUN: llvm-readelf --hex-dump=.got %t/rld.out | FileCheck %s
+
+// CHECK: Hex dump of section '.got':
+// CHECK-NEXT: 0x00402000 00000000 00000000 10104000 00000000
+{
+  "version": 1,
+  "id": "2D75D4DE-5B22-4618-8851-474C42FBF339",
+  "transactions": [
+    {
+      "names": [
+        "x86_64-pc-linux-gnu-repo", // 0
+        "f", // 1
+        "g", // 2
+      ],
+
+      "fragments": {
+        // used for the definition of 'f'
+        "11111111111111111111111111111111": {
+          "text": {
+            "data": "AAAAAAAAAAAAAAAAAAAAAA==", // 16 bytes of zeroes.
+            "xfixups": [
+                { "name":2, "type": 9, "offset": 0, "addend": 0 }, // name="g", type 9 = R_X86_64_GOTPCREL
+                { "name":2, "type": 9, "offset": 4, "addend": 0 }, // name="g", type 9 = R_X86_64_GOTPCREL
+            ],
+          },
+        },
+
+        // used for the definition of 'g'
+        "22222222222222222222222222222222": {
+          "text": {
+            "data": "AAAAAAAAAAAAAAAAAAAAAA==", // 16 bytes of zeroes.
+          },
+        },
+
+      },
+
+      "compilations": {
+        "11111111111111111111111111111111": {
+          "triple": 0, // "x86_64-pc-linux-gnu-repo"
+          "definitions": [
+            { "digest": "11111111111111111111111111111111", "name": 1, "linkage": "external" }, // "f"
+          ]
+        },
+
+        "22222222222222222222222222222222": {
+          "triple": 0, // "x86_64-pc-linux-gnu-repo"
+          "definitions": [
+            { "digest": "22222222222222222222222222222222", "name": 2, "linkage": "external" }, // "g"
+          ]
+        },
+      }
+    }
+  ]
+}

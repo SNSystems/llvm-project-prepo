@@ -291,6 +291,7 @@ OutputSection *LayoutBuilder::addToOutputSection(SectionKind SKind, size_t Size,
 
   // Map from the input-section to segment.
   Segment &Seg = Layout_->Segments[SectionToSegment_[SKind].Segment];
+  Seg.HasOutputSections = true;
 
   // Map from the input-section to the output-section. For most this has no
   // effect but sections such as mergeable_const_4 are translated to the
@@ -329,8 +330,6 @@ LayoutBuilder::addSectionToLayout(const StringAddress Name,
               [&] { llvm::dbgs() << "    Discarding " << InSection << '\n'; });
     return nullptr;
   }
-
-  Layout_->Segments[SegmentK].HasOutputSections = true;
 
   const auto &Section = F->at<InSection>();
   assert(reinterpret_cast<const uint8_t *>(&Section) >
@@ -521,8 +520,6 @@ void LayoutBuilder::debugDumpLayout() const {
   });
 }
 
-using ELFT = llvm::object::ELF64LE;
-using Elf_Rela = llvm::object::ELFFile<ELFT>::Elf_Rela;
 
 void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
                                    const StringAddress Aliasee,
@@ -673,6 +670,8 @@ void LayoutBuilder::run() {
   } // input file loop.
 
 #if 0
+  using ELFT = llvm::object::ELF64LE;
+  using Elf_Rela = llvm::object::ELFFile<ELFT>::Elf_Rela;
   if (const unsigned PLTEntries = Ctx_.PLTEntries.load()) {
     assert(PLTEntries == PLTs_->size());
     std::sort(std::begin(*PLTs_), std::end(*PLTs_),
@@ -701,9 +700,10 @@ void LayoutBuilder::run() {
     rela_plt->Info = rld::SectionKind::gotplt;
   }
 #endif // PLT
-#if 1  // GOT
   if (const unsigned GOTEntries = Ctx_.GOTEntries.load()) {
     assert(GOTEntries == GOTPLTs_->GOT.size());
+    // FIXME: performing a sort on the layout thread will be slow. Use something
+    // other than a crude vector to record the symbol pointers.
     std::sort(std::begin(GOTPLTs_->GOT), std::end(GOTPLTs_->GOT),
               [](const Symbol *const A, const Symbol *const B) {
                 return A->name() < B->name();
@@ -729,7 +729,6 @@ void LayoutBuilder::run() {
     this->addToOutputSection(rld::SectionKind::got,
                              (size_t{GOTEntries} + 1U) * 8U, 8U);
   }
-#endif // GOT
 
   this->addAliasSymbol(Magics.InitArrayStart, Magics.GlobalCtors,
                        SectionKind::init_array, true);
