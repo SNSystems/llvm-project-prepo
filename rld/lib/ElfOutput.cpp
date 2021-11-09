@@ -247,7 +247,7 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
   uint8_t *const BufferStart = (*Out)->getBufferStart();
 
   WorkPool.async([&SectionToIndex, &Context, BufferStart, Layout, FileRegions,
-                  NumSegments, NumSections]() {
+                  NumSegments, NumSections] {
     // Write the ELF file header.
     auto *const Ehdr = reinterpret_cast<Elf_Ehdr *>(
         BufferStart + FileRegions[Region::FileHeader].offset());
@@ -262,7 +262,7 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
   });
 
   WorkPool.async([&Context, BufferStart, Layout, &FileRegions,
-                  &SegmentFileOffsets]() {
+                  &SegmentFileOffsets] {
     // Produce the program header table.
     auto *const Start = reinterpret_cast<Elf_Phdr *>(
         BufferStart + FileRegions[Region::SegmentTable].offset());
@@ -283,7 +283,7 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
                   ,
                   NumSections
 #endif
-  ]() {
+  ] {
     // Produce the section header table.
     auto *const Start = reinterpret_cast<Elf_Shdr *>(
         BufferStart + FileRegions[Region::SectionTable].offset());
@@ -305,9 +305,10 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
                              FileRegions[Region::SectionData].offset() +
                              *SectionFileOffsets[SectionKind::shstrtab];
 
-    WorkPool.async([NamesStart, Layout]() {
+    WorkPool.async([NamesStart, Layout] {
       uint8_t *const NamesEnd =
           elf::sectionNameTableWriter(NamesStart, *Layout);
+      (void)NamesEnd;
       assert(NamesEnd > NamesStart &&
              static_cast<size_t>(NamesEnd - NamesStart) ==
                  Layout->Sections[SectionKind::shstrtab].FileSize);
@@ -321,7 +322,7 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
                               *SectionFileOffsets[SectionKind::strtab];
 
     WorkPool.async([StringStart, &Context, &SymOrder, &Undefs,
-                    StringTableSize]() {
+                    StringTableSize] {
       // Produce the string table.
       llvm::NamedRegionTimer StringTableTimer(
           "String Table", "Write the symbol name section", rld::TimerGroupName,
@@ -330,6 +331,7 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
       auto *const StringEnd =
           elf::writeStrings(StringStart, Context, SymOrder, Undefs);
       (void)StringTableSize;
+      (void)StringEnd;
       assert(StringEnd > StringStart &&
              static_cast<size_t>(StringEnd - StringStart) == StringTableSize);
     });
@@ -342,7 +344,7 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
         *SectionFileOffsets[SectionKind::symtab]);
 
     WorkPool.async([SymbolStart, &SymOrder, &Undefs, &SectionToIndex,
-                    SymbolTableSize]() {
+                    SymbolTableSize] {
       llvm::NamedRegionTimer StringTableTimer(
           "Symbol Table", "Write the symbol table", rld::TimerGroupName,
           rld::TimerGroupDescription);
@@ -350,6 +352,7 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
       Elf_Sym *const SymbolEnd = elf::writeSymbolTable<ELFT>(
           SymbolStart, SymOrder, Undefs, SectionToIndex);
       (void)SymbolTableSize;
+      (void)SymbolEnd;
       assert(SymbolEnd >= SymbolStart &&
              static_cast<size_t>(SymbolEnd - SymbolStart) == SymbolTableSize);
     });
