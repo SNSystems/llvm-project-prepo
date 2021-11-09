@@ -55,11 +55,10 @@ static void applyExternal(uint8_t *const Out, const Contribution &Src,
   llvm::raw_string_ostream OS{Str};
   OS << "Relocation type " << relocationName(Relocation) << " ("
      << static_cast<unsigned>(Relocation) << ") is unsupported";
-  const char *Msg = OS.str().c_str();
+  llvm_unreachable(OS.str().c_str());
 #else
-  const char *Msg = "Relocation type is unsupported";
+  llvm_unreachable("Relocation type is unsupported");
 #endif
-  llvm_unreachable(Msg);
 }
 
 template <uint8_t Relocation>
@@ -230,10 +229,12 @@ inline void applyExternal<llvm::ELF::R_X86_64_GOTPCREL>(
   llvm::support::little32_t::ref{Out} = G + GOT + A - P;
 }
 template <>
-inline void applyInternal<llvm::ELF::R_X86_64_GOTPCREL>(
-    uint8_t *const Out, const Contribution &Src, const Layout &Layout,
-    const Contribution &Target, const InternalFixup &Fixup) {
-  // TODO: mark unreachable.
+inline void applyInternal<llvm::ELF::R_X86_64_GOTPCREL>(uint8_t *const,
+                                                        const Contribution &,
+                                                        const Layout &,
+                                                        const Contribution &,
+                                                        const InternalFixup &) {
+  llvm_unreachable("an internal GOTPCREL fixup was encounted");
 }
 
 #if 0
@@ -269,7 +270,7 @@ static void applyInternalFixups(uint8_t *Dest, Context &Ctxt,
     return;
   }
   for (InternalFixup const &IFixup : Section.ifixups()) {
-    llvmDebug(DebugType, Ctxt.IOMut, [&]() {
+    llvmDebug(DebugType, Ctxt.IOMut, [&] {
       llvm::dbgs() << "  ifx type:" << static_cast<unsigned>(IFixup.type)
                    << '\n';
     });
@@ -302,7 +303,7 @@ static void applyExternalFixups(uint8_t *Dest, Context &Ctxt,
   const Symbol *const *XfxSymbols = C.XfxSymbols;
   for (ExternalFixup const &XFixup : Section.xfixups()) {
     const Symbol *const Symbol = *XfxSymbols;
-    llvmDebug(DebugType, Ctxt.IOMut, [&]() {
+    llvmDebug(DebugType, Ctxt.IOMut, [&] {
       llvm::dbgs() << "  xfx type:" << static_cast<unsigned>(XFixup.type)
                    << " symbol: " << loadStdString(Ctxt.Db, Symbol->name())
                    << '\n';
