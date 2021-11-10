@@ -188,10 +188,10 @@ int main(int Argc, char *Argv[]) {
     return EXIT_FAILURE;
   }
 
-  rld::Context Ctxt{*Db.get(), EntryPoint};
+  auto Ctxt = std::make_unique<rld::Context>(*Db.get(), EntryPoint);
 
   auto CompilationIndex =
-      pstore::index::get_index<pstore::trailer::indices::compilation>(Ctxt.Db);
+      pstore::index::get_index<pstore::trailer::indices::compilation>(Ctxt->Db);
   if (!CompilationIndex) {
     llvm::errs()
         << "Error: "
@@ -200,9 +200,10 @@ int main(int Argc, char *Argv[]) {
     return EXIT_FAILURE;
   }
 
-  llvm::ThreadPool WorkPool(llvm::heavyweight_hardware_concurrency(NumWorkers));
+  auto WorkPool = std::make_unique<llvm::ThreadPool>(
+      llvm::heavyweight_hardware_concurrency(NumWorkers));
   llvm::ErrorOr<rld::IdentifyResult> Identified =
-      rld::identifyPass(Ctxt, WorkPool, CompilationIndex, InputPaths);
+      rld::identifyPass(*Ctxt, *WorkPool, CompilationIndex, InputPaths);
   if (!Identified) {
     llvm::errs() << "Error: " << Identified.getError().message() << '\n';
     std::exit(EXIT_FAILURE);
@@ -211,7 +212,7 @@ int main(int Argc, char *Argv[]) {
   // Record the input-ordinal/name mapping in the context.
   // TODO: this can be done by identifyPass().
   for (const auto &C : Identified->Compilations) {
-    Ctxt.setOrdinalName(std::get<size_t>(C), std::get<std::string>(C));
+    Ctxt->setOrdinalName(std::get<size_t>(C), std::get<std::string>(C));
   }
 
   rld::UndefsContainer Undefs;
@@ -230,11 +231,11 @@ int main(int Argc, char *Argv[]) {
 
     auto const NumCompilations = InputPaths.size();
     if (NumCompilations > std::numeric_limits<uint32_t>::max()) {
-      std::lock_guard<decltype(Ctxt.IOMut)> Lock{Ctxt.IOMut};
+      std::lock_guard<decltype(Ctxt->IOMut)> Lock{Ctxt->IOMut};
       llvm::errs() << "Error: Too many input files\n";
       std::exit(EXIT_FAILURE);
     }
-    rld::LayoutBuilder Layout{Ctxt, &Undefs,
+    rld::LayoutBuilder Layout{*Ctxt, &Undefs,
                               static_cast<uint32_t>(NumCompilations)};
     std::thread LayoutThread{&rld::LayoutBuilder::run, &Layout};
 
@@ -246,10 +247,10 @@ int main(int Argc, char *Argv[]) {
                                        rld::TimerGroupName,
                                        rld::TimerGroupDescription);
 
-      rld::Scanner Scan{Ctxt, Layout, &Undefs};
+      rld::Scanner Scan{*Ctxt, Layout, &Undefs};
       std::atomic<bool> ScanError{false};
       for (const auto &Compilation : Identified->Compilations) {
-        WorkPool.async(
+        WorkPool->async(
             [&Scan, &GlobalSymbs, &FixupStorage, &ScanError](
                 const rld::Identifier::CompilationVector::value_type &V) {
               if (!Scan.run(std::get<std::string>(V), // path
@@ -265,7 +266,7 @@ int main(int Argc, char *Argv[]) {
             std::cref(Compilation));
       }
 
-      WorkPool.wait();
+      WorkPool->wait();
       if (ScanError) {
         ExitCode = EXIT_FAILURE;
       }
@@ -274,22 +275,22 @@ int main(int Argc, char *Argv[]) {
           Undefs.strongUndefCountIsCorrect() &&
           "The strong undef count must match the entries in the undefs list");
       if (Undefs.strongUndefCount() > 0U) {
-        std::lock_guard<decltype(Ctxt.IOMut)> Lock{Ctxt.IOMut};
+        std::lock_guard<decltype(Ctxt->IOMut)> Lock{Ctxt->IOMut};
         for (auto const &U : Undefs) {
           assert(!U.hasDefinition());
           if (!U.allReferencesAreWeak()) {
             // TODO: also need to show where the reference is made.
             llvm::errs() << "Error: Undefined symbol '"
-                         << loadStdString(Ctxt.Db, U.name()) << "'\n";
+                         << loadStdString(Ctxt->Db, U.name()) << "'\n";
           }
         }
         ExitCode = EXIT_FAILURE;
       }
 
       if (ExitCode == EXIT_SUCCESS) {
-        Triple = Ctxt.triple();
+        Triple = Ctxt->triple();
         if (!Triple) {
-          std::lock_guard<decltype(Ctxt.IOMut)> Lock{Ctxt.IOMut};
+          std::lock_guard<decltype(Ctxt->IOMut)> Lock{Ctxt->IOMut};
           llvm::errs() << "Error: The output triple could not be determined.\n";
           ExitCode = EXIT_FAILURE;
         }
@@ -300,39 +301,43 @@ int main(int Argc, char *Argv[]) {
       Layout.error();
     }
     LayoutThread.join();
-
-    std::tie(LO, GOTPLTs) = Layout.flattenSegments(
-        Ctxt.baseAddress(), Layout.elfHeaderBlockSize<llvm::object::ELF64LE>());
-
-    // Get the lists of local and global symbols from layout.
-    SymOrder = Layout.symbolOrder();
-
     if (ExitCode != EXIT_SUCCESS) {
       return ExitCode;
     }
+
+    std::tie(LO, GOTPLTs) = Layout.flattenSegments(
+        Ctxt->baseAddress(),
+        Layout.elfHeaderBlockSize<llvm::object::ELF64LE>());
+
+    // Get the lists of local and global symbols from layout.
+    SymOrder = Layout.symbolOrder();
   }
 
-  rld::llvmDebug(DebugType, Ctxt.IOMut, [&Ctxt] {
-    llvm::dbgs() << "Output triple: " << Ctxt.triple()->normalize() << '\n';
+  rld::llvmDebug(DebugType, Ctxt->IOMut, [&Ctxt] {
+    llvm::dbgs() << "Output triple: " << Ctxt->triple()->normalize() << '\n';
   });
 
   auto AllSymbols =
       std::make_unique<rld::GlobalSymbolsContainer>(GlobalSymbs->all());
-  llvmDebug(DebugType, Ctxt.IOMut,
-            [&] { debugDumpSymbols(Ctxt, *AllSymbols); });
+  llvmDebug(DebugType, Ctxt->IOMut,
+            [&] { debugDumpSymbols(*Ctxt, *AllSymbols); });
 
   // Now we set about emitting an ELF executable...
-  rld::llvmDebug(DebugType, Ctxt.IOMut,
+  rld::llvmDebug(DebugType, Ctxt->IOMut,
                  [] { llvm::dbgs() << "Beginning output\n"; });
   ExitOnErr(rld::elfOutput<llvm::object::ELF64LE>(
-      OutputFileName, Ctxt, *AllSymbols, SymOrder, Undefs, WorkPool, LO.get(),
+      OutputFileName, *Ctxt, *AllSymbols, SymOrder, Undefs, *WorkPool, LO.get(),
       *GOTPLTs));
+  WorkPool->wait();
 
   // Avoid calling the destructors of some of our global objects. We can simply
-  // let the O/S do that instead. Remove these calls if looking for memoryleaks,
-  // though!
+  // let the O/S do that instead. Remove these calls if looking for memory
+  // leaks, though!
   GOTPLTs.release();
   AllSymbols.release();
   GlobalSymbs.release();
   LO.release();
+  FixupStorage.release();
+  WorkPool.release();
+  Ctxt.release();
 }
