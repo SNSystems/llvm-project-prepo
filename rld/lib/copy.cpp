@@ -269,8 +269,8 @@ template <SectionKind SKind,
               ToPstoreSectionKind<SKind>::value>::type>
 static void applyInternalFixups(uint8_t *Dest, Context &Ctxt,
                                 const SectionType &Section,
-                                const Contribution &C, const Layout &Lout) {
-  const ContributionSpArray *const IfxContributions = C.IfxContributions;
+                                const Contribution &Src, const Layout &Lout) {
+  const ContributionSpArray *const IfxContributions = Src.IfxContributions;
   assert(IfxContributions != nullptr);
   if (IfxContributions == nullptr) {
     return;
@@ -293,7 +293,7 @@ static void applyInternalFixups(uint8_t *Dest, Context &Ctxt,
     switch (IFixup.type) {
 #define ELF_RELOC(Name, Value)                                                 \
   case llvm::ELF::Name:                                                        \
-    applyInternal<llvm::ELF::Name>(Dest + IFixup.offset, Ctxt, Target, Lout,   \
+    applyInternal<llvm::ELF::Name>(Dest + IFixup.offset, Ctxt, Src, Lout,      \
                                    Target, IFixup);                            \
     break;
 #include "llvm/BinaryFormat/ELFRelocs/x86_64.def"
@@ -311,8 +311,8 @@ static void applyExternalFixups(uint8_t *Dest, Context &Ctxt,
     const Symbol *const Symbol = *XfxSymbols;
     llvmDebug(DebugType, Ctxt.IOMut, [&] {
       llvm::dbgs() << "  xfx type:" << static_cast<unsigned>(XFixup.type)
-                   << " symbol: " << loadStdString(Ctxt.Db, Symbol->name())
-                   << '\n';
+                   << " symbol:" << loadStdString(Ctxt.Db, Symbol->name())
+                   << " offset:" << XFixup.offset << '\n';
     });
 
     switch (XFixup.type) {
@@ -331,10 +331,12 @@ static void applyExternalFixups(uint8_t *Dest, Context &Ctxt,
 template <SectionKind SKind>
 uint8_t *copyContribution(uint8_t *Dest, Context &Ctxt, const Contribution &C,
                           const Layout &Lout) {
-  llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
+  llvmDebug(DebugType, Ctxt.IOMut, [&] {
     llvm::dbgs() << "copy to "
-                 << format_hex(reinterpret_cast<std::uintptr_t>(Dest)) << '\n';
+                 << format_hex(reinterpret_cast<std::uintptr_t>(Dest))
+                 << " for " << loadStdString(Ctxt.Db, C.Name) << '\n';
   });
+
   using SectionType = typename pstore::repo::enum_to_section<
       ToPstoreSectionKind<SKind>::value>::type;
   auto *const Section = reinterpret_cast<SectionType const *>(C.Section);
@@ -353,7 +355,7 @@ template <>
 uint8_t *copyContribution<SectionKind::bss>(uint8_t *Dest, Context &Ctxt,
                                             const Contribution &S,
                                             const Layout &Lout) {
-  llvmDebug(DebugType, Ctxt.IOMut, [Dest]() {
+  llvmDebug(DebugType, Ctxt.IOMut, [Dest] {
     llvm::dbgs() << "BSS fill "
                  << format_hex(reinterpret_cast<std::uintptr_t>(Dest)) << '\n';
   });
