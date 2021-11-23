@@ -1,0 +1,51 @@
+// This test verifies that rld correctly processes an internal fixup that
+// addresses the mergeable_const_16 section. This section is mapped to the
+// rodata output section by layout so we need to ensure that its origin is
+// preseved.
+
+// RUN: rm -rf %t && mkdir -p %t
+// RUN: pstore-import %t/ifx2.repo %s
+// RUN: repo-create-ticket --repo %t/ifx2.repo -o %t/t0.o 11111111111111111111111111111111
+// RUN: rld --repo=%t/ifx2.repo -o %t/rld.out %t/t0.o
+// RUN: llvm-readelf --hex-dump=.text %t/rld.out | FileCheck %s
+
+// CHECK: Hex dump of section '.text':
+// CHECK-NEXT: 0x00401000 20014000 00000000
+
+{
+  "version": 1,
+  "id": "B3651558-33E8-4F28-B73B-C092838B7EA5",
+  "transactions": [
+    {
+      "names": [
+        "x86_64-pc-linux-gnu-repo", // 0
+        "f", // 1
+      ],
+
+      "fragments": {
+        "11111111111111111111111111111111": {
+          "text": {
+            "data": "AAAAAAAAAAA=", // 8 bytes of zeroes.
+            "ifixups": [
+              // A single R_X86_64_64 fixup targeting data+0
+              { "section": "mergeable_const_16", "type": 1, "offset": 0, "addend": 0 },
+            ],
+          },
+
+          "mergeable_const_16": {
+            "data": "AAAAAAAAAAAAAAAAAAAAAA==", // 16 bytes of zeroes.
+          }
+        },
+      },
+
+      "compilations": {
+        "11111111111111111111111111111111": {
+          "triple": 0, // "x86_64-pc-linux-gnu-repo"
+          "definitions": [
+            { "digest": "11111111111111111111111111111111", "name": 1, "linkage": "external" }, // "f"
+          ]
+        },
+      }
+    }
+  ]
+}
