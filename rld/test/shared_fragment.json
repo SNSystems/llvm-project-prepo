@@ -9,7 +9,7 @@
 // RUN: llvm-readelf --hex-dump=.rodata %t/rld.out | FileCheck %s
 
 // CHECK: Hex dump of section '.rodata':
-// CHECK-NEXT: 0x004000e8 64617461 64617461 52454144 64617461 datadataREADdata
+// CHECK-NEXT: 0x004000e8 f0004000 f0004000 52454144 f0004000
 
 {
   "version": 1,
@@ -35,7 +35,7 @@
           "read_only": {
             "data" : "ZGF0YQ==", // payload is "data" (0x64, 0x61, 0x74, 0x61).
             "xfixups": [
-              { "name": 3, "type": 0, "offset": 0, "addend": 0 } // "h"
+              { "name": 3, "type": 1, "offset": 0, "addend": 0 } // "h"
             ]
           }
         }
