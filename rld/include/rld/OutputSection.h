@@ -29,7 +29,7 @@ struct OutputSection {
 
   using ContributionVector =
       pstore::chunked_sequence<Contribution,
-                               (32 * 1024 * 1024) / sizeof(Contribution)>;
+                               (1 * 1024 * 1024) / sizeof(Contribution)>;
   SectionKind const SectionK;
 
   ContributionVector Contributions;

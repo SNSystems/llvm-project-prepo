@@ -14,9 +14,11 @@
 //===----------------------------------------------------------------------===//
 #include "rld/copy.h"
 
+#include "rld/MPMCQueue.h"
 #include "rld/MathExtras.h"
 
 #include "llvm/BinaryFormat/ELF.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/ThreadPool.h"
 #include "llvm/Support/Timer.h"
@@ -31,7 +33,12 @@ static constexpr auto DebugType = "rld-copy";
 using ExternalFixup = pstore::repo::external_fixup;
 using InternalFixup = pstore::repo::internal_fixup;
 
-static const char *relocationName(uint8_t Relocation) {
+bool TimeCopiesIsEnabled = false;
+static llvm::cl::opt<bool, true> EnableTiming(
+    "time-copies", llvm::cl::location(TimeCopiesIsEnabled), llvm::cl::Hidden,
+    llvm::cl::desc("Time each copy, printing elapsed time for each on exit"));
+
+static const char *relocationName(const uint8_t Relocation) {
   const char *N = "Unknown";
   switch (Relocation) {
 #define ELF_RELOC(Name, Value)                                                 \
@@ -44,199 +51,132 @@ static const char *relocationName(uint8_t Relocation) {
   return N;
 }
 
-template <uint8_t Relocation>
-static void applyExternal(uint8_t *const Out, Context &Context,
-                          const Contribution &Src, const Layout &Layout,
-                          const Symbol &Sym, const ExternalFixup &XFixup) {
-  {
-    std::lock_guard<decltype(Context.IOMut)> _{Context.IOMut};
-    llvm::outs() << "Warning: " << relocationName(Relocation)
-                 << " is not yet supported\n";
+namespace {
+
+template <uint8_t Relocation> class applier {
+public:
+  template <typename TargetType, typename FixupType>
+  static void apply(uint8_t *const Out, Context &Context,
+                    const Contribution &Src, const Layout &Layout,
+                    const TargetType &Target, const FixupType &Fixup) {
+    warnNotImplemented(Context);
+    llvm_unreachable("Relocation type is unsupported");
   }
-#ifndef NDEBUG
-  std::string Str;
-  llvm::raw_string_ostream OS{Str};
-  OS << "Relocation type " << relocationName(Relocation) << " ("
-     << static_cast<unsigned>(Relocation) << ") is unsupported";
-  llvm_unreachable(OS.str().c_str());
-#else
-  llvm_unreachable("Relocation type is unsupported");
-#endif
-}
 
-template <uint8_t Relocation>
-static void applyInternal(uint8_t *const Out, Context &Context,
-                          const Contribution &Src, const Layout &Layout,
-                          const Contribution &Target,
-                          const InternalFixup &Fixup) {
-  {
-    std::lock_guard<decltype(Context.IOMut)> _{Context.IOMut};
-    llvm::outs() << "Warning: " << relocationName(Relocation)
-                 << " is not yet supported\n";
+  static void applyExternal(uint8_t *const Out, Context &Context,
+                            const Contribution &Src, const Layout &Layout,
+                            const Symbol &Target, const ExternalFixup &Fixup) {
+    return apply(Out, Context, Src, Layout, Target, Fixup);
   }
-  llvm_unreachable("Relocation type is unsupported");
-}
 
-inline uint64_t getS(const Symbol &Sym) { return Sym.value(); }
-inline uint64_t getS(const Contribution &Contribution) {
-  return Contribution.OScn->VirtualAddr + Contribution.Offset;
-}
-inline uint64_t getA(const ExternalFixup &Fixup) { return Fixup.addend; }
-inline uint64_t getA(const InternalFixup &Fixup) { return Fixup.addend; }
+  static void applyInternal(uint8_t *const Out, Context &Context,
+                            const Contribution &Src, const Layout &Layout,
+                            const Contribution &Target,
+                            const InternalFixup &Fixup) {
+    return apply(Out, Context, Src, Layout, Target, Fixup);
+  }
 
+  static inline uint64_t getS(const Symbol &Sym) { return Sym.value(); }
+  static inline uint64_t getS(const Contribution &Contribution) {
+    return Contribution.OScn->VirtualAddr + Contribution.Offset;
+  }
+  static inline uint64_t getA(const ExternalFixup &Fixup) {
+    return Fixup.addend;
+  }
+  static inline uint64_t getA(const InternalFixup &Fixup) {
+    return Fixup.addend;
+  }
+
+private:
+  static void warnNotImplemented(Context &Context) {
+    static bool Warned = false;
+    if (!Warned) {
+      Warned = true;
+      std::lock_guard<decltype(Context.IOMut)> _{Context.IOMut};
+      llvm::outs() << "Warning: " << relocationName(Relocation)
+                   << " is not yet supported\n";
+    }
+  }
+};
+
+// R_X86_64_64
+// ~~~~~~~~~~~
 template <>
-inline void applyExternal<llvm::ELF::R_X86_64_NONE>(
-    uint8_t *const /*Out*/, Context & /*Context*/, const Contribution & /*Src*/,
-    const Layout & /*Layout*/, const Symbol & /*Target*/,
-    const ExternalFixup & /*XFixup*/) {}
-template <>
-inline void applyInternal<llvm::ELF::R_X86_64_NONE>(
-    uint8_t *const /*Out*/, Context & /*Context*/, const Contribution & /*Src*/,
-    const Layout & /*Layout*/, const Contribution & /*Target*/,
-    const InternalFixup & /*Fixup*/) {}
-
 template <typename TargetType, typename FixupType>
-static inline void
-apply_R_X86_64_64(uint8_t *const Out, const Contribution & /*Src*/,
-                  const Layout & /*Layout*/, const TargetType &Target,
-                  const FixupType &Fixup) {
+void applier<llvm::ELF::R_X86_64_64>::apply(
+    uint8_t *const Out, Context &Context, const Contribution &Src,
+    const Layout &Layout, const TargetType &Target, const FixupType &Fixup) {
   llvm::support::ulittle64_t::ref{Out} = getS(Target) + getA(Fixup);
 }
-template <>
-inline void applyExternal<llvm::ELF::R_X86_64_64>(
-    uint8_t *const Out, Context & /*Context*/, const Contribution &Src,
-    const Layout &Layout, const Symbol &Target, const ExternalFixup &Fixup) {
-  apply_R_X86_64_64(Out, Src, Layout, Target, Fixup);
-}
-template <>
-inline void applyInternal<llvm::ELF::R_X86_64_64>(uint8_t *const Out,
-                                                  Context & /*Context*/,
-                                                  const Contribution &Src,
-                                                  const Layout &Layout,
-                                                  const Contribution &Target,
-                                                  const InternalFixup &Fixup) {
-  apply_R_X86_64_64(Out, Src, Layout, Target, Fixup);
-}
 
+// R_X86_64_32
+// ~~~~~~~~~~~
 // Field: word32
 // Calculation: S + A
 // The R_X86_64_32 and R_X86_64_32S relocations truncate the computed value to
 // 32-bits. The linker must verify that the generated value for the R_X86_64_32
 // (R_X86_64_32S) relocation zero-extends (sign-extends) to the original 64-bit
 // value.
+template <>
 template <typename TargetType, typename FixupType>
-static inline void
-apply_R_X86_64_32(uint8_t *const Out, const Contribution & /*Src*/,
-                  const Layout & /*Layout*/, const TargetType &Target,
-                  const FixupType &Fixup) {
+void applier<llvm::ELF::R_X86_64_32>::apply(
+    uint8_t *const Out, Context &Context, const Contribution &Src,
+    const Layout &Layout, const TargetType &Target, const FixupType &Fixup) {
   llvm::support::ulittle32_t::ref{Out} = getS(Target) + getA(Fixup);
 }
 
+// R_X86_64_32S
+// ~~~~~~~~~~~~
 template <>
-inline void applyExternal<llvm::ELF::R_X86_64_32>(
-    uint8_t *const Out, Context & /*Context*/, const Contribution &Src,
-    const Layout &Layout, const Symbol &Target, const ExternalFixup &Fixup) {
-  apply_R_X86_64_32(Out, Src, Layout, Target, Fixup);
-}
-template <>
-inline void applyInternal<llvm::ELF::R_X86_64_32>(uint8_t *const Out,
-                                                  Context & /*Context*/,
-                                                  const Contribution &Src,
-                                                  const Layout &Layout,
-                                                  const Contribution &Target,
-                                                  const InternalFixup &Fixup) {
-  apply_R_X86_64_32(Out, Src, Layout, Target, Fixup);
-}
-
 template <typename TargetType, typename FixupType>
-static inline void
-apply_R_X86_64_32S(uint8_t *const Out, const Contribution & /*Src*/,
-                   const Layout & /*Layout*/, const TargetType &Target,
-                   const FixupType &Fixup) {
+void applier<llvm::ELF::R_X86_64_32S>::apply(
+    uint8_t *const Out, Context &Context, const Contribution &Src,
+    const Layout &Layout, const TargetType &Target, const FixupType &Fixup) {
   llvm::support::little32_t::ref{Out} = getS(Target) + getA(Fixup);
 }
-template <>
-inline void applyExternal<llvm::ELF::R_X86_64_32S>(
-    uint8_t *const Out, Context & /*Context*/, const Contribution &Src,
-    const Layout &Layout, const Symbol &Target, const ExternalFixup &Fixup) {
-  apply_R_X86_64_32S(Out, Src, Layout, Target, Fixup);
-}
-template <>
-inline void applyInternal<llvm::ELF::R_X86_64_32S>(uint8_t *const Out,
-                                                   Context & /*Context*/,
-                                                   const Contribution &Src,
-                                                   const Layout &Layout,
-                                                   const Contribution &Target,
-                                                   const InternalFixup &Fixup) {
-  apply_R_X86_64_32S(Out, Src, Layout, Target, Fixup);
-}
 
+// R_X86_64_PC32
+// ~~~~~~~~~~~~~
+template <>
 template <typename TargetType, typename FixupType>
-static inline void
-apply_R_X86_64_PC32(uint8_t *const Out, const Contribution &Src,
-                    const Layout & /*Layout*/, const TargetType &Target,
-                    const FixupType &Fixup) {
+void applier<llvm::ELF::R_X86_64_PC32>::apply(
+    uint8_t *const Out, Context &Context, const Contribution &Src,
+    const Layout &Layout, const TargetType &Target, const FixupType &Fixup) {
   const auto S = getS(Target);
   const int64_t A = getA(Fixup);
   assert(alignTo(Src.Offset, Src.Align) == Src.Offset);
   const uint64_t P = Src.OScn->VirtualAddr + Src.Offset + Fixup.offset;
   llvm::support::little32_t::ref{Out} = S + A - P;
 }
-template <>
-inline void applyExternal<llvm::ELF::R_X86_64_PC32>(
-    uint8_t *const Out, Context & /*Context*/, const Contribution &Src,
-    const Layout &Layout, const Symbol &Target, const ExternalFixup &Fixup) {
-  return apply_R_X86_64_PC32(Out, Src, Layout, Target, Fixup);
-}
-template <>
-inline void applyInternal<llvm::ELF::R_X86_64_PC32>(
-    uint8_t *const Out, Context & /*Context*/, const Contribution &Src,
-    const Layout &Layout, const Contribution &Target,
-    const InternalFixup &Fixup) {
-  return apply_R_X86_64_PC32(Out, Src, Layout, Target, Fixup);
-}
 
+// R_X86_64_PLT32
+// ~~~~~~~~~~~~~~
 template <>
-inline void applyExternal<llvm::ELF::R_X86_64_PLT32>(
-    uint8_t *const Out, Context &Context, const Contribution &Contribution,
-    const Layout &Layout, const Symbol &Sym, const ExternalFixup &XFixup) {
-  if (Sym.hasDefinition()) {
-    return applyExternal<llvm::ELF::R_X86_64_PC32>(Out, Context, Contribution,
-                                                   Layout, Sym, XFixup);
+template <typename TargetType, typename FixupType>
+void applier<llvm::ELF::R_X86_64_PLT32>::apply(
+    uint8_t *const Out, Context &Context, const Contribution &Src,
+    const Layout &Layout, const TargetType &Target, const FixupType &Fixup) {
+  if (Target.hasDefinition()) {
+    return applier<llvm::ELF::R_X86_64_PC32>::apply(Out, Context, Src, Layout,
+                                                    Target, Fixup);
   }
-
-  const uint64_t L =
-      Layout.Sections[SectionKind::plt].VirtualAddr + (Sym.pltIndex() + 1) * 16;
-  const int64_t A = XFixup.addend;
-  assert(alignTo(Contribution.Offset, Contribution.Align) ==
-         Contribution.Offset);
-  const uint64_t P =
-      Contribution.OScn->VirtualAddr + Contribution.Offset + XFixup.offset;
+  const uint64_t L = Layout.Sections[SectionKind::plt].VirtualAddr +
+                     (Target.pltIndex() + 1) * 16;
+  const int64_t A = Fixup.addend;
+  const uint64_t P = Src.OScn->VirtualAddr + Src.Offset + Fixup.offset;
   llvm::support::little32_t::ref{Out} = L + A - P;
 }
 
-template <typename TargetType, typename FixupType>
-static inline void
-apply_R_X86_64_TPOFF(uint8_t *const Out, Context &Context,
-                     const Contribution &Src, const Layout & /*Layout*/,
-                     const TargetType &Target, const FixupType &Fixup) {
-  std::lock_guard<decltype(Context.IOMut)> _{Context.IOMut};
-  llvm::outs() << "Warning: R_X86_64_TPOFF32 is not yet supported\n";
-}
 template <>
-inline void applyExternal<llvm::ELF::R_X86_64_TPOFF32>(
-    uint8_t *const Out, Context &Context, const Contribution &Src,
-    const Layout &Layout, const Symbol &Target, const ExternalFixup &Fixup) {
-  return apply_R_X86_64_TPOFF(Out, Context, Src, Layout, Target, Fixup);
-}
-template <>
-inline void applyInternal<llvm::ELF::R_X86_64_TPOFF32>(
+void applier<llvm::ELF::R_X86_64_PLT32>::applyInternal(
     uint8_t *const Out, Context &Context, const Contribution &Src,
     const Layout &Layout, const Contribution &Target,
     const InternalFixup &Fixup) {
-  return apply_R_X86_64_TPOFF(Out, Context, Src, Layout, Target, Fixup);
+  llvm_unreachable("an internal R_X86_64_PLT32 fixup was encountered");
 }
 
+// R_X86_64_GOTPCREL
+// ~~~~~~~~~~~~~~~~~
 // Field: word32
 // Calculation: G + GOT + A - P
 // A    The addend used to compute the value of the relocatable field.
@@ -245,11 +185,12 @@ inline void applyInternal<llvm::ELF::R_X86_64_TPOFF32>(
 // GOT  The address of the global offset table.
 // P    The place (section offset or address) of the storage unit being
 //        relocated.
-template <>
-inline void applyExternal<llvm::ELF::R_X86_64_GOTPCREL>(
-    uint8_t *const Out, Context & /*Context*/, const Contribution &Src,
-    const Layout &Layout, const Symbol &Target, const ExternalFixup &Fixup) {
 
+template <>
+template <typename TargetType, typename FixupType>
+void applier<llvm::ELF::R_X86_64_GOTPCREL>::apply(
+    uint8_t *const Out, Context &Context, const Contribution &Src,
+    const Layout &Layout, const TargetType &Target, const FixupType &Fixup) {
   const auto A = Fixup.addend;
   const auto G = (Target.gotIndex() + 1) * 8U;
   const auto GOT = Layout.Sections[SectionKind::got].VirtualAddr;
@@ -257,12 +198,30 @@ inline void applyExternal<llvm::ELF::R_X86_64_GOTPCREL>(
 
   llvm::support::little32_t::ref{Out} = G + GOT + A - P;
 }
+
 template <>
-inline void applyInternal<llvm::ELF::R_X86_64_GOTPCREL>(
-    uint8_t *const, Context & /*Context*/, const Contribution &, const Layout &,
-    const Contribution &, const InternalFixup &) {
-  llvm_unreachable("an internal GOTPCREL fixup was encounted");
+void applier<llvm::ELF::R_X86_64_GOTPCREL>::applyInternal(
+    uint8_t *const Out, Context &Context, const Contribution &Src,
+    const Layout &Layout, const Contribution &Target,
+    const InternalFixup &Fixup) {
+  llvm_unreachable("an internal GOTPCREL fixup was encountered");
 }
+
+// R_X86_64_TPOFF32
+// ~~~~~~~~~~~~~~~~
+template <>
+template <typename TargetType, typename FixupType>
+void applier<llvm::ELF::R_X86_64_TPOFF32>::apply(
+    uint8_t *const Out, Context & /*Context*/, const Contribution &Src,
+    const Layout &Layout, const TargetType &Target, const FixupType &Fixup) {
+  const auto S = getS(Target);
+  const int64_t A = getA(Fixup);
+  assert(alignTo(Src.Offset, Src.Align) == Src.Offset);
+  const uint64_t P = Layout.Segments[SegmentKind::tls].VirtualAddr;
+  llvm::support::little32_t::ref{Out} = S + A - P;
+}
+
+} // end anonymous namespace
 
 template <SectionKind SKind,
           typename SectionType = typename pstore::repo::enum_to_section<
@@ -293,8 +252,8 @@ static void applyInternalFixups(uint8_t *Dest, Context &Ctxt,
     switch (IFixup.type) {
 #define ELF_RELOC(Name, Value)                                                 \
   case llvm::ELF::Name:                                                        \
-    applyInternal<llvm::ELF::Name>(Dest + IFixup.offset, Ctxt, Src, Lout,      \
-                                   Target, IFixup);                            \
+    applier<llvm::ELF::Name>::applyInternal(Dest + IFixup.offset, Ctxt, Src,   \
+                                            Lout, Target, IFixup);             \
     break;
 #include "llvm/BinaryFormat/ELFRelocs/x86_64.def"
 #undef ELF_RELOC
@@ -318,8 +277,8 @@ static void applyExternalFixups(uint8_t *Dest, Context &Ctxt,
     switch (XFixup.type) {
 #define ELF_RELOC(Name, Value)                                                 \
   case llvm::ELF::Name:                                                        \
-    applyExternal<llvm::ELF::Name>(Dest + XFixup.offset, Ctxt, C, Lout,        \
-                                   *Symbol, XFixup);                           \
+    applier<llvm::ELF::Name>::applyExternal(Dest + XFixup.offset, Ctxt, C,     \
+                                            Lout, *Symbol, XFixup);            \
     break;
 #include "llvm/BinaryFormat/ELFRelocs/x86_64.def"
 #undef ELF_RELOC
@@ -376,68 +335,154 @@ uint8_t *copyContribution<SectionKind::linked_definitions>(uint8_t *Dest,
   return Dest;
 }
 
-template <SectionKind SectionK>
-uint8_t *copySection(uint8_t *Data, Context &Ctxt, const Layout &Lout,
-                     const GOTPLTContainer & /*GOTPLTs*/) {
-  auto *Dest = Data;
-  for (Contribution const &Contribution :
-       Lout.Sections[SectionK].Contributions) {
-    llvmDebug(DebugType, Ctxt.IOMut,
-              []() { llvm::dbgs() << SectionK << ": "; });
+// Represents a job in the queue of blocks to be copied to the output.
+struct WorkItem {
+  using ContributionIterator = OutputSection::ContributionVector::chunk::const_iterator;
+  using HandlerFn = void (*)(uint8_t *, Context &, const Layout &,
+                             const GOTPLTContainer &, ContributionIterator,
+                             ContributionIterator);
 
-    Dest = Data + alignTo(Contribution.Offset, Contribution.Align);
+  WorkItem() = default;
+  WorkItem(uint8_t *Out, HandlerFn Handler) : Out{Out}, Handler{Handler} {}
+  WorkItem(uint8_t *Out, HandlerFn Handler, ContributionIterator First,
+           ContributionIterator Last)
+      : Out{Out}, Handler{Handler}, First{First}, Last{Last} {}
+
+  // Where output should be written. If this value is null, the consumer job
+  // exits.
+  uint8_t *Out = nullptr;
+  // Function responsible for performing the copy.
+  HandlerFn Handler = nullptr;
+  // The first contribution to be copied.
+  ContributionIterator First {static_cast<const Contribution *> (nullptr)};
+  // The end of the range of contributions to be copied.
+  ContributionIterator Last {static_cast<const Contribution *> (nullptr)};
+};
+
+static constexpr char const *jobName(const SectionKind SectionK) {
+  switch (SectionK) {
+#define X(K)                                                                   \
+  case SectionKind::K:                                                         \
+    return "Copy " #K;
+#define RLD_X(a) X(a)
+    RLD_ALL_SECTION_KINDS
+#undef RLD_X
+#undef X
+  default:
+    llvm_unreachable("Unknown section kind");
+    break;
+  }
+  return nullptr;
+}
+
+template <SectionKind SectionK>
+static void setSectionTimerName(std::string &TimerName) {
+  static std::atomic<unsigned> Count{0};
+  auto OldCount = Count.fetch_add(1U);
+  llvm::raw_string_ostream OS{TimerName};
+  OS << jobName(SectionK) << '#' << OldCount;
+}
+
+template <SectionKind SectionK>
+static void copySection(uint8_t *const Data, Context &Context, const Layout &Layout,
+                 const GOTPLTContainer & /*GOTPLTs*/, WorkItem::ContributionIterator First,
+                 WorkItem::ContributionIterator Last) {
+  std::string TimerName;
+  if (EnableTiming) {
+    setSectionTimerName<SectionK>(TimerName);
+  }
+  llvm::NamedRegionTimer _{TimerName, "Copy section", rld::TimerGroupName,
+                           rld::TimerGroupDescription, EnableTiming};
+
+  std::for_each(First, Last, [&](const Contribution &Contribution) {
+    llvmDebug(DebugType, Context.IOMut, [] { llvm::dbgs() << SectionK << ": "; });
+
+    auto *Dest = Data + alignTo(Contribution.Offset, Contribution.Align);
     switch (Contribution.SectionK) {
 #define X(a)                                                                   \
   case SectionKind::a:                                                         \
-    Dest = copyContribution<SectionKind::a>(Dest, Ctxt, Contribution, Lout);   \
+    Dest = copyContribution<SectionKind::a>(Dest, Context, Contribution, Layout);   \
     break;
       PSTORE_MCREPO_SECTION_KINDS
 #undef X
 
     case SectionKind::init_array:
-      Dest = copyContribution<SectionKind::read_only>(Dest, Ctxt, Contribution,
-                                                      Lout);
+      Dest = copyContribution<SectionKind::read_only>(Dest, Context, Contribution,
+                                                      Layout);
       break;
     default:
       llvm_unreachable("Bad section kind");
       break;
     }
-    // TODO: check that Dest is increasing.
-  }
+  });
+}
+
+template <SectionKind SectionK>
+static uint8_t *scheduleCopySection(uint8_t *const Data, MPMCQueue<WorkItem> &Q,
+                             Context &Ctxt, const Layout &Lout,
+                             const GOTPLTContainer & /*GOTPLTs*/) {
+  auto *Dest = Data;
+
+  auto const &Contributions = Lout.Sections[SectionK].Contributions;
+  std::for_each(Contributions.chunks_begin(), Contributions.chunks_end(),
+                [&](const OutputSection::ContributionVector::chunk &Chunk) {
+                  if (Chunk.empty()) {
+                    return;
+                  }
+                  const Contribution &First = Chunk.front();
+                  Dest = Data + alignTo(First.Offset, First.Align);
+                  Q.emplace(Dest, &copySection<SectionK>, Chunk.begin(),
+                            Chunk.end());
+                });
   return Dest;
 }
 
 template <>
-uint8_t *
-copySection<SectionKind::shstrtab>(uint8_t *Dest, Context & /*Ctxt*/,
-                                   const Layout & /*Lout*/,
-                                   const GOTPLTContainer & /*GOTPLTs*/) {
-  return Dest;
-}
-template <>
-uint8_t *copySection<SectionKind::strtab>(uint8_t *Dest, Context & /*Ctxt*/,
-                                          const Layout & /*Lout*/,
-                                          const GOTPLTContainer & /*GOTPLTs*/) {
-  return Dest;
-}
-template <>
-uint8_t *copySection<SectionKind::symtab>(uint8_t *Dest, Context & /*Ctxt*/,
-                                          const Layout & /*Lout*/,
-                                          const GOTPLTContainer & /*GOTPLTs*/) {
-  return Dest;
+uint8_t *scheduleCopySection<SectionKind::shstrtab>(
+    uint8_t *const Data, MPMCQueue<WorkItem> &Q, Context &Ctxt,
+    const Layout &Lout, const GOTPLTContainer & /*GOTPLTs*/) {
+  return Data;
 }
 
 template <>
-uint8_t *copySection<SectionKind::gotplt>(std::uint8_t *Dest, Context &Ctxt,
-                                          const Layout &Lout,
-                                          const GOTPLTContainer & /*GOTPLTs*/) {
-  return Dest;
+uint8_t *scheduleCopySection<SectionKind::strtab>(
+    uint8_t *const Data, MPMCQueue<WorkItem> &Q, Context &Ctxt,
+    const Layout &Lout, const GOTPLTContainer & /*GOTPLTs*/) {
+  return Data;
 }
 
 template <>
-uint8_t *copySection<SectionKind::plt>(std::uint8_t *Dest, Context &Ctxt,
-                                       const Layout &Lout,
-                                       const GOTPLTContainer &GOTPLTs) {
+uint8_t *scheduleCopySection<SectionKind::symtab>(
+    uint8_t *const Data, MPMCQueue<WorkItem> &Q, Context &Ctxt,
+    const Layout &Lout, const GOTPLTContainer & /*GOTPLTs*/) {
+  return Data;
+}
+
+template <>
+uint8_t *scheduleCopySection<SectionKind::gotplt>(
+    uint8_t *const Data, MPMCQueue<WorkItem> &Q, Context &Ctxt,
+    const Layout &Lout, const GOTPLTContainer & /*GOTPLTs*/) {
+  return Data;
+}
+
+template <>
+uint8_t *scheduleCopySection<SectionKind::plt>(
+    uint8_t *const Data, MPMCQueue<WorkItem> &Q, Context &Ctxt,
+    const Layout &Lout, const GOTPLTContainer & /*GOTPLTs*/) {
+  // TODO: Implement it. Obviously.
+  return Data;
+}
+
+#if 0
+template <>
+void copySection<SectionKind::plt>(uint8_t *Dest, Context &Ctxt,
+                                   const Layout &Lout,
+                                   const GOTPLTContainer &GOTPLTs,
+                                   WorkItem::ContributionIterator /*First*/,
+                                   WorkItem::ContributionIterator /*Last*/) {
+  llvm::NamedRegionTimer CopyTimer("PLT write", "Write the PLT section",
+                                   rld::TimerGroupName,
+                                   rld::TimerGroupDescription, EnableTiming);
   const auto &PLTSymbols = GOTPLTs.PLT;
   assert(!PLTSymbols.empty());
 
@@ -478,13 +523,18 @@ uint8_t *copySection<SectionKind::plt>(std::uint8_t *Dest, Context &Ctxt,
     PLTVirtualAddr += 16;
     Dest = Out;
   }
-  return Dest;
 }
+#endif
 
 template <>
-uint8_t *copySection<SectionKind::got>(std::uint8_t *Dest, Context &Ctxt,
-                                       const Layout &Lout,
-                                       const GOTPLTContainer &GOTPLTs) {
+void copySection<SectionKind::got>(uint8_t *Dest, Context &Ctxt,
+                                   const Layout &Lout,
+                                   const GOTPLTContainer &GOTPLTs,
+                                   WorkItem::ContributionIterator /*First*/,
+                                   WorkItem::ContributionIterator /*Last*/) {
+  llvm::NamedRegionTimer _{"GOT write", "Write the GOT section",
+                           rld::TimerGroupName, rld::TimerGroupDescription,
+                           EnableTiming};
   const auto &GOTSymbols = GOTPLTs.GOT;
   assert(!GOTSymbols.empty());
 #ifndef NDEBUG
@@ -506,23 +556,14 @@ uint8_t *copySection<SectionKind::got>(std::uint8_t *Dest, Context &Ctxt,
   for (const Symbol *const Sym : GOTSymbols) {
     Write(Sym->value());
   }
-  return Dest;
 }
 
-static constexpr char const *jobName(const SectionKind SectionK) {
-  switch (SectionK) {
-#define X(K)                                                                   \
-  case SectionKind::K:                                                         \
-    return "Copy " #K;
-#define RLD_X(a) X(a)
-    RLD_ALL_SECTION_KINDS
-#undef RLD_X
-#undef X
-  default:
-    llvm_unreachable("Unknown section kind");
-    break;
-  }
-  return nullptr;
+template <>
+uint8_t *scheduleCopySection<SectionKind::got>(
+    uint8_t *const Data, MPMCQueue<WorkItem> &Q, Context &Ctxt,
+    const Layout &Lout, const GOTPLTContainer & /*GOTPLTs*/) {
+  Q.emplace(Data, &copySection<SectionKind::got>);
+  return Data;
 }
 
 bool hasDataToCopy(SectionKind SectionK, const Context &Ctxt,
@@ -557,41 +598,68 @@ bool hasDataToCopy(SectionKind SectionK, const Context &Ctxt,
   llvm_unreachable("Unhandled section type");
 }
 
+static void consumer(MPMCQueue<WorkItem> &Q, Context &Context,
+                     const Layout &Layout, const GOTPLTContainer &GOTPLTs) {
+  for (;;) {
+    WorkItem W = Q.pop();
+    if (W.Out == nullptr) {
+      break;
+    }
+    (*W.Handler)(W.Out, Context, Layout, GOTPLTs, W.First, W.Last);
+  }
+}
+
 namespace rld {
 
 void copyToOutput(
     Context &Ctxt, llvm::ThreadPool &Workers, uint8_t *const Data,
-    const Layout &Lout, const GOTPLTContainer &PLTs,
+    const Layout &Lout, const GOTPLTContainer &GOTPLTs,
     const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     uint64_t TargetDataOffset) {
 
-  forEachSectionKindInFileOrder([&](const SectionKind SectionK) {
-    if (!hasDataToCopy(SectionK, Ctxt, Lout)) {
-      return;
-    }
-    assert(SectionFileOffsets[SectionK].hasValue() &&
-           "No layout position for a section with data to copy");
-    Workers.async(
-        [SectionK, &Ctxt, &Lout, &PLTs](uint8_t *const Out) {
-          llvm::NamedRegionTimer CopyTimer(jobName(SectionK), "Copy section",
-                                           rld::TimerGroupName,
-                                           rld::TimerGroupDescription);
+  MPMCQueue<WorkItem> Q{std::size_t{32768}};
 
-          switch (SectionK) {
+  const auto NumConsumers = std::max(Workers.getThreadCount(), 1U);
+
+  assert(llvm::llvm_is_multithreaded());
+
+  std::thread Producer{[&] {
+    llvm::NamedRegionTimer _{"Producer", "Schedule copy jobs",
+                             rld::TimerGroupName, rld::TimerGroupDescription,
+                             EnableTiming};
+    forEachSectionKindInFileOrder([&](const SectionKind SectionK) {
+      if (!hasDataToCopy(SectionK, Ctxt, Lout)) {
+        return;
+      }
+      assert(SectionFileOffsets[SectionK].hasValue() &&
+             "No layout position for a section with data to copy");
+      uint8_t *const Out =
+          Data + TargetDataOffset + *SectionFileOffsets[SectionK];
+      switch (SectionK) {
 #define X(x)                                                                   \
   case SectionKind::x:                                                         \
-    copySection<SectionKind::x>(Out, Ctxt, Lout, PLTs);                        \
+    scheduleCopySection<SectionKind::x>(Out, Q, Ctxt, Lout, GOTPLTs);          \
     break;
 #define RLD_X(x) X(x)
-            RLD_ALL_SECTION_KINDS
+        RLD_ALL_SECTION_KINDS
 #undef RLD_X
 #undef X
-          case SectionKind::last:
-            break;
-          }
-        },
-        Data + TargetDataOffset + *SectionFileOffsets[SectionK]);
-  });
+      case SectionKind::last:
+        break;
+      }
+    });
+
+    // Queue one job per consumer which tells it to exit.
+    for (auto Ctr = 0U; Ctr < NumConsumers; ++Ctr) {
+      Q.emplace();
+    }
+  }};
+  for (auto Ctr = 0U; Ctr < NumConsumers; ++Ctr) {
+    Workers.async(consumer, std::ref(Q), std::ref(Ctxt), std::cref(Lout),
+                  std::cref(GOTPLTs));
+  }
+  Workers.wait();
+  Producer.join();
 }
 
 } // end namespace rld
