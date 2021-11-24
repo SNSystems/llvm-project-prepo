@@ -340,4 +340,5 @@ int main(int Argc, char *Argv[]) {
   FixupStorage.release();
   WorkPool.release();
   Ctxt.release();
+  (*Db).release();
 }
