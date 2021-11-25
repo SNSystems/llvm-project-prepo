@@ -99,6 +99,16 @@ private:
   }
 };
 
+// R_X86_64_NONE
+// ~~~~~~~~~~~~~
+template <>
+template <typename TargetType, typename FixupType>
+void applier<llvm::ELF::R_X86_64_NONE>::apply(uint8_t *const, Context &,
+                                              const Contribution &,
+                                              const Layout &,
+                                              const TargetType &,
+                                              const FixupType &) {}
+
 // R_X86_64_64
 // ~~~~~~~~~~~
 template <>
