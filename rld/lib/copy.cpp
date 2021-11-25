@@ -288,8 +288,8 @@ static void applyExternalFixups(uint8_t *Dest, Context &Ctxt,
 }
 
 template <SectionKind SKind>
-uint8_t *copyContribution(uint8_t *Dest, Context &Ctxt, const Contribution &C,
-                          const Layout &Lout) {
+void copyContribution(uint8_t *Dest, Context &Ctxt, const Contribution &C,
+                      const Layout &Lout) {
   llvmDebug(DebugType, Ctxt.IOMut, [&] {
     llvm::dbgs() << "copy to "
                  << format_hex(reinterpret_cast<std::uintptr_t>(Dest))
@@ -300,20 +300,18 @@ uint8_t *copyContribution(uint8_t *Dest, Context &Ctxt, const Contribution &C,
       ToPstoreSectionKind<SKind>::value>::type;
   auto *const Section = reinterpret_cast<SectionType const *>(C.Section);
   if (Section == nullptr) {
-    return Dest;
+    return;
   }
   const auto &D = Section->payload();
   const auto Size = D.size();
   std::memcpy(Dest, D.begin(), Size);
   applyExternalFixups<SectionType>(Dest, Ctxt, *Section, C, Lout);
   applyInternalFixups<SKind>(Dest, Ctxt, *Section, C, Lout);
-  return Dest + Size;
 }
 
 template <>
-uint8_t *copyContribution<SectionKind::bss>(uint8_t *Dest, Context &Ctxt,
-                                            const Contribution &S,
-                                            const Layout &Lout) {
+void copyContribution<SectionKind::bss>(uint8_t *Dest, Context &Ctxt,
+                                        const Contribution &, const Layout &) {
   llvmDebug(DebugType, Ctxt.IOMut, [Dest] {
     llvm::dbgs() << "BSS fill "
                  << format_hex(reinterpret_cast<std::uintptr_t>(Dest)) << '\n';
@@ -323,16 +321,13 @@ uint8_t *copyContribution<SectionKind::bss>(uint8_t *Dest, Context &Ctxt,
           pstore::repo::enum_to_section<pstore::repo::section_kind::bss>::type,
           pstore::repo::bss_section>::value,
       "BSS section kind must map to BSS section type");
-  return Dest;
 }
 
 template <>
-uint8_t *copyContribution<SectionKind::linked_definitions>(uint8_t *Dest,
-                                                           Context &,
-                                                           const Contribution &,
-                                                           const Layout &) {
+void copyContribution<SectionKind::linked_definitions>(uint8_t *, Context &,
+                                                       const Contribution &,
+                                                       const Layout &) {
   // discard
-  return Dest;
 }
 
 // Represents a job in the queue of blocks to be copied to the output.
@@ -397,18 +392,18 @@ static void copySection(uint8_t *const Data, Context &Context, const Layout &Lay
   std::for_each(First, Last, [&](const Contribution &Contribution) {
     llvmDebug(DebugType, Context.IOMut, [] { llvm::dbgs() << SectionK << ": "; });
 
-    auto *Dest = Data + alignTo(Contribution.Offset, Contribution.Align);
+    auto *const Dest = Data + alignTo(Contribution.Offset, Contribution.Align);
     switch (Contribution.SectionK) {
 #define X(a)                                                                   \
   case SectionKind::a:                                                         \
-    Dest = copyContribution<SectionKind::a>(Dest, Context, Contribution, Layout);   \
+    copyContribution<SectionKind::a>(Dest, Context, Contribution, Layout);     \
     break;
       PSTORE_MCREPO_SECTION_KINDS
 #undef X
 
     case SectionKind::init_array:
-      Dest = copyContribution<SectionKind::read_only>(Dest, Context, Contribution,
-                                                      Layout);
+      copyContribution<SectionKind::read_only>(Dest, Context, Contribution,
+                                               Layout);
       break;
     default:
       llvm_unreachable("Bad section kind");
@@ -418,59 +413,45 @@ static void copySection(uint8_t *const Data, Context &Context, const Layout &Lay
 }
 
 template <SectionKind SectionK>
-static uint8_t *scheduleCopySection(uint8_t *const Data, MPMCQueue<WorkItem> &Q,
-                             Context &Ctxt, const Layout &Lout,
-                             const GOTPLTContainer & /*GOTPLTs*/) {
-  auto *Dest = Data;
-
+static void scheduleCopySection(uint8_t *const Data, MPMCQueue<WorkItem> &Q,
+                                Context &Ctxt, const Layout &Lout,
+                                const GOTPLTContainer & /*GOTPLTs*/) {
   auto const &Contributions = Lout.Sections[SectionK].Contributions;
   std::for_each(Contributions.chunks_begin(), Contributions.chunks_end(),
                 [&](const OutputSection::ContributionVector::chunk &Chunk) {
                   if (Chunk.empty()) {
                     return;
                   }
-                  const Contribution &First = Chunk.front();
-                  Dest = Data + alignTo(First.Offset, First.Align);
-                  Q.emplace(Dest, &copySection<SectionK>, Chunk.begin(),
+                  Q.emplace(Data, &copySection<SectionK>, Chunk.begin(),
                             Chunk.end());
                 });
-  return Dest;
 }
 
 template <>
-uint8_t *scheduleCopySection<SectionKind::shstrtab>(
-    uint8_t *const Data, MPMCQueue<WorkItem> &Q, Context &Ctxt,
-    const Layout &Lout, const GOTPLTContainer & /*GOTPLTs*/) {
-  return Data;
-}
+void scheduleCopySection<SectionKind::shstrtab>(
+    uint8_t *const /*Data*/, MPMCQueue<WorkItem> & /*Q*/, Context & /*Ctxt*/,
+    const Layout & /*Lout*/, const GOTPLTContainer & /*GOTPLTs*/) {}
 
 template <>
-uint8_t *scheduleCopySection<SectionKind::strtab>(
-    uint8_t *const Data, MPMCQueue<WorkItem> &Q, Context &Ctxt,
-    const Layout &Lout, const GOTPLTContainer & /*GOTPLTs*/) {
-  return Data;
-}
+void scheduleCopySection<SectionKind::strtab>(
+    uint8_t *const /*Data*/, MPMCQueue<WorkItem> & /*Q*/, Context & /*Ctxt*/,
+    const Layout & /*Lout*/, const GOTPLTContainer & /*GOTPLTs*/) {}
 
 template <>
-uint8_t *scheduleCopySection<SectionKind::symtab>(
-    uint8_t *const Data, MPMCQueue<WorkItem> &Q, Context &Ctxt,
-    const Layout &Lout, const GOTPLTContainer & /*GOTPLTs*/) {
-  return Data;
-}
+void scheduleCopySection<SectionKind::symtab>(
+    uint8_t *const /*Data*/, MPMCQueue<WorkItem> & /*Q*/, Context & /*Ctxt*/,
+    const Layout & /*Lout*/, const GOTPLTContainer & /*GOTPLTs*/) {}
 
 template <>
-uint8_t *scheduleCopySection<SectionKind::gotplt>(
-    uint8_t *const Data, MPMCQueue<WorkItem> &Q, Context &Ctxt,
-    const Layout &Lout, const GOTPLTContainer & /*GOTPLTs*/) {
-  return Data;
-}
+void scheduleCopySection<SectionKind::gotplt>(
+    uint8_t *const /*Data*/, MPMCQueue<WorkItem> & /*Q*/, Context & /*Ctxt*/,
+    const Layout & /*Lout*/, const GOTPLTContainer & /*GOTPLTs*/) {}
 
 template <>
-uint8_t *scheduleCopySection<SectionKind::plt>(
+void scheduleCopySection<SectionKind::plt>(
     uint8_t *const Data, MPMCQueue<WorkItem> &Q, Context &Ctxt,
     const Layout &Lout, const GOTPLTContainer & /*GOTPLTs*/) {
   // TODO: Implement it. Obviously.
-  return Data;
 }
 
 #if 0
@@ -559,11 +540,10 @@ void copySection<SectionKind::got>(uint8_t *Dest, Context &Ctxt,
 }
 
 template <>
-uint8_t *scheduleCopySection<SectionKind::got>(
+void scheduleCopySection<SectionKind::got>(
     uint8_t *const Data, MPMCQueue<WorkItem> &Q, Context &Ctxt,
     const Layout &Lout, const GOTPLTContainer & /*GOTPLTs*/) {
   Q.emplace(Data, &copySection<SectionKind::got>);
-  return Data;
 }
 
 bool hasDataToCopy(SectionKind SectionK, const Context &Ctxt,
