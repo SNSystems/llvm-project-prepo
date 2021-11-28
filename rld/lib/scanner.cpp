@@ -22,6 +22,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include "pstore/core/database.hpp"
@@ -47,6 +48,15 @@ constexpr auto DebugType = "rld-scanner";
 
 } // end anonymous namespace
 
+static std::string timerName(const bool Enabled, const uint32_t InputOrdinal) {
+  std::string TimerName;
+  if (Enabled) {
+    llvm::raw_string_ostream OS{TimerName};
+    OS << "Resolution" << InputOrdinal;
+    OS.flush();
+  }
+  return TimerName;
+}
 
 namespace rld {
 
@@ -58,6 +68,9 @@ bool Scanner::run(
     const NotNull<FixupStorage::Container *> FixupStorage,
     const pstore::extent<pstore::repo::compilation> &CompilationExtent,
     uint32_t InputOrdinal) {
+  llvm::NamedRegionTimer _{timerName(Context_.TimersEnabled, InputOrdinal),
+                           "Input file scanning", rld::TimerGroupName,
+                           rld::TimerGroupDescription, Context_.TimersEnabled};
 
   llvmDebug(DebugType, Context_.IOMut, [&]() {
     llvm::dbgs() << "Scanning ticket file \"" << Path << "\" (index "

@@ -75,6 +75,10 @@ llvm::cl::opt<unsigned> NumWorkers(
     "workers", llvm::cl::desc("Number of worker threads"),
     llvm::cl::init(llvm::heavyweight_hardware_concurrency().compute_thread_count()));
 
+llvm::cl::opt<bool> TimersEnabled(
+    "enable-timers", llvm::cl::Hidden,
+    llvm::cl::desc("Time each job, printing elapsed time for each on exit"));
+
 } // end anonymous namespace
 
 static std::string getRepoPath() {
@@ -189,6 +193,7 @@ int main(int Argc, char *Argv[]) {
   }
 
   auto Ctxt = std::make_unique<rld::Context>(*Db.get(), EntryPoint);
+  Ctxt->TimersEnabled = TimersEnabled;
 
   auto CompilationIndex =
       pstore::index::get_index<pstore::trailer::indices::compilation>(Ctxt->Db);
@@ -225,9 +230,9 @@ int main(int Argc, char *Argv[]) {
   SymbolOrder SymOrder;
 
   {
-    llvm::NamedRegionTimer LayoutTimer("Layout", "Output file layout",
-                                       rld::TimerGroupName,
-                                       rld::TimerGroupDescription);
+    llvm::NamedRegionTimer LayoutTimer{
+        "Layout", "Output file layout", rld::TimerGroupName,
+        rld::TimerGroupDescription, Ctxt->TimersEnabled};
 
     auto const NumCompilations = InputPaths.size();
     if (NumCompilations > std::numeric_limits<uint32_t>::max()) {
@@ -243,9 +248,9 @@ int main(int Argc, char *Argv[]) {
     int ExitCode = EXIT_SUCCESS;
 
     {
-      llvm::NamedRegionTimer ScanTimer("Scan", "Input file scanning",
-                                       rld::TimerGroupName,
-                                       rld::TimerGroupDescription);
+      llvm::NamedRegionTimer ScanTimer(
+          "Scan", "Input file scanning", rld::TimerGroupName,
+          rld::TimerGroupDescription, Ctxt->TimersEnabled);
 
       rld::Scanner Scan{*Ctxt, Layout, &Undefs};
       std::atomic<bool> ScanError{false};

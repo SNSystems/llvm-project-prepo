@@ -33,11 +33,6 @@ static constexpr auto DebugType = "rld-copy";
 using ExternalFixup = pstore::repo::external_fixup;
 using InternalFixup = pstore::repo::internal_fixup;
 
-bool TimeCopiesIsEnabled = false;
-static llvm::cl::opt<bool, true> EnableTiming(
-    "time-copies", llvm::cl::location(TimeCopiesIsEnabled), llvm::cl::Hidden,
-    llvm::cl::desc("Time each copy, printing elapsed time for each on exit"));
-
 static const char *relocationName(const uint8_t Relocation) {
   const char *N = "Unknown";
   switch (Relocation) {
@@ -381,23 +376,25 @@ static constexpr char const *jobName(const SectionKind SectionK) {
 }
 
 template <SectionKind SectionK>
-static void setSectionTimerName(std::string &TimerName) {
-  static std::atomic<unsigned> Count{0};
-  auto OldCount = Count.fetch_add(1U);
-  llvm::raw_string_ostream OS{TimerName};
-  OS << jobName(SectionK) << '#' << OldCount;
+static std::string sectionTimerName(const bool TimersEnabled) {
+  std::string Name;
+  if (TimersEnabled) {
+    static std::atomic<unsigned> Count{0U};
+    const auto OldCount = Count.fetch_add(1U, std::memory_order_relaxed);
+    llvm::raw_string_ostream OS{Name};
+    OS << jobName(SectionK) << '#' << OldCount;
+    OS.flush();
+  }
+  return Name;
 }
 
 template <SectionKind SectionK>
 static void copySection(uint8_t *const Data, Context &Context, const Layout &Layout,
                  const GOTPLTContainer & /*GOTPLTs*/, WorkItem::ContributionIterator First,
                  WorkItem::ContributionIterator Last) {
-  std::string TimerName;
-  if (EnableTiming) {
-    setSectionTimerName<SectionK>(TimerName);
-  }
-  llvm::NamedRegionTimer _{TimerName, "Copy section", rld::TimerGroupName,
-                           rld::TimerGroupDescription, EnableTiming};
+  llvm::NamedRegionTimer _{sectionTimerName<SectionK>(Context.TimersEnabled),
+                           "Copy section", rld::TimerGroupName,
+                           rld::TimerGroupDescription, Context.TimersEnabled};
 
   std::for_each(First, Last, [&](const Contribution &Contribution) {
     llvmDebug(DebugType, Context.IOMut, [] { llvm::dbgs() << SectionK << ": "; });
@@ -473,7 +470,7 @@ void copySection<SectionKind::plt>(uint8_t *Dest, Context &Ctxt,
                                    WorkItem::ContributionIterator /*Last*/) {
   llvm::NamedRegionTimer CopyTimer("PLT write", "Write the PLT section",
                                    rld::TimerGroupName,
-                                   rld::TimerGroupDescription, EnableTiming);
+                                   rld::TimerGroupDescription, Context.TimersEnabled);
   const auto &PLTSymbols = GOTPLTs.PLT;
   assert(!PLTSymbols.empty());
 
@@ -518,14 +515,14 @@ void copySection<SectionKind::plt>(uint8_t *Dest, Context &Ctxt,
 #endif
 
 template <>
-void copySection<SectionKind::got>(uint8_t *Dest, Context &Ctxt,
+void copySection<SectionKind::got>(uint8_t *Dest, Context &Context,
                                    const Layout &Lout,
                                    const GOTPLTContainer &GOTPLTs,
                                    WorkItem::ContributionIterator /*First*/,
                                    WorkItem::ContributionIterator /*Last*/) {
   llvm::NamedRegionTimer _{"GOT write", "Write the GOT section",
                            rld::TimerGroupName, rld::TimerGroupDescription,
-                           EnableTiming};
+                           Context.TimersEnabled};
   const auto &GOTSymbols = GOTPLTs.GOT;
   assert(!GOTSymbols.empty());
 #ifndef NDEBUG
@@ -602,8 +599,8 @@ static void consumer(MPMCQueue<WorkItem> &Q, Context &Context,
 namespace rld {
 
 void copyToOutput(
-    Context &Ctxt, llvm::ThreadPool &Workers, uint8_t *const Data,
-    const Layout &Lout, const GOTPLTContainer &GOTPLTs,
+    Context &Context, llvm::ThreadPool &Workers, uint8_t *const Data,
+    const Layout &Layout, const GOTPLTContainer &GOTPLTs,
     const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     uint64_t TargetDataOffset) {
 
@@ -616,9 +613,9 @@ void copyToOutput(
   std::thread Producer{[&] {
     llvm::NamedRegionTimer _{"Producer", "Schedule copy jobs",
                              rld::TimerGroupName, rld::TimerGroupDescription,
-                             EnableTiming};
+                             Context.TimersEnabled};
     forEachSectionKindInFileOrder([&](const SectionKind SectionK) {
-      if (!hasDataToCopy(SectionK, Ctxt, Lout)) {
+      if (!hasDataToCopy(SectionK, Context, Layout)) {
         return;
       }
       assert(SectionFileOffsets[SectionK].hasValue() &&
@@ -628,7 +625,7 @@ void copyToOutput(
       switch (SectionK) {
 #define X(x)                                                                   \
   case SectionKind::x:                                                         \
-    scheduleCopySection<SectionKind::x>(Out, Q, Ctxt, Lout, GOTPLTs);          \
+    scheduleCopySection<SectionKind::x>(Out, Q, Context, Layout, GOTPLTs);     \
     break;
 #define RLD_X(x) X(x)
         RLD_ALL_SECTION_KINDS
@@ -645,7 +642,7 @@ void copyToOutput(
     }
   }};
   for (auto Ctr = 0U; Ctr < NumConsumers; ++Ctr) {
-    Workers.async(consumer, std::ref(Q), std::ref(Ctxt), std::cref(Lout),
+    Workers.async(consumer, std::ref(Q), std::ref(Context), std::cref(Layout),
                   std::cref(GOTPLTs));
   }
   Workers.wait();

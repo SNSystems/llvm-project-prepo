@@ -14,6 +14,8 @@
 #include "rld/SectionArray.h"
 #include "rld/elf.h"
 
+using namespace rld;
+
 // FIXME: this function was lifted from R2OSymbolTable.h
 static constexpr unsigned char
 linkageToELFBinding(const pstore::repo::linkage L) {
@@ -33,7 +35,7 @@ linkageToELFBinding(const pstore::repo::linkage L) {
 }
 
 // FIXME: there is an almost identical function in R2OSymbolTable.h
-static constexpr unsigned char sectionToSymbolType(const rld::SectionKind K) {
+static constexpr unsigned char sectionToSymbolType(const SectionKind K) {
   using namespace rld;
   switch (K) {
   case SectionKind::text:
@@ -76,9 +78,8 @@ static constexpr unsigned char sectionToSymbolType(const rld::SectionKind K) {
 // prepare symbol table section
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 template <typename ELFT>
-uint64_t
-rld::elf::prepareSymbolTableSection(Layout *const Lout,
-                                    const GlobalSymbolsContainer &Globals) {
+uint64_t elf::prepareSymbolTableSection(Layout *const Lout,
+                                        const GlobalSymbolsContainer &Globals) {
   using Elf_Sym = typename llvm::object::ELFFile<ELFT>::Elf_Sym;
   // TODO: this shouldn't include the symbols with internal_no_symbol linkage.
   const uint64_t NumSymbols = Globals.size() + 1;
@@ -91,34 +92,26 @@ rld::elf::prepareSymbolTableSection(Layout *const Lout,
   return NumSymbols;
 }
 
-template uint64_t rld::elf::prepareSymbolTableSection<llvm::object::ELF32BE>(
+template uint64_t elf::prepareSymbolTableSection<llvm::object::ELF32BE>(
     Layout *const Lout, const GlobalSymbolsContainer &Globals);
-template uint64_t rld::elf::prepareSymbolTableSection<llvm::object::ELF32LE>(
+template uint64_t elf::prepareSymbolTableSection<llvm::object::ELF32LE>(
     Layout *const Lout, const GlobalSymbolsContainer &Globals);
-template uint64_t rld::elf::prepareSymbolTableSection<llvm::object::ELF64BE>(
+template uint64_t elf::prepareSymbolTableSection<llvm::object::ELF64BE>(
     Layout *const Lout, const GlobalSymbolsContainer &Globals);
-template uint64_t rld::elf::prepareSymbolTableSection<llvm::object::ELF64LE>(
+template uint64_t elf::prepareSymbolTableSection<llvm::object::ELF64LE>(
     Layout *const Lout, const GlobalSymbolsContainer &Globals);
 
-// write symbol table
-// ~~~~~~~~~~~~~~~~~~
-template <typename ELFT>
-typename llvm::object::ELFFile<ELFT>::Elf_Sym *rld::elf::writeSymbolTable(
-    typename llvm::object::ELFFile<ELFT>::Elf_Sym *SymbolOut,
-    const SymbolOrder &SymOrder, const UndefsContainer &Undefs,
-    const SectionIndexedArray<unsigned> &SectionToIndex) {
+namespace {
+
+template <typename ELFT> struct Writer {
   using Elf_Word = typename llvm::object::ELFFile<ELFT>::Elf_Word;
-  static_assert(std::is_unsigned<typename Elf_Word::value_type>::value,
-                "Expected ELF_Word to be unsigned");
+  using Elf_Sym = typename llvm::object::ELFFile<ELFT>::Elf_Sym;
 
-  auto NameOffset =
-      typename Elf_Word::value_type{1}; // 1 to allow for the initial '\0'.
-  // The initial null symbol.
-  std::memset(SymbolOut, 0, sizeof(*SymbolOut));
-  ++SymbolOut;
-
-  SymOrder.walk(Undefs, [&](const Symbol &Sym) {
-    // Build a symbol.
+  // Build a symbol.
+  static typename Elf_Word::value_type
+  writeSymbol(Elf_Sym *const SymbolOut, const Symbol &Sym,
+              typename Elf_Word::value_type NameOffset,
+              const SectionIndexedArray<unsigned> &SectionToIndex) {
     const std::tuple<const Symbol::OptionalBodies &,
                      std::unique_lock<Symbol::Mutex>>
         Def = Sym.definition();
@@ -136,44 +129,94 @@ typename llvm::object::ELFFile<ELFT>::Elf_Sym *rld::elf::writeSymbolTable(
       const Symbol::Body &B = Bodies->front();
       const Contribution *const C = Sym.contribution();
       assert(C != nullptr);
+      const pstore::repo::section_kind Kind = B.fragment()->front();
 
-      SymbolOut->st_value = symbolValue(*C);
+      SymbolOut->st_value = elf::symbolValue(*C);
       SymbolOut->st_shndx = SectionToIndex[C->OScn->SectionK];
-      // FIXME: the sum of the sizes of all of the bodies.
-      SymbolOut->st_size = 0;
-      SymbolOut->setVisibility(elfVisibility<ELFT>(B.visibility()));
+      SymbolOut->st_size = std::accumulate(
+          Bodies->begin(), Bodies->end(), uint64_t{0},
+          [&Kind](const uint64_t Acc, Symbol::Body const &Body) -> uint64_t {
+            return Acc + fragmentSectionSize(Kind, Body.fragment());
+          });
+      SymbolOut->setVisibility(elf::elfVisibility<ELFT>(B.visibility()));
       SymbolOut->setBindingAndType(linkageToELFBinding(B.linkage()),
                                    sectionToSymbolType(C->OScn->SectionK));
     }
     SymbolOut->st_name = Elf_Word{NameOffset};
 
-    ++SymbolOut;
     // Pass our lock to nameLength() so that it doesn't try to take one of its
     // own. The +1 here allows for the final '\0'.
     NameOffset += Sym.nameLength(Lock) + 1U;
+    return NameOffset;
+  }
+
+  static constexpr uint64_t
+  fragmentSectionSize(const pstore::repo::section_kind Kind,
+                      FragmentPtr const &F) {
+    if (!F->has_section(Kind)) {
+      return 0U;
+    }
+#define X(x)                                                                   \
+  case pstore::repo::section_kind::x:                                          \
+    return F->at<pstore::repo::section_kind::x>().size();
+
+    switch (Kind) {
+      PSTORE_MCREPO_SECTION_KINDS
+    case pstore::repo::section_kind::last:
+      break;
+    }
+#undef X
+    return 0U;
+  }
+};
+
+} // end anonymous namespace
+
+// write symbol table
+// ~~~~~~~~~~~~~~~~~~
+template <typename ELFT>
+typename llvm::object::ELFFile<ELFT>::Elf_Sym *
+elf::writeSymbolTable(typename llvm::object::ELFFile<ELFT>::Elf_Sym *SymbolOut,
+                      const SymbolOrder &SymOrder,
+                      const UndefsContainer &Undefs,
+                      const SectionIndexedArray<unsigned> &SectionToIndex) {
+  using Elf_Word = typename llvm::object::ELFFile<ELFT>::Elf_Word;
+  static_assert(std::is_unsigned<typename Elf_Word::value_type>::value,
+                "Expected ELF_Word to be unsigned");
+
+  auto NameOffset =
+      typename Elf_Word::value_type{1}; // 1 to allow for the initial '\0'.
+  // The initial null symbol.
+  std::memset(SymbolOut, 0, sizeof(*SymbolOut));
+  ++SymbolOut;
+
+  SymOrder.walk(Undefs, [&](const Symbol &Sym) {
+    NameOffset =
+        Writer<ELFT>::writeSymbol(SymbolOut, Sym, NameOffset, SectionToIndex);
+    ++SymbolOut;
   });
   return SymbolOut;
 }
 
-template auto rld::elf::writeSymbolTable<llvm::object::ELF32BE>(
+template auto elf::writeSymbolTable<llvm::object::ELF32BE>(
     typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Sym *SymbolOut,
     const SymbolOrder &SymOrder, const UndefsContainer &Undefs,
     const SectionIndexedArray<unsigned> &SectionToIndex) ->
     typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Sym *;
 
-template auto rld::elf::writeSymbolTable<llvm::object::ELF32LE>(
+template auto elf::writeSymbolTable<llvm::object::ELF32LE>(
     typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Sym *SymbolOut,
     const SymbolOrder &SymOrder, const UndefsContainer &Undefs,
     const SectionIndexedArray<unsigned> &SectionToIndex) ->
     typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Sym *;
 
-template auto rld::elf::writeSymbolTable<llvm::object::ELF64BE>(
+template auto elf::writeSymbolTable<llvm::object::ELF64BE>(
     typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Sym *SymbolOut,
     const SymbolOrder &SymOrder, const UndefsContainer &Undefs,
     const SectionIndexedArray<unsigned> &SectionToIndex) ->
     typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Sym *;
 
-template auto rld::elf::writeSymbolTable<llvm::object::ELF64LE>(
+template auto elf::writeSymbolTable<llvm::object::ELF64LE>(
     typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Sym *SymbolOut,
     const SymbolOrder &SymOrder, const UndefsContainer &Undefs,
     const SectionIndexedArray<unsigned> &SectionToIndex) ->

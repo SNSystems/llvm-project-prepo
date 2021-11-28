@@ -120,6 +120,8 @@ public:
 
   pstore::database &Db;
   mutable std::mutex IOMut;
+  // True if use of named timers is enabled.
+  bool TimersEnabled;
 
   std::atomic<uint64_t> ELFStringTableSize;
   std::atomic<unsigned> PLTEntries;

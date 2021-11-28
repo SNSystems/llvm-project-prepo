@@ -182,7 +182,8 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
   using Elf_Sym = typename llvm::object::ELFFile<ELFT>::Elf_Sym;
 
   llvm::NamedRegionTimer Timer("ELF Output", "Binary Output Phase",
-                               rld::TimerGroupName, rld::TimerGroupDescription);
+                               rld::TimerGroupName, rld::TimerGroupDescription,
+                               Context.TimersEnabled);
 
   const uint64_t StringTableSize =
       elf::prepareStringTable(Layout, Context, Globals);
@@ -324,9 +325,9 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
     WorkPool.async([StringStart, &Context, &SymOrder, &Undefs,
                     StringTableSize] {
       // Produce the string table.
-      llvm::NamedRegionTimer StringTableTimer(
+      llvm::NamedRegionTimer StringTableTimer{
           "String Table", "Write the symbol name section", rld::TimerGroupName,
-          rld::TimerGroupDescription);
+          rld::TimerGroupDescription, Context.TimersEnabled};
 
       auto *const StringEnd =
           elf::writeStrings(StringStart, Context, SymOrder, Undefs);
@@ -343,11 +344,11 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
         BufferStart + FileRegions[Region::SectionData].offset() +
         *SectionFileOffsets[SectionKind::symtab]);
 
-    WorkPool.async([SymbolStart, &SymOrder, &Undefs, &SectionToIndex,
+    WorkPool.async([SymbolStart, &Context, &SymOrder, &Undefs, &SectionToIndex,
                     SymbolTableSize] {
-      llvm::NamedRegionTimer StringTableTimer(
-          "Symbol Table", "Write the symbol table", rld::TimerGroupName,
-          rld::TimerGroupDescription);
+      llvm::NamedRegionTimer _{"Symbol Table", "Write the symbol table",
+                               rld::TimerGroupName, rld::TimerGroupDescription,
+                               Context.TimersEnabled};
 
       Elf_Sym *const SymbolEnd = elf::writeSymbolTable<ELFT>(
           SymbolStart, SymOrder, Undefs, SectionToIndex);

@@ -47,13 +47,14 @@ static void dump(pstore::database const &Db, llvm::raw_ostream &OS,
   OS << '\n';
 }
 
-auto rld::identifyPass(rld::Context &Ctxt, llvm::ThreadPool &IdentifyPool,
+auto rld::identifyPass(rld::Context &Context, llvm::ThreadPool &IdentifyPool,
                        const rld::CompilationIndexPtr &CompilationIndex,
                        const llvm::ArrayRef<std::string> &InputPaths)
     -> llvm::ErrorOr<IdentifyResult> {
 
   llvm::NamedRegionTimer ScanTimer("Identify", "Identify pass", TimerGroupName,
-                                   TimerGroupDescription);
+                                   TimerGroupDescription,
+                                   Context.TimersEnabled);
 
   ArchiveSymbolMap ArchSymbols;
   Identifier::CompilationVector Compilations;
@@ -61,7 +62,7 @@ auto rld::identifyPass(rld::Context &Ctxt, llvm::ThreadPool &IdentifyPool,
   std::atomic<size_t> MaxArchiveMembers{0};
 
   auto InputOrdinal = uint32_t{0};
-  rld::Identifier Ident{Ctxt.Db, CompilationIndex, Ctxt.IOMut};
+  rld::Identifier Ident{Context.Db, CompilationIndex, Context.IOMut};
   for (auto const &InputPath : InputPaths) {
     IdentifyPool.async(
         [&](std::string const &Path, uint32_t Ordinal) {
@@ -83,7 +84,7 @@ auto rld::identifyPass(rld::Context &Ctxt, llvm::ThreadPool &IdentifyPool,
 
   auto R = IdentifyResult(std::move(Ident.getArchiveSymbols()),
                           std::move(Ident.getCompilationVector()));
-  llvmDebug(DebugType, Ctxt.IOMut,
-            [&]() { dump(Ctxt.Db, llvm::dbgs(), R, MaxArchiveMembers); });
+  llvmDebug(DebugType, Context.IOMut,
+            [&]() { dump(Context.Db, llvm::dbgs(), R, MaxArchiveMembers); });
   return R;
 }

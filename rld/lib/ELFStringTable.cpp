@@ -18,7 +18,10 @@ uint64_t rld::elf::prepareStringTable(Layout *const Lout, const Context &Ctxt,
   assert(StringTableSize ==
          std::accumulate(std::begin(Globals), std::end(Globals), uint64_t{1},
                          [&Ctxt](const uint64_t Acc, const Symbol &Sym) {
-                           return Acc + stringLength(Ctxt.Db, Sym.name()) + 1U;
+                           const auto Length =
+                               stringLength(Ctxt.Db, Sym.name());
+                           assert(Length == Sym.nameLength());
+                           return Acc + Length + 1U;
                          }));
 
   OutputSection &StrTab = Lout->Sections[SectionKind::strtab];
@@ -40,7 +43,10 @@ uint8_t *rld::elf::writeStrings(uint8_t *StringOut, const Context &Context,
     // Copy a string.
     const pstore::raw_sstring_view Str = pstore::get_sstring_view(
         Context.Db, Sym.name(), Sym.nameLength(), &Owner);
-    StringOut = std::copy(std::begin(Str), std::end(Str), StringOut);
+    auto *const StringOutEnd =
+        std::copy(std::begin(Str), std::end(Str), StringOut);
+    assert(StringOut + Sym.nameLength() == StringOutEnd);
+    StringOut = StringOutEnd;
     *(StringOut++) = '\0';
   });
 
