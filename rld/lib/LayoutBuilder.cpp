@@ -378,27 +378,6 @@ auto LayoutBuilder::recoverDefinitionsFromCUMap(const std::size_t Ordinal)
   return D;
 }
 
-// append to emit list [static]
-// ~~~~~~~~~~~~~~~~~~~
-void LayoutBuilder::appendToEmitList(
-    std::pair<Symbol *, Symbol *> *const EmitList, Symbol *const Sym) {
-  assert(Sym != nullptr);
-  Symbol *&H = std::get<HeadIndex>(*EmitList);
-  Symbol *&L = std::get<LastIndex>(*EmitList);
-  assert((H == nullptr) == (L == nullptr));
-  if (H == nullptr) {
-    H = L = Sym;
-  } else {
-
-    if (L == Sym || Sym->NextEmit != nullptr) {
-      return; // Already in the list.
-    }
-    if (L->setNextEmit(Sym)) {
-      L = Sym;
-    }
-  }
-}
-
 template <SectionKind InSection, SectionKind OutSection>
 std::enable_if_t<!IsPstoreSectionKind<InSection>::value,
                  ContributionSpArray::iterator>
@@ -456,10 +435,9 @@ void LayoutBuilder::addSymbolBody(Symbol *const Sym, const Symbol::Body &Body,
   });
 
   if (isLocalLinkage(Body.linkage())) {
-    ++LocalsSize_;
-    this->appendToEmitList(&LocalEmit_, Sym);
+    LocalEmit_.append(Sym);
   } else {
-    this->appendToEmitList(&GlobalEmit_, Sym);
+    GlobalEmit_.append(Sym);
   }
 
   ContributionSpArray::iterator CIt{};
@@ -576,10 +554,9 @@ void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
 
             // c.f. addSymbolBody
             if (isLocalLinkage(FirstBody.linkage())) {
-              ++LocalsSize_;
-              this->appendToEmitList(&LocalEmit_, Sym);
+              LocalEmit_.append(Sym);
             } else {
-              this->appendToEmitList(&GlobalEmit_, Sym);
+              GlobalEmit_.append(Sym);
             }
           }
         }

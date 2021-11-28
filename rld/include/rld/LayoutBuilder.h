@@ -277,8 +277,7 @@ public:
   template <typename ELFT> uint64_t elfHeaderBlockSize() const;
 
   SymbolOrder symbolOrder() const {
-    return {std::get<HeadIndex>(LocalEmit_), LocalsSize_,
-            std::get<HeadIndex>(GlobalEmit_)};
+    return {LocalEmit_, GlobalEmit_};
   }
 
   static SectionKind mapInputToOutputSection(SectionKind InputSection) {
@@ -360,14 +359,8 @@ private:
   /// of that compilation.
   std::unique_ptr<GOTPLTContainer> GOTPLTs_;
 
-  enum { HeadIndex, LastIndex };
-  std::pair<Symbol *, Symbol *> LocalEmit_;
-  /// The number of local symbols.
-  size_t LocalsSize_ = 0;
-  std::pair<Symbol *, Symbol *> GlobalEmit_;
-
-  static void appendToEmitList(std::pair<Symbol *, Symbol *> *const EmitList,
-                               Symbol *const Sym);
+  EmitList LocalEmit_;
+  EmitList GlobalEmit_;
 
   static constexpr decltype(auto) sectionNum(pstore::repo::section_kind SKind) {
     return static_cast<std::underlying_type<pstore::repo::section_kind>::type>(
