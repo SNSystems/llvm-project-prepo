@@ -6,7 +6,7 @@ namespace {
 
 struct TestSymbol {
   virtual ~TestSymbol() = default;
-  virtual bool setNextEmit(TestSymbol *const Next) = 0;
+  virtual bool setNextEmit(TestSymbol *Next) = 0;
 
   bool setNextEmitImpl(TestSymbol *const Next) {
     NextEmit = Next;
@@ -18,7 +18,7 @@ struct TestSymbol {
 
 class MockTestSymbol : public TestSymbol {
 public:
-  MOCK_METHOD1(setNextEmit, bool(TestSymbol *const));
+  MOCK_METHOD1(setNextEmit, bool(TestSymbol *));
 };
 
 } // end anonymous namespace

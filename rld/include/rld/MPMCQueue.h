@@ -57,10 +57,19 @@ static constexpr std::size_t HardwareInterferenceSize = 64;
 //* /_/ \_\_|_\__, |_||_\___\__,_| /_/ \_\_|_\___/\__\__,_|\__\___/_|   *
 //*           |___/                                                     *
 #if defined(__cpp_aligned_new)
+#error
 template <typename T> using AlignedAllocator = std::allocator<T>;
 #else
 template <typename T> struct AlignedAllocator {
   using value_type = T;
+  using size_type = size_t;
+  using difference_type = ptrdiff_t;
+
+  AlignedAllocator() noexcept = default;
+  AlignedAllocator(const AlignedAllocator &) noexcept = default;
+  template <typename U>
+  AlignedAllocator(const AlignedAllocator<U> &) noexcept {}
+
   T *allocate(std::size_t n);
   void deallocate(T *p, std::size_t);
 };
