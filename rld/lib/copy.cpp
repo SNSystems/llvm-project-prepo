@@ -61,6 +61,7 @@ public:
   static void applyExternal(uint8_t *const Out, Context &Context,
                             const Contribution &Src, const Layout &Layout,
                             const Symbol &Target, const ExternalFixup &Fixup) {
+    assert(alignTo(Src.Offset, Src.Align) == Src.Offset);
     return apply(Out, Context, Src, Layout, Target, Fixup);
   }
 
@@ -68,6 +69,7 @@ public:
                             const Contribution &Src, const Layout &Layout,
                             const Contribution &Target,
                             const InternalFixup &Fixup) {
+    assert(alignTo(Src.Offset, Src.Align) == Src.Offset);
     return apply(Out, Context, Src, Layout, Target, Fixup);
   }
 
@@ -219,11 +221,10 @@ template <typename TargetType, typename FixupType>
 void applier<llvm::ELF::R_X86_64_TPOFF32>::apply(
     uint8_t *const Out, Context & /*Context*/, const Contribution &Src,
     const Layout &Layout, const TargetType &Target, const FixupType &Fixup) {
-  const auto S = getS(Target);
+  const Segment &TLSSegment = Layout.Segments[SegmentKind::tls];
+  const auto S = getS(Target) - TLSSegment.VirtualAddr;
   const int64_t A = getA(Fixup);
-  assert(alignTo(Src.Offset, Src.Align) == Src.Offset);
-  const uint64_t P = Layout.Segments[SegmentKind::tls].VirtualAddr;
-  llvm::support::little32_t::ref{Out} = S + A - P;
+  llvm::support::little32_t::ref{Out} = S + A - TLSSegment.VirtualSize;
 }
 
 } // end anonymous namespace

@@ -1,0 +1,51 @@
+// This test verifies that rld correctly processes an internal fixup that
+// addresses the mergeable_const_16 section. This section is mapped to the
+// rodata output section by layout so we need to ensure that its origin is
+// preseved.
+
+// RUN: rm -rf %t && mkdir -p %t
+// RUN: pstore-import %t/r_x86_64_tpoff32.repo %s
+// RUN: repo-create-ticket --repo %t/r_x86_64_tpoff32.repo -o %t/t0.o 11111111111111111111111111111111
+// RUN: rld --repo=%t/r_x86_64_tpoff32.repo -o %t/rld.out %t/t0.o
+// RUN: llvm-readelf --hex-dump=.text %t/rld.out | FileCheck %s
+
+// CHECK: Hex dump of section '.text':
+// CHECK-NEXT: 0x00401000 fcffffff
+
+{
+  "version": 1,
+  "id": "74EEA5AC-BB63-4DA7-8E87-7FAB92798607",
+  "transactions": [
+    {
+      "names": [
+        "x86_64-pc-linux-gnu-repo", // 0
+        "_start", // 1
+      ],
+
+      "fragments": {
+        "11111111111111111111111111111111": {
+          "text": {
+            "data": "AAAAAA==", // 4 bytes of zeroes.
+            "ifixups": [
+              // A single R_X86_64_TPOFF32 fixup targeting thread_data+0
+              { "section": "thread_data", "type": 23, "offset": 0, "addend": 0 },
+            ],
+          },
+
+          "thread_data": {
+            "data": "AAAAAA==", // 4 bytes of zeroes.
+          }
+        },
+      },
+
+      "compilations": {
+        "11111111111111111111111111111111": {
+          "triple": 0, // "x86_64-pc-linux-gnu-repo"
+          "definitions": [
+            { "digest": "11111111111111111111111111111111", "name": 1, "linkage": "external" }, // "_start"
+          ]
+        },
+      }
+    }
+  ]
+}
