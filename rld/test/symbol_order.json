@@ -4,22 +4,22 @@
 // finally weak-undef.
 
 // RUN: rm -rf %t && mkdir -p %t
-// RUN: pstore-import %t/db.db %s
-// RUN: repo-create-ticket --repo %t/db.db -o %t/a.o 11111111111111111111111111111111
-// RUN: repo-create-ticket --repo %t/db.db -o %t/b.o 22222222222222222222222222222222
-// RUN: rld --repo=%t/db.db -o %t/a.out %t/a.o %t/b.o
+// RUN: pstore-import %t/symbol_order.repo %s
+// RUN: repo-create-ticket --repo %t/symbol_order.repo -o %t/a.o 11111111111111111111111111111111
+// RUN: repo-create-ticket --repo %t/symbol_order.repo -o %t/b.o 22222222222222222222222222222222
+// RUN: rld --repo=%t/symbol_order.repo -o %t/a.out %t/a.o %t/b.o
 // RUN: llvm-readelf --symbols %t/a.out | FileCheck %s
 
 
 // CHECK: Symbol table '.symtab' contains 8 entries:
-// CHECK: 0: 0000000000000000 0 NOTYPE  LOCAL  DEFAULT   UND
-// CHECK: 1: {{[0-9A-Fa-f]+}} 0 FUNC    LOCAL  DEFAULT     1 b
-// CHECK: 2: {{[0-9A-Fa-f]+}} 0 FUNC    LOCAL  DEFAULT     1 e
-// CHECK: 3: {{[0-9A-Fa-f]+}} 0 FUNC    GLOBAL DEFAULT     1 a
-// CHECK: 4: {{[0-9A-Fa-f]+}} 0 FUNC    GLOBAL DEFAULT     1 c
-// CHECK: 5: {{[0-9A-Fa-f]+}} 0 FUNC    GLOBAL DEFAULT     1 d
-// CHECK: 6: {{[0-9A-Fa-f]+}} 0 FUNC    GLOBAL DEFAULT     1 f
-// CHECK: 7: 0000000000000000 0 NOTYPE  WEAK   DEFAULT   UND g
+// CHECK: 0: 0000000000000000  0 NOTYPE  LOCAL  DEFAULT   UND
+// CHECK: 1: {{[0-9A-Fa-f]+}}  6 FUNC    LOCAL  DEFAULT     1 b
+// CHECK: 2: {{[0-9A-Fa-f]+}}  6 FUNC    LOCAL  DEFAULT     1 e
+// CHECK: 3: {{[0-9A-Fa-f]+}}  9 FUNC    GLOBAL DEFAULT     1 a
+// CHECK: 4: {{[0-9A-Fa-f]+}} 11 FUNC    GLOBAL DEFAULT     1 c
+// CHECK: 5: {{[0-9A-Fa-f]+}} 13 FUNC    GLOBAL DEFAULT     1 d
+// CHECK: 6: {{[0-9A-Fa-f]+}} 11 FUNC    GLOBAL DEFAULT     1 f
+// CHECK: 7: 0000000000000000  0 NOTYPE  WEAK   DEFAULT   UND g
 
 
 {

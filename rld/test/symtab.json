@@ -1,17 +1,17 @@
 // RUN: rm -rf %t && mkdir -p %t
-// RUN: pstore-import %t/db.db %s
-// RUN: repo-create-ticket --repo %t/db.db -o %t/t0.o 10000000000000000000000000000000
-// RUN: repo-create-ticket --repo %t/db.db -o %t/t1.o 20000000000000000000000000000000
-// RUN: rld --repo=%t/db.db -o %t/rld.out %t/t0.o %t/t1.o
+// RUN: pstore-import %t/symtab.repo %s
+// RUN: repo-create-ticket --repo %t/symtab.repo -o %t/t0.o 10000000000000000000000000000000
+// RUN: repo-create-ticket --repo %t/symtab.repo -o %t/t1.o 20000000000000000000000000000000
+// RUN: rld --repo=%t/symtab.repo -o %t/rld.out %t/t0.o %t/t1.o
 // RUN: llvm-readelf --symbols %t/rld.out | FileCheck %s
 
 // CHECK: Symbol table '.symtab' contains 5 entries:
 // CHECK-NEXT: Num: Value     Size Type   Bind   Vis     Ndx              Name
-// CHECK: 0: 0000000000000000 0    NOTYPE LOCAL  DEFAULT UND
-// CHECK: 1: {{[0-9A-Fa-f]+}} 0    FUNC   LOCAL  DEFAULT {{[0-9A-Fa-f]+}} a
-// CHECK: 2: {{[0-9A-Fa-f]+}} 0    FUNC   LOCAL  DEFAULT {{[0-9A-Fa-f]+}} c
-// CHECK: 3: {{[0-9A-Fa-f]+}} 0    FUNC   GLOBAL DEFAULT {{[0-9A-Fa-f]+}} b
-// CHECK: 4: {{[0-9A-Fa-f]+}} 0    FUNC   GLOBAL DEFAULT {{[0-9A-Fa-f]+}} d
+// CHECK: 0: 0000000000000000    0 NOTYPE LOCAL  DEFAULT UND
+// CHECK: 1: {{[0-9A-Fa-f]+}}   11 FUNC   LOCAL  DEFAULT {{[0-9A-Fa-f]+}} a
+// CHECK: 2: {{[0-9A-Fa-f]+}}   11 FUNC   LOCAL  DEFAULT {{[0-9A-Fa-f]+}} c
+// CHECK: 3: {{[0-9A-Fa-f]+}}   11 FUNC   GLOBAL DEFAULT {{[0-9A-Fa-f]+}} b
+// CHECK: 4: {{[0-9A-Fa-f]+}}   11 FUNC   GLOBAL DEFAULT {{[0-9A-Fa-f]+}} d
 
 {
   "version": 1,
