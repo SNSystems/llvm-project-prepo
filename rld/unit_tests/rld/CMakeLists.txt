@@ -19,6 +19,7 @@ add_rld_unittest(rldTests
   TestCSAlloc.cpp
   TestMathExtras.cpp
   TestMPMCQueue.cpp
+  TestSymbolEmitList.cpp
   TestSymbolResolver.cpp
   TestXfxResolver.cpp
 )

@@ -24,6 +24,7 @@
 #include "rld/OutputSection.h"
 #include "rld/SectionArray.h"
 #include "rld/SectionKind.h"
+#include "rld/SymbolEmitList.h"
 #include "rld/symbol.h"
 
 #include <condition_variable>
@@ -359,8 +360,8 @@ private:
   /// of that compilation.
   std::unique_ptr<GOTPLTContainer> GOTPLTs_;
 
-  EmitList LocalEmit_;
-  EmitList GlobalEmit_;
+  SymbolEmitList LocalEmit_;
+  SymbolEmitList GlobalEmit_;
 
   static constexpr decltype(auto) sectionNum(pstore::repo::section_kind SKind) {
     return static_cast<std::underlying_type<pstore::repo::section_kind>::type>(

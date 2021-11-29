@@ -15,6 +15,7 @@
 namespace rld {
 
 class Layout;
+struct SymbolOrder;
 
 namespace elf {
 

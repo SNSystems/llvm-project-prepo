@@ -716,6 +716,9 @@ void LayoutBuilder::run() {
                        SectionKind::fini_array, true);
   this->addAliasSymbol(Magics.FiniArrayEnd, Magics.GlobalDtors,
                        SectionKind::fini_array, false);
+
+  LocalEmit_.last();
+  GlobalEmit_.last();
 }
 
 // compute segment size

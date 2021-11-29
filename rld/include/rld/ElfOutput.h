@@ -29,6 +29,7 @@ namespace rld {
 class Context;
 class Layout;
 class UndefsContainer;
+struct SymbolOrder;
 
 template <typename ELFT>
 llvm::Error elfOutput(const llvm::StringRef &OutputFileName, Context &Ctxt,

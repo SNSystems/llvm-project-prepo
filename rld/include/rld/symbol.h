@@ -710,58 +710,6 @@ private:
 using GlobalSymbolsContainer =
     pstore::chunked_sequence<Symbol, (4 * 1024 * 1024) / sizeof(Symbol)>;
 
-/// Forms an intrusive linked list of symbols that will later be used when it comes to writing the symbols to the output.
-struct EmitList {
-  Symbol * Head = nullptr;
-  Symbol * Last = nullptr;
-  std::size_t Size = 0;
-
-  void append(Symbol *const Sym) {
-    assert(Sym != nullptr);
-    Symbol *&H = Head;
-    Symbol *&L = Last;
-    assert((H == nullptr) == (L == nullptr));
-    ++Size;
-    if (H == nullptr) {
-      H = L = Sym;
-    } else {
-      if (L == Sym || Sym->NextEmit != nullptr) {
-        return; // Already in the list.
-      }
-      if (L->setNextEmit(Sym)) {
-        L = Sym;
-      }
-    }
-  }
-};
-
-struct SymbolOrder {
-  Symbol * Local = nullptr;
-  size_t LocalsSize = 0U;
-  Symbol * Global = nullptr;
-
-  SymbolOrder() = default;
-  SymbolOrder (const EmitList & Local, const EmitList & Global) : Local{Local.Head}, LocalsSize{Local.Size}, Global{Global.Head} {}
-  SymbolOrder (SymbolOrder const & ) = default;
-  SymbolOrder (SymbolOrder && ) = default;
-
-  SymbolOrder & operator=(SymbolOrder const & ) = default;
-  SymbolOrder & operator=(SymbolOrder && ) = default;
-
-  template <typename Function>
-  void walk(const UndefsContainer &Undefs, Function F) const {
-    auto W = [&F](const Symbol *S) {
-      for (; S != nullptr; S = S->NextEmit) {
-        assert(S != S->NextEmit);
-        F(*S);
-      }
-    };
-    W(Local);
-    W(Global);
-    std::for_each(std::begin(Undefs), std::end(Undefs), F);
-  }
-};
-
 void debugDumpSymbols(const Context &Ctx,
                       const GlobalSymbolsContainer &Globals);
 
