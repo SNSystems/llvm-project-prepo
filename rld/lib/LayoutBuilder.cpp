@@ -97,40 +97,6 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, Contribution const &C) {
             << ", align:" << C.Align;
 }
 
-LayoutBuilder::Visited::Visited(uint32_t NumCompilations) {
-  this->resize(NumCompilations);
-}
-
-void LayoutBuilder::Visited::visit(uint32_t Index) {
-  std::lock_guard<std::mutex> const Lock{Mut_};
-  // As archives are completed, file indices beyond the initial value will be
-  // arriving here.
-  this->resize(Index);
-  Visited_[Index] = true;
-  CV_.notify_one();
-}
-
-bool LayoutBuilder::Visited::waitFor(uint32_t Index) {
-  std::unique_lock<std::mutex> Lock{Mut_};
-  CV_.wait(Lock, [this, Index] { return Error_ || Visited_[Index]; });
-  assert(Error_ || Visited_[Index]);
-  return Error_;
-}
-
-void LayoutBuilder::Visited::error() {
-  Error_ = true;
-  CV_.notify_all();
-}
-
-void LayoutBuilder::Visited::resize(uint32_t NumCompilations) {
-  if (NumCompilations > Visited_.size()) {
-    // Add something to NumCompilations to allow for the fact that we can
-    // anticipate additional compilations coming from archives.
-    Visited_.resize(static_cast<size_t>(NumCompilations) +
-                    NumCompilations / 2U);
-  }
-}
-
 #define RLD_X(x) x,
 const std::array<SectionKind const,
                  static_cast<std::underlying_type_t<SectionKind>>(
@@ -156,6 +122,81 @@ void checkSectionFileOrder() {
   assert(SO.all());
 #endif // NDEBUG
 }
+
+//*  _                       _    *
+//* | |   __ _ _  _ ___ _  _| |_  *
+//* | |__/ _` | || / _ \ || |  _| *
+//* |____\__,_|\_, \___/\_,_|\__| *
+//*            |__/               *
+// (ctor)
+// ~~~~~~
+#define X(x) OutputSection{SectionKind::x},
+#define RLD_X(x) X(x)
+Layout::Layout() : Sections{{RLD_ALL_SECTION_KINDS}} {}
+#undef RLD_X
+#undef X
+
+//* __   ___    _ _          _  *
+//* \ \ / (_)__(_) |_ ___ __| | *
+//*  \ V /| (_-< |  _/ -_) _` | *
+//*   \_/ |_/__/_|\__\___\__,_| *
+//*                             *
+// file completed
+// ~~~~~~~~~~~~~~
+void LayoutBuilder::Visited::fileCompleted(const uint32_t Ordinal) {
+  const std::lock_guard<decltype(Mut_)> _{Mut_};
+  assert(!Done_ && "Must not call fileCompleted() after done()");
+  assert(Visited_.insert(Ordinal).second &&
+         "Ordinal must not have been previously visted");
+  Waiting_.push(Ordinal);
+  CV_.notify_one();
+}
+
+// next
+// ~~~~
+llvm::Optional<uint32_t> LayoutBuilder::Visited::next() {
+  std::unique_lock<decltype(Mut_)> Lock{Mut_};
+  for (;;) {
+    const auto IsEmpty = Waiting_.empty();
+    if ((Done_ && IsEmpty) || Error_) {
+      return llvm::None;
+    }
+    if (!IsEmpty && Waiting_.top() == ConsumerOrdinal_) {
+      Waiting_.pop();
+      return {ConsumerOrdinal_++};
+    }
+    CV_.wait(Lock);
+  }
+}
+
+// done
+// ~~~~
+void LayoutBuilder::Visited::done() {
+  const std::lock_guard<decltype(Mut_)> _{Mut_};
+  Done_ = true;
+  CV_.notify_all();
+}
+
+// error
+// ~~~~~
+void LayoutBuilder::Visited::error() {
+  const std::lock_guard<decltype(Mut_)> _{Mut_};
+  Error_ = true;
+  CV_.notify_all();
+}
+
+// has error
+// ~~~~~~~~~
+bool LayoutBuilder::Visited::hasError() const {
+  const std::lock_guard<decltype(Mut_)> _{Mut_};
+  return Error_;
+}
+
+//*  _                       _     ___      _ _    _          *
+//* | |   __ _ _  _ ___ _  _| |_  | _ )_  _(_) |__| |___ _ _  *
+//* | |__/ _` | || / _ \ || |  _| | _ \ || | | / _` / -_) '_| *
+//* |____\__,_|\_, \___/\_,_|\__| |___/\_,_|_|_\__,_\___|_|   *
+//*            |__/                                           *
 
 // For the most part, the type of the section in the input is mapped directly to
 // the output. In the case of the mergeable... sections, these are translated to
@@ -203,14 +244,6 @@ LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
     {SectionKind::symtab, SegmentKind::discard},
 }};
 
-// (ctor)
-// ~~~~~~
-#define X(x) OutputSection{SectionKind::x},
-#define RLD_X(x) X(x)
-Layout::Layout() : Sections{{RLD_ALL_SECTION_KINDS}} {}
-#undef RLD_X
-#undef X
-
 // check section to segment array
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 void LayoutBuilder::checkSectionToSegmentArray() {
@@ -233,10 +266,8 @@ constexpr auto PageSize = 0x1000U;
 // (ctor)
 // ~~~~~~
 LayoutBuilder::LayoutBuilder(Context &Ctx,
-                             const NotNull<UndefsContainer *> Undefs,
-                             uint32_t NumCompilations)
-    : Ctx_{Ctx}, Undefs_{Undefs}, NumCompilations_{NumCompilations},
-      CompilationWaiter_{NumCompilations}, CUsMut_{}, CUs_{},
+                             const NotNull<UndefsContainer *> Undefs)
+    : Ctx_{Ctx}, Undefs_{Undefs}, CUsMut_{}, CUs_{},
       Layout_{std::make_unique<Layout>()},
       GOTPLTs_{std::make_unique<GOTPLTContainer>()}, LocalEmit_{},
       GlobalEmit_{} {
@@ -265,7 +296,7 @@ void LayoutBuilder::visited(
     (void)Res;
     assert(Res.second); // Ensure that the insertion happened.
   }
-  CompilationWaiter_.visit(Index);
+  CompilationWaiter_.fileCompleted(Index);
 }
 
 // prev section end
@@ -576,14 +607,9 @@ void LayoutBuilder::run() {
   SpecialNames Magics;
   Magics.initialize(Ctx_.Db);
 
-  for (auto Ordinal = uint32_t{0}; Ordinal < NumCompilations_; ++Ordinal) {
-    if (CompilationWaiter_.waitFor(Ordinal)) {
-      // An error was signalled.
-      llvmDebug(DebugType, Ctx_.IOMut, [&] {
-        llvm::dbgs() << "An error was encountered. Stopping.\n";
-      });
-      return;
-    }
+  while (const llvm::Optional<uint32_t> InputOrdinal =
+             CompilationWaiter_.next()) {
+    const uint32_t Ordinal = *InputOrdinal;
 
     llvmDebug(DebugType, Ctx_.IOMut, [&] {
       llvm::dbgs() << "Starting layout for #" << Ordinal << '\n';
@@ -645,6 +671,13 @@ void LayoutBuilder::run() {
 
     GOTPLTs_->append(std::get<GOTPLTContainer>(PerCompilation));
   } // input file loop.
+
+  if (CompilationWaiter_.hasError()) {
+    // An error was signalled.
+    llvmDebug(DebugType, Ctx_.IOMut,
+              [&] { llvm::dbgs() << "An error was encountered. Stopping.\n"; });
+    return;
+  }
 
 #if 0
   using ELFT = llvm::object::ELF64LE;

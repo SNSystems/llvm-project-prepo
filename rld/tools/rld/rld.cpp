@@ -240,8 +240,7 @@ int main(int Argc, char *Argv[]) {
       llvm::errs() << "Error: Too many input files\n";
       std::exit(EXIT_FAILURE);
     }
-    rld::LayoutBuilder Layout{*Ctxt, &Undefs,
-                              static_cast<uint32_t>(NumCompilations)};
+    rld::LayoutBuilder Layout{*Ctxt, &Undefs};
     std::thread LayoutThread{&rld::LayoutBuilder::run, &Layout};
 
     llvm::Optional<llvm::Triple> Triple;
@@ -272,6 +271,7 @@ int main(int Argc, char *Argv[]) {
       }
 
       WorkPool->wait();
+      Layout.endGroup();
       if (ScanError) {
         ExitCode = EXIT_FAILURE;
       }

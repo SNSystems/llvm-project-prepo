@@ -16,6 +16,7 @@
 #define RLD_LAYOUT_BUILDER_H
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/Object/ELF.h"
 #include "llvm/Object/ELFTypes.h"
 
@@ -31,7 +32,7 @@
 #include <cstdlib>
 #include <memory>
 #include <mutex>
-#include <vector>
+#include <queue>
 
 namespace rld {
 
@@ -251,17 +252,19 @@ PSTORE_MCREPO_SECTION_KINDS
 //-MARK: LayoutBuilder
 class LayoutBuilder {
 public:
-  LayoutBuilder(Context &Ctx, const NotNull<UndefsContainer *> Undefs,
-                uint32_t NumCompilations);
-  // no copying or assignment.
-  LayoutBuilder(LayoutBuilder const &) = delete;
+  LayoutBuilder(Context &Ctx, const NotNull<UndefsContainer *> Undefs);
+  LayoutBuilder(const LayoutBuilder &) = delete;
   LayoutBuilder(LayoutBuilder &&) noexcept = delete;
-  LayoutBuilder &operator=(LayoutBuilder const &) = delete;
+
+  ~LayoutBuilder() noexcept = default;
+
+  LayoutBuilder &operator=(const LayoutBuilder &) = delete;
   LayoutBuilder &operator=(LayoutBuilder &&) noexcept = delete;
 
   /// Call when a compilation scan has been completed.
   void visited(uint32_t Ordinal,
                std::tuple<CompilationSymbolsView, GOTPLTContainer> &&Locals);
+  void endGroup() { CompilationWaiter_.done(); }
 
   /// The main layout thread entry point.
   void run();
@@ -289,8 +292,6 @@ public:
 private:
   Context &Ctx_;
   const NotNull<UndefsContainer *> Undefs_;
-  /// The number of compilations that are to be scanned by the front-end.
-  uint32_t const NumCompilations_;
 
   /// Implements the ordered processing of input files.
   ///
@@ -301,22 +302,47 @@ private:
   /// completed out-of-order.
   class Visited {
   public:
-    explicit Visited(uint32_t NumCompilations);
-    /// Marks given index as visited.
-    void visit(uint32_t Index);
-    /// Blocks until a specified index is visited. Returns true if an error was
-    /// signalled, false otherwise.
-    bool waitFor(uint32_t Index);
+    Visited() = default;
+    ///@{
+    /// Producer API.
+
+    /// Marks the file with the given ordinal as ready for layout.
+    void fileCompleted(uint32_t Ordinal);
+    /// Signals that the last input from the last group has been completed.
+    /// Wakes up any waiting threads.
+    void done();
     /// Signals that an error was encountered and wakes up any waiting threads.
     void error();
+    ///@}
+
+    ///@{
+    /// Consumer API.
+
+    /// Blocks until an the next input is available.
+    /// \returns Has the next ordinal value on success. If the optional<> has no
+    /// value, either there was an error or the last file ordinal was already
+    /// returned.
+    llvm::Optional<uint32_t> next();
+    ///@}
+
+    /// Returns true if an error was signalled via a call to error().
+    bool hasError() const;
 
   private:
-    void resize(uint32_t NumCompilations);
-
-    std::vector<bool> Visited_;
-    bool Error_ = false;
-    std::mutex Mut_;
+    /// Synchonizes access to members of this instance.
+    mutable std::mutex Mut_;
+    /// Synchonizes producer (symbol resolution) and consumer (layout) threads.
     std::condition_variable CV_;
+    /// An ordered collection of the files ready for processing by layout.
+    std::priority_queue<uint32_t, llvm::SmallVector<uint32_t, 256>,
+                        std::greater<uint32_t>>
+        Waiting_;
+#ifndef NDEBUG
+    llvm::DenseSet<uint32_t> Visited_;
+#endif // NDEBUG
+    uint32_t ConsumerOrdinal_ = 0;
+    bool Done_ = false;
+    bool Error_ = false;
   };
   Visited CompilationWaiter_;
 
