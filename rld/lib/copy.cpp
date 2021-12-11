@@ -597,6 +597,35 @@ static void consumer(MPMCQueue<WorkItem> &Q, Context &Context,
   }
 }
 
+static void
+producer(Context &Context, MPMCQueue<WorkItem> &Q, uint8_t *const Data,
+         const Layout &Layout, const GOTPLTContainer &GOTPLTs,
+         const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets) {
+  llvm::NamedRegionTimer _{"Producer", "Schedule copy jobs",
+                           rld::TimerGroupName, rld::TimerGroupDescription,
+                           Context.TimersEnabled};
+  forEachSectionKindInFileOrder([&](const SectionKind SectionK) {
+    if (!hasDataToCopy(SectionK, Context, Layout)) {
+      return;
+    }
+    assert(SectionFileOffsets[SectionK].hasValue() &&
+           "No layout position for a section with data to copy");
+    uint8_t *const Out = Data + *SectionFileOffsets[SectionK];
+    switch (SectionK) {
+#define X(x)                                                                   \
+  case SectionKind::x:                                                         \
+    scheduleCopySection<SectionKind::x>(Out, Q, Context, Layout, GOTPLTs);     \
+    break;
+#define RLD_X(x) X(x)
+      RLD_ALL_SECTION_KINDS
+#undef RLD_X
+#undef X
+    case SectionKind::last:
+      break;
+    }
+  });
+}
+
 namespace rld {
 
 void copyToOutput(
@@ -610,33 +639,9 @@ void copyToOutput(
   const auto NumConsumers = std::max(Workers.getThreadCount(), 1U);
 
   assert(llvm::llvm_is_multithreaded());
-
   std::thread Producer{[&] {
-    llvm::NamedRegionTimer _{"Producer", "Schedule copy jobs",
-                             rld::TimerGroupName, rld::TimerGroupDescription,
-                             Context.TimersEnabled};
-    forEachSectionKindInFileOrder([&](const SectionKind SectionK) {
-      if (!hasDataToCopy(SectionK, Context, Layout)) {
-        return;
-      }
-      assert(SectionFileOffsets[SectionK].hasValue() &&
-             "No layout position for a section with data to copy");
-      uint8_t *const Out =
-          Data + TargetDataOffset + *SectionFileOffsets[SectionK];
-      switch (SectionK) {
-#define X(x)                                                                   \
-  case SectionKind::x:                                                         \
-    scheduleCopySection<SectionKind::x>(Out, Q, Context, Layout, GOTPLTs);     \
-    break;
-#define RLD_X(x) X(x)
-        RLD_ALL_SECTION_KINDS
-#undef RLD_X
-#undef X
-      case SectionKind::last:
-        break;
-      }
-    });
-
+    producer(Context, Q, Data + TargetDataOffset, Layout, GOTPLTs,
+             SectionFileOffsets);
     // Queue one job per consumer which tells it to exit.
     for (auto Ctr = 0U; Ctr < NumConsumers; ++Ctr) {
       Q.emplace();
