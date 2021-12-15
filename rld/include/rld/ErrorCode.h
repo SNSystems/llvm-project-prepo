@@ -26,6 +26,7 @@ enum ErrorCode : int {
   CompilationIndexNotFound,
   FragmentIndexNotFound,
   NamesIndexNotFound,
+  CompilationNotFound,
 };
 
 class ErrorCategory : public std::error_category {

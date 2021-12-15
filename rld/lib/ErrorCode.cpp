@@ -34,6 +34,9 @@ std::string rld::ErrorCategory::message(int error) const {
   case ErrorCode::NamesIndexNotFound:
     result = "Cannot load the names index";
     break;
+  case ErrorCode::CompilationNotFound:
+    result = "The compilation was not found";
+    break;
   }
   return result;
 }

@@ -34,6 +34,7 @@
 #include "pstore/support/array_elements.hpp"
 #include "pstore/support/uint128.hpp"
 
+#include "rld/Archive.h"
 #include "rld/ElfOutput.h"
 #include "rld/ErrorCode.h"
 #include "rld/Identify.h"
@@ -58,7 +59,7 @@ constexpr auto DebugType = "rld-main";
 llvm::cl::opt<std::string> RepoPath("repo", llvm::cl::Optional,
                                     llvm::cl::desc("Program repository path"),
                                     llvm::cl::init("./clang.db"));
-llvm::cl::list<std::string> InputPaths(llvm::cl::Positional,
+llvm::cl::list<std::string> InputFiles(llvm::cl::Positional,
                                        llvm::cl::desc("<ticket path>"));
 llvm::cl::opt<std::string> EntryPoint("entry-point",
                                       llvm::cl::desc("The entry point"),
@@ -179,6 +180,51 @@ static llvm::ErrorOr<std::unique_ptr<pstore::database>> openRepository() {
       FilePath, pstore::database::access_mode::writable);
 }
 
+class FileDescriptorCloser {
+public:
+  explicit constexpr FileDescriptorCloser(int const FD) : FD_{FD} {}
+
+  // No move or copy.
+  FileDescriptorCloser(FileDescriptorCloser const &) = delete;
+  FileDescriptorCloser(FileDescriptorCloser &&) noexcept = delete;
+  FileDescriptorCloser &operator=(FileDescriptorCloser const &) = delete;
+  FileDescriptorCloser &operator=(FileDescriptorCloser &&) noexcept = delete;
+
+  ~FileDescriptorCloser() noexcept { ::close(FD_); }
+
+private:
+  int const FD_;
+};
+
+// open
+// ~~~~
+static llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>>
+open(const llvm::StringRef Path) {
+  auto FD = 0;
+  if (const std::error_code Erc =
+          llvm::sys::fs::openFileForRead(Path, FD /*out!*/)) {
+    return Erc;
+  }
+  const FileDescriptorCloser FDCloser{FD};
+  llvm::sys::fs::file_status Status;
+  if (const std::error_code Erc = llvm::sys::fs::status(FD, Status /*out!*/)) {
+    return Erc;
+  }
+
+  return llvm::MemoryBuffer::getOpenFile(
+      llvm::sys::fs::convertFDToNativeFile(FD), Path, Status.getSize());
+}
+
+static bool reportError(const rld::Context &Context,
+                        const llvm::Twine &InputFilePath,
+                        const std::error_code Error) {
+  const std::lock_guard<std::mutex> _{Context.IOMut};
+  llvm::errs() << InputFilePath << ": Error: " << Error.message() << '\n';
+  return true;
+}
+
+using CompilationExtent = pstore::extent<pstore::repo::compilation>;
+
 using namespace rld;
 
 int main(int Argc, char *Argv[]) {
@@ -207,18 +253,7 @@ int main(int Argc, char *Argv[]) {
 
   auto WorkPool = std::make_unique<llvm::ThreadPool>(
       llvm::heavyweight_hardware_concurrency(NumWorkers));
-  llvm::ErrorOr<rld::IdentifyResult> Identified =
-      rld::identifyPass(*Ctxt, *WorkPool, CompilationIndex, InputPaths);
-  if (!Identified) {
-    llvm::errs() << "Error: " << Identified.getError().message() << '\n';
-    std::exit(EXIT_FAILURE);
-  }
 
-  // Record the input-ordinal/name mapping in the context.
-  // TODO: this can be done by identifyPass().
-  for (const auto &C : Identified->Compilations) {
-    Ctxt->setOrdinalName(std::get<size_t>(C), std::get<std::string>(C));
-  }
 
   rld::UndefsContainer Undefs;
   auto GlobalSymbs =
@@ -229,86 +264,131 @@ int main(int Argc, char *Argv[]) {
   std::unique_ptr<rld::GOTPLTContainer> GOTPLTs;
   SymbolOrder SymOrder;
 
+  std::atomic<bool> ErrorFlag{false};
+
+  auto sayError = [&Ctxt, &ErrorFlag](llvm::StringRef FilePath,
+                                      std::error_code const &Err) {
+    reportError(*Ctxt, FilePath, Err);
+    ErrorFlag.store(true, std::memory_order_relaxed);
+  };
+
+  rld::LayoutBuilder Layout{*Ctxt, &Undefs};
+
   {
+    std::thread LayoutThread{&rld::LayoutBuilder::run, &Layout};
     llvm::NamedRegionTimer LayoutTimer{
         "Layout", "Output file layout", rld::TimerGroupName,
         rld::TimerGroupDescription, Ctxt->TimersEnabled};
 
-    auto const NumCompilations = InputPaths.size();
-    if (NumCompilations > std::numeric_limits<uint32_t>::max()) {
-      std::lock_guard<decltype(Ctxt->IOMut)> Lock{Ctxt->IOMut};
-      llvm::errs() << "Error: Too many input files\n";
-      std::exit(EXIT_FAILURE);
-    }
-    rld::LayoutBuilder Layout{*Ctxt, &Undefs};
-    std::thread LayoutThread{&rld::LayoutBuilder::run, &Layout};
+    rld::Scanner Scan{*Ctxt, Layout, &Undefs};
+    uint32_t InputOrdinal = 0;
+    uint32_t ArchiveCount = 0;
 
-    llvm::Optional<llvm::Triple> Triple;
-    int ExitCode = EXIT_SUCCESS;
+    for (std::string const &InputFilePath : InputFiles) {
+      llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileBuffer =
+          open(InputFilePath);
+      if (!FileBuffer) {
+        sayError(InputFilePath, FileBuffer.getError());
+        continue;
+      }
+      const llvm::ErrorOr<FileKind> Kind = getFileKind(**FileBuffer);
+      if (!Kind) {
+        sayError(InputFilePath, FileBuffer.getError());
+        continue;
+      }
 
-    {
-      llvm::NamedRegionTimer ScanTimer(
-          "Scan", "Input file scanning", rld::TimerGroupName,
-          rld::TimerGroupDescription, Ctxt->TimersEnabled);
-
-      rld::Scanner Scan{*Ctxt, Layout, &Undefs};
-      std::atomic<bool> ScanError{false};
-      for (const auto &Compilation : Identified->Compilations) {
+      switch (*Kind) {
+      case FileKind::Ticket: {
+        llvm::ErrorOr<pstore::index::digest> CompilationDigestOrError =
+            llvm::mc::repo::getDigestFromTicket(**FileBuffer, &Ctxt->Db);
+        if (!CompilationDigestOrError) {
+          sayError(InputFilePath, CompilationDigestOrError.getError());
+          break;
+        }
+        auto Pos = CompilationIndex->find(Ctxt->Db, *CompilationDigestOrError);
+        if (Pos == CompilationIndex->end(Ctxt->Db)) {
+          sayError(InputFilePath,
+                   make_error_code(rld::ErrorCode::CompilationNotFound));
+          break;
+        }
+        Ctxt->setOrdinalName(InputOrdinal,
+                             InputFilePath); // Record the input-ordinal/name
+                                             // mapping in the context.
         WorkPool->async(
-            [&Scan, &GlobalSymbs, &FixupStorage, &ScanError](
-                const rld::Identifier::CompilationVector::value_type &V) {
-              if (!Scan.run(std::get<std::string>(V), // path
+            [&Scan, &GlobalSymbs, &FixupStorage, &ErrorFlag](
+                const llvm::StringRef P, const CompilationExtent Compilation,
+                const uint32_t Ordinal) {
+              if (!Scan.run(P, // file path
                             GlobalSymbs->getThreadStorage(),
                             FixupStorage->getThreadStorage(),
-                            std::get<pstore::extent<pstore::repo::compilation>>(
-                                V),             // compilation extent
-                            std::get<size_t>(V) // input ordinal
+                            Compilation, // compilation extent
+                            Ordinal      // input ordinal
                             )) {
-                ScanError.store(true, std::memory_order_relaxed);
+                ErrorFlag.store(true, std::memory_order_relaxed);
               }
             },
-            std::cref(Compilation));
-      }
+            llvm::StringRef{InputFilePath}, Pos->second, InputOrdinal);
+        ++InputOrdinal;
+      } break;
+      case FileKind::Archive:
+        // The arguments to async() are passed to std::bind() whose arguments
+        // must be copyable. This means that we can't pass the FileBuffer
+        // unique_ptr<> but instead must wrap the underlying memory in a
+        // shared)_ptr<>.
+        WorkPool->async(
+            iterateArchiveMembers, &ErrorFlag, std::ref(*Ctxt), WorkPool.get(),
+            llvm::StringRef{InputFilePath}, ArchiveCount,
+            std::shared_ptr<llvm::MemoryBuffer>{FileBuffer->release()},
+            CompilationIndex);
+        ++ArchiveCount;
+        break;
 
-      WorkPool->wait();
-      Layout.endGroup();
-      if (ScanError) {
-        ExitCode = EXIT_FAILURE;
-      }
-
-      assert(
-          Undefs.strongUndefCountIsCorrect() &&
-          "The strong undef count must match the entries in the undefs list");
-      if (Undefs.strongUndefCount() > 0U) {
-        std::lock_guard<decltype(Ctxt->IOMut)> Lock{Ctxt->IOMut};
-        for (auto const &U : Undefs) {
-          assert(!U.hasDefinition());
-          if (!U.allReferencesAreWeak()) {
-            // TODO: also need to show where the reference is made.
-            llvm::errs() << "Error: Undefined symbol '"
-                         << loadStdString(Ctxt->Db, U.name()) << "'\n";
-          }
-        }
-        ExitCode = EXIT_FAILURE;
-      }
-
-      if (ExitCode == EXIT_SUCCESS) {
-        Triple = Ctxt->triple();
-        if (!Triple) {
-          std::lock_guard<decltype(Ctxt->IOMut)> Lock{Ctxt->IOMut};
-          llvm::errs() << "Error: The output triple could not be determined.\n";
-          ExitCode = EXIT_FAILURE;
-        }
+      case FileKind::Unknown:
+        ErrorFlag = reportError(
+            *Ctxt, InputFilePath,
+            make_error_code(llvm::object::object_error::invalid_file_type));
+        continue;
       }
     }
 
-    if (ExitCode != EXIT_SUCCESS) {
+    WorkPool->wait();
+    Layout.endGroup();
+    assert(Undefs.strongUndefCountIsCorrect() &&
+           "The strong undef count must match the entries in the undefs list");
+    if (Undefs.strongUndefCount() > 0U) {
+      std::lock_guard<decltype(Ctxt->IOMut)> Lock{Ctxt->IOMut};
+      for (auto const &U : Undefs) {
+        assert(!U.hasDefinition());
+        if (!U.allReferencesAreWeak()) {
+          // TODO: also need to show where the reference is made.
+          llvm::errs() << "Error: Undefined symbol '"
+                       << loadStdString(Ctxt->Db, U.name()) << "'\n";
+        }
+      }
+      ErrorFlag = true;
+    }
+
+    llvm::Optional<llvm::Triple> Triple;
+    if (!ErrorFlag) {
+      Triple = Ctxt->triple();
+      if (!Triple) {
+        std::lock_guard<decltype(Ctxt->IOMut)> Lock{Ctxt->IOMut};
+        llvm::errs() << "Error: The output triple could not be determined.\n";
+        ErrorFlag = true;
+      }
+    }
+    rld::llvmDebug(DebugType, Ctxt->IOMut, [&Ctxt] {
+      llvm::dbgs() << "Output triple: " << Ctxt->triple()->normalize() << '\n';
+    });
+
+    if (ErrorFlag) {
       Layout.error();
     }
     LayoutThread.join();
-    if (ExitCode != EXIT_SUCCESS) {
-      return ExitCode;
+    if (ErrorFlag) {
+      return EXIT_FAILURE;
     }
+  }
 
     std::tie(LO, GOTPLTs) = Layout.flattenSegments(
         Ctxt->baseAddress(),
@@ -316,11 +396,6 @@ int main(int Argc, char *Argv[]) {
 
     // Get the lists of local and global symbols from layout.
     SymOrder = Layout.symbolOrder();
-  }
-
-  rld::llvmDebug(DebugType, Ctxt->IOMut, [&Ctxt] {
-    llvm::dbgs() << "Output triple: " << Ctxt->triple()->normalize() << '\n';
-  });
 
   auto AllSymbols =
       std::make_unique<rld::GlobalSymbolsContainer>(GlobalSymbs->all());
@@ -346,4 +421,5 @@ int main(int Argc, char *Argv[]) {
   WorkPool.release();
   Ctxt.release();
   (*Db).release();
+  return EXIT_SUCCESS;
 }

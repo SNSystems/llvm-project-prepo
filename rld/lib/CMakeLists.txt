@@ -26,6 +26,7 @@ add_llvm_library (LLVMrld
     config.h.in
     "${CMAKE_CURRENT_BINARY_DIR}/include/rld/config.h"
 
+    Archive.cpp
     CSAlloc.cpp
     ELFProgramHeaders.cpp
     ELFSectionHeaders.cpp
