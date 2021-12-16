@@ -67,16 +67,23 @@ struct ArchDef {
         MemberPath{MemberPath_}, Position{Position_} {}
 
   pstore::index::digest CompilationDigest;
+  // TODO: perhaps a pointer into a global char vector instead? Would avoid
+  // reference counting.
   std::shared_ptr<std::string> MemberPath;
   std::pair<unsigned, unsigned> Position;
 };
 
 } // end namespace rld
 
-// FIXME: FIXME: FIXME:!!! These variables should not be global!
-static std::mutex ArchDefsMutex;
-static pstore::chunked_sequence<ArchDef> ArchDefs;
-static GroupSet NextGroup;
+static ArchDef *createArchDef(const ArchDef &LibraryMember) {
+  // FIXME: FIXME: FIXME:!!! These variables should not be global!
+  static std::mutex ArchDefsMutex;
+  static pstore::chunked_sequence<ArchDef> ArchDefs;
+
+  std::lock_guard<decltype(ArchDefsMutex)> _{ArchDefsMutex};
+  ArchDefs.push_back(LibraryMember);
+  return &ArchDefs.back();
+}
 
 template <typename T>
 inline std::atomic<void *> *shadowPointer(Context &Context,
@@ -90,7 +97,7 @@ void createArchDefsForLibraryMember(std::atomic<bool> *const ErrorFlag,
                                     Context &Context,
                                     const CompilationIndex &CompilationIndex,
                                     const ArchDef &LibraryMember,
-                                    GroupSet *const next_group) {
+                                    GroupSet *const NextGroup) {
   llvmDebug(DebugType, Context.IOMut, [&]() {
     dbgs() << "Definitions in \"" << *LibraryMember.MemberPath
            << "\" (position " << LibraryMember.Position.first << ','
@@ -105,24 +112,26 @@ void createArchDefsForLibraryMember(std::atomic<bool> *const ErrorFlag,
         errorCodeToError(make_error_code(ErrorCode::CompilationNotFound)));
   }
 
-  const pstore::repo::compilation &Compilation = *Context.Db.getro(Pos->second);
-  for (const auto &Definition : Compilation) {
+  // Look through the definitions in this compilation.
+  for (const auto &Definition : *Context.Db.getro(Pos->second)) {
+    if (isLocalLinkage(Definition.linkage())) {
+      // Definitions with local linkage don't constitute names that can resolve
+      // undefs. We can skip them.
+      continue;
+    }
     llvmDebug(DebugType, Context.IOMut, [&]() {
       dbgs() << "ArchDef: '" << loadStdString(Context.Db, Definition.name)
              << "'\n";
     });
 
-    auto create = [&] {
+    const auto create = [&] {
       llvmDebug(DebugType, Context.IOMut, [&]() {
         dbgs() << "  Create archdef: '"
                << loadStdString(Context.Db, Definition.name) << "'\n";
       });
-      std::lock_guard<decltype(ArchDefsMutex)> _{ArchDefsMutex};
-      ArchDefs.emplace_back(LibraryMember.CompilationDigest,
-                            LibraryMember.MemberPath, LibraryMember.Position);
-      return &ArchDefs.back();
+      return createArchDef(LibraryMember);
     };
-    auto const createFromArchDef = [&](ArchDef *const AD) {
+    const auto createFromArchDef = [&](ArchDef *const AD) {
       // There's an existing archdef for this symbol. Check their positions and
       // keep the lower.
       if (LibraryMember.Position < AD->Position) {
@@ -135,14 +144,14 @@ void createArchDefsForLibraryMember(std::atomic<bool> *const ErrorFlag,
       });
       return AD;
     };
-    auto const update = [&](Symbol *const Sym) {
+    const auto update = [&](Symbol *const Sym) {
       auto D = Sym->definition();
       // Do we have a definition for this symbol?
       if (!std::get<Symbol::OptionalBodies &>(D)) {
         // No. Create an ArchDef to represent this archive definition. Add this
         // compilation to the next group to be resolved.
         ArchDef *const AD = create();
-        next_group->insert(AD->CompilationDigest);
+        NextGroup->insert(AD->CompilationDigest);
       }
       return Sym;
     };
@@ -175,6 +184,9 @@ ErrorOr<FileKind> getFileKind(const MemoryBufferRef &Memory) {
   }
   return FileKind::Unknown;
 }
+
+// FIXME: FIXME: FIXME:!!! These variables should not be global!
+static GroupSet NextGroup;
 
 // iterate archive members
 // ~~~~~~~~~~~~~~~~~~~~~~~
