@@ -66,6 +66,7 @@ bool Scanner::run(
     const llvm::StringRef &Path,
     const NotNull<GlobalSymbolsContainer *> GlobalSymbols,
     const NotNull<FixupStorage::Container *> FixupStorage,
+    const NotNull<GroupSet *> NextGroup,
     const pstore::extent<pstore::repo::compilation> &CompilationExtent,
     uint32_t InputOrdinal) {
   llvm::NamedRegionTimer _{timerName(Context_.TimersEnabled, InputOrdinal),
@@ -117,7 +118,7 @@ bool Scanner::run(
   assert(Locals->Map.size() == Compilation.size());
   GOTPLTContainer PLTGOTSymbols =
       resolveFixups(Context_, &Locals.getValue(), GlobalSymbols, Undefs_,
-                    InputOrdinal, FixupStorage.get());
+                    InputOrdinal, FixupStorage.get(), NextGroup);
 
   // Notify layout that we've completed work on the item at 'index' and tell it
   // about its definitions.

@@ -534,6 +534,7 @@ void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
                                    const StringAddress Aliasee,
                                    const SectionKind SectionK,
                                    const bool Start) {
+#if 0
   if (Alias == StringAddress::null() || Aliasee == StringAddress::null()) {
     return;
   }
@@ -593,6 +594,7 @@ void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
         }
         return Sym;
       });
+#endif
 }
 
 // error

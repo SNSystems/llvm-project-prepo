@@ -35,6 +35,7 @@
 namespace rld {
 
 class LayoutBuilder;
+class GroupSet;
 
 class Scanner {
 public:
@@ -47,6 +48,7 @@ public:
   bool run(const llvm::StringRef &Path,
            const NotNull<GlobalSymbolsContainer *> GlobalSymbols,
            const NotNull<FixupStorage::Container *> FixupStorage,
+           const NotNull<GroupSet *> NextGroup,
            const pstore::extent<pstore::repo::compilation> &CompilationExtent,
            uint32_t InputOrdinal);
 

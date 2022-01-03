@@ -14,6 +14,8 @@
 //===----------------------------------------------------------------------===//
 #include "rld/XfxScanner.h"
 
+#include "rld/GroupSet.h"
+
 #include "gmock/gmock.h"
 
 // Local includes
@@ -116,8 +118,10 @@ TEST_F(XfxScannerTest, Empty) {
 
   rld::FixupStorage::Container FixupStorage;
   constexpr auto InputOrdinal = uint32_t{0};
-  const rld::GOTPLTContainer GOTPLTs = resolveFixups(
-      Context_, &Locals, &Globals_, &Undefs_, InputOrdinal, &FixupStorage);
+  rld::GroupSet NextGroup;
+  const rld::GOTPLTContainer GOTPLTs =
+      resolveFixups(Context_, &Locals, &Globals_, &Undefs_, InputOrdinal,
+                    &FixupStorage, &NextGroup);
   EXPECT_TRUE(GOTPLTs.empty());
   EXPECT_TRUE(Undefs_.empty());
   EXPECT_EQ(Undefs_.strongUndefCount(), 0U);
@@ -141,9 +145,10 @@ TEST_F(XfxScannerTest, StrongRefToUndefined) {
 
   // Resolve the external fixups in our compilation.
   rld::FixupStorage::Container FixupStorage;
+  rld::GroupSet NextGroup;
   const rld::GOTPLTContainer GOTPLTs =
       resolveFixups(Context_, Locals.getPointer(), &Globals_, &Undefs_,
-                    InputOrdinal, &FixupStorage);
+                    InputOrdinal, &FixupStorage, &NextGroup);
   EXPECT_TRUE(GOTPLTs.empty());
 
   EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
@@ -186,9 +191,10 @@ TEST_F(XfxScannerTest, WeakRefToUndefined) {
 
   // Resolve the external fixups in our compilation.
   rld::FixupStorage::Container FixupStorage;
+  rld::GroupSet NextGroup;
   const rld::GOTPLTContainer GOTPLTs =
       resolveFixups(Context_, Locals.getPointer(), &Globals_, &Undefs_,
-                    InputOrdinal, &FixupStorage);
+                    InputOrdinal, &FixupStorage, &NextGroup);
   EXPECT_TRUE(GOTPLTs.empty());
 
   EXPECT_EQ(Undefs_.size(), 1U) << "There should be 1 undefined symbol";
@@ -222,6 +228,7 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
   constexpr auto InputOrdinal1 = uint32_t{7};
   constexpr auto InputOrdinal2 = InputOrdinal1 + 1U;
   rld::FixupStorage::Container FixupStorage;
+  rld::GroupSet NextGroup;
   {
     // Create a compilation containing a single symbol ("f") with external
     // linkage. The sole fragment contains an external fixup with a weak
@@ -236,7 +243,7 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
     // Resolve the external fixups in compilation #1.
     const rld::GOTPLTContainer GOTPLTs1 =
         resolveFixups(Context_, Locals1.getPointer(), &Globals_, &Undefs_,
-                      InputOrdinal1, &FixupStorage);
+                      InputOrdinal1, &FixupStorage, &NextGroup);
     EXPECT_TRUE(GOTPLTs1.empty());
   }
 
@@ -262,7 +269,7 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
     // Resolve the external fixups in compilation #2.
     const rld::GOTPLTContainer GOTPLTs2 =
         resolveFixups(Context_, Locals2.getPointer(), &Globals_, &Undefs_,
-                      InputOrdinal2, &FixupStorage);
+                      InputOrdinal2, &FixupStorage, &NextGroup);
     EXPECT_TRUE(GOTPLTs2.empty());
   }
 
@@ -277,6 +284,7 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
 TEST_F(XfxScannerTest, StrongRefToExternalDef) {
   constexpr auto InputOrdinal = uint32_t{11};
   rld::FixupStorage::Container FixupStorage;
+  rld::GroupSet NextGroup;
 
   // Create a compilation containing a single symbol ("f") with external
   // linkage. The sole fragment contains an external fixup referencing "f".
@@ -290,7 +298,7 @@ TEST_F(XfxScannerTest, StrongRefToExternalDef) {
   // Resolve the external fixups in our compilation.
   const rld::GOTPLTContainer GOTPLTs =
       resolveFixups(Context_, Locals.getPointer(), &Globals_, &Undefs_,
-                    InputOrdinal, &FixupStorage);
+                    InputOrdinal, &FixupStorage, &NextGroup);
   EXPECT_TRUE(GOTPLTs.empty());
 
   EXPECT_TRUE(Undefs_.empty());
@@ -310,6 +318,7 @@ TEST_F(XfxScannerTest, RefToAppendDef) {
   constexpr auto InputOrdinal0 = uint32_t{13};
   constexpr auto InputOrdinal1 = uint32_t{17};
   rld::FixupStorage::Container FixupStorage;
+  rld::GroupSet NextGroup;
 
   // Create two compilations each containing a definition ("f") with append
   // linkage. Each contains a single fragment which contains an external fixup
@@ -323,14 +332,14 @@ TEST_F(XfxScannerTest, RefToAppendDef) {
   ASSERT_TRUE(L0.hasValue()) << "Expected defineSymbols for C0 to succeed";
   const rld::GOTPLTContainer GOTPLTs0 =
       resolveFixups(Context_, L0.getPointer(), &Globals_, &Undefs_,
-                    InputOrdinal0, &FixupStorage);
+                    InputOrdinal0, &FixupStorage, &NextGroup);
   EXPECT_TRUE(GOTPLTs0.empty());
 
   auto L1 = this->defineSymbols(C1, InputOrdinal1);
   ASSERT_TRUE(L1.hasValue()) << "Expected defineSymbols for C1 to succeed";
   const rld::GOTPLTContainer GOTPLTs1 =
       resolveFixups(Context_, L1.getPointer(), &Globals_, &Undefs_,
-                    InputOrdinal1, &FixupStorage);
+                    InputOrdinal1, &FixupStorage, &NextGroup);
   EXPECT_TRUE(GOTPLTs1.empty());
 
   EXPECT_TRUE(Undefs_.empty());

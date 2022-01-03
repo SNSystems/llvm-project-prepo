@@ -17,6 +17,7 @@
 
 #include "rld/Contribution.h"
 #include "rld/SectionArray.h"
+#include "rld/Shadow.h"
 #include "rld/context.h"
 
 #include "llvm/ADT/DenseMap.h"
@@ -234,14 +235,12 @@ public:
   ///
   /// \param Name  The name of the symbol.
   /// \param NameLength  The number of code units in the name of the symbol.
-  /// \param Strength  The strength of the reference (weak/strong) that caused
-  ///   the creation of this symbol.
   /// \param Definition The initial body (value) of the symbol.
-  Symbol(pstore::address N, size_t NameLength, Body &&Definition)
-      : Name_{N.absolute()}, WeakUndefined_{false}, NameLength_{NameLength},
+  Symbol(pstore::address Name, size_t NameLength, Body &&Definition)
+      : Name_{Name.absolute()}, WeakUndefined_{false}, NameLength_{NameLength},
         Contribution_{nullptr} {
-    assert(name() == N &&
-           N.absolute() < (UINT64_C(1) << StringAddress::total_bits));
+    assert(name() == Name &&
+           Name.absolute() < (UINT64_C(1) << StringAddress::total_bits));
 
     llvm::SmallVector<Body, 1> D;
     D.emplace_back(std::move(Definition));
@@ -276,9 +275,6 @@ public:
   pstore::address name() const;
   /// \return The length of the symbol name.
   size_t nameLength() const;
-  template <typename LockType> size_t nameLength(const LockType &) const {
-    return NameLength_;
-  }
 
   bool hasLocalLinkage() const {
     const auto Def = this->definition();
@@ -489,15 +485,13 @@ private:
                       const pstore::repo::definition &Def,
                       uint32_t InputOrdinal, FragmentPtr &&Fragment);
 
-  void setName(StringAddress N);
-
   mutable Mutex Mut_; // TODO: is this really better than std::mutex?
   /// The StringAddress representing the name of this symbol.
-  uint64_t Name_ : StringAddress::total_bits;
+  const uint64_t Name_ : StringAddress::total_bits;
   /// Was this symbol instance created as the result of encountering a weak
   /// reference? This will always be false if the symbol is defined.
   uint64_t WeakUndefined_ : 1;
-  size_t NameLength_;
+  const size_t NameLength_;
 
   /// The output contribution produced by this symbol. Set during layout.
   std::atomic<Contribution *> Contribution_;
@@ -518,23 +512,13 @@ private:
 // name
 // ~~~~
 inline pstore::address Symbol::name() const {
-  const std::lock_guard<decltype(Mut_)> Lock{Mut_};
   return pstore::address{Name_};
 }
 
 // name length
 // ~~~~~~~~~~~
 inline size_t Symbol::nameLength() const {
-  const std::lock_guard<decltype(Mut_)> Lock{Mut_};
   return NameLength_;
-}
-
-// set name
-// ~~~~~~~~
-inline void Symbol::setName(StringAddress N) {
-  const std::uint64_t NAbs = N.absolute();
-  assert(NAbs < (UINT64_C(1) << StringAddress::total_bits));
-  Name_ = NAbs;
 }
 
 // add reference
@@ -585,6 +569,7 @@ inline Symbol *UndefsContainer::insert(Symbol *const Sym) {
 //* \__ \ ' \/ _` / _` / _ \ V  V / |  _/ _ \ | ' \  _/ -_) '_(_-< *
 //* |___/_||_\__,_\__,_\___/\_/\_/  |_| \___/_|_||_\__\___|_| /__/ *
 //*                                                                *
+#if 0
 // symbol shadow
 // ~~~~~~~~~~~~~
 template <typename T>
@@ -602,6 +587,7 @@ symbolShadow(const Context &Ctx, pstore::typed_address<T> Addr) {
   return reinterpret_cast<const std::atomic<const Symbol *> *>(Ctx.shadow() +
                                                                Addr.absolute());
 }
+#endif
 
 // set symbol shadow
 // ~~~~~~~~~~~~~~~~~
@@ -794,7 +780,7 @@ public:
 
   /// Records a reference to a symbol.
   ///
-  /// \param Symbol  The referenced symbol.
+  /// \param Sym  The referenced symbol.
   /// \param Globals  The container which holds defined and undefined symbols.
   /// \param Undefs  The global collection of undefined symbols.
   /// \param Name  The name of the symbol being referenced.
@@ -857,6 +843,8 @@ SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
   return {std::move(Locals)};
 }
 
+class GroupSet;
+
 // reference symbol
 // ~~~~~~~~~~~~~~~~
 /// Called when a symbol is referenced by an external fixup.
@@ -867,14 +855,17 @@ SymbolResolver::defineSymbols(const NotNull<GlobalSymbolsContainer *> Globals,
 /// \param Globals  The container which holds defined and undefined
 ///   symbols.
 /// \param Undefs  The global collection of undefined symbols.
+/// \param NextGroup The group of CompilationRefs to be processed by the next
+///   top-level pass.
 /// \param Name  The name of the symbol being created.
-/// \param Strength  The strength of the reference (weak/strong) that caused
+/// \param/ Strength  The strength of the reference (weak/strong) that caused
 ///   the creation of this symbol.
 /// \return  A pointer to the referenced symbol.
-std::tuple<NotNull<Symbol *>, bool>
+std::tuple<shadow::TaggedPointer, bool>
 referenceSymbol(Context &Ctxt, const CompilationSymbolsView &Locals,
                 const NotNull<GlobalSymbolsContainer *> Globals,
-                const NotNull<UndefsContainer *> Undefs, StringAddress Name,
+                const NotNull<UndefsContainer *> Undefs,
+                const NotNull<GroupSet *> NextGroup, StringAddress Name,
                 pstore::repo::reference_strength Strength);
 
 } // end namespace rld

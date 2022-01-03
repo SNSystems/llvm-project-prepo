@@ -21,6 +21,7 @@ class ThreadPool;
 namespace rld {
 
 class Context;
+class GroupSet;
 
 enum class FileKind { Ticket, Archive, Unknown };
 
@@ -29,9 +30,9 @@ llvm::ErrorOr<FileKind> getFileKind(const llvm::MemoryBufferRef &Memory);
 using CompilationIndex = std::shared_ptr<pstore::index::compilation_index>;
 void iterateArchiveMembers(std::atomic<bool> *const ErrorFlag, Context &Context,
                            llvm::ThreadPool *WorkPool,
-                           const llvm::StringRef ArchivePath,
-                           uint32_t ArchiveIndex,
+                           const std::string ArchivePath, unsigned ArchiveIndex,
                            const std::shared_ptr<llvm::MemoryBuffer> FileBuffer,
+                           GroupSet *const NextGroup,
                            CompilationIndex const &CompilationIndex);
 } // end namespace rld
 

@@ -15,6 +15,7 @@
 #ifndef RLD_CONTEXT_H
 #define RLD_CONTEXT_H
 
+#include "rld/Shadow.h"
 #include "rld/types.h"
 
 #include "llvm/ADT/DenseMap.h"
@@ -81,7 +82,7 @@ inline void llvmDebug(char const *DebugFype, Function F) {
 template <typename Function>
 inline void llvmDebug(char const *DebugType, std::mutex &IOMut, Function F) {
   if (llvmDebugEnabled(DebugType)) {
-    const std::lock_guard <std::mutex> Lock (IOMut);
+    const std::lock_guard<std::mutex> _{IOMut};
     F();
   }
 }
@@ -103,11 +104,31 @@ template <typename T> inline llvm::FormattedNumber format_hex(T N) {
 
 namespace rld {
 
-class SymbolTable;
+struct CompilationRef {
+  CompilationRef(const pstore::index::digest Digest_,
+                 const std::shared_ptr<std::string> &Origin_,
+                 const std::pair<unsigned, unsigned> &Position_)
+      : Digest{Digest_}, Origin{Origin_}, Position{Position_} {}
+
+  /// The compilation's digest.
+  const pstore::index::digest Digest;
+  // TODO: perhaps a pointer into a global char vector instead? Would avoid
+  // reference counting.
+  /// A string describing the source of the compilation. Will be either the path
+  /// of an individual ticket file or the path of a library and its member name
+  /// in parentheses.
+  const std::shared_ptr<std::string> Origin;
+  /// The (x,y) coordinate of this compilation in the space used to determine
+  /// which library member is selected in the event of there being more than one
+  /// definition of the name with which this CompilationRef is associated.
+  const std::pair<unsigned, unsigned> Position;
+
+  Symbol *Sym = nullptr;
+};
 
 class Context {
 public:
-  explicit Context(pstore::database &D, llvm::StringRef EntryPoint);
+  Context(pstore::database &D, llvm::StringRef EntryPoint);
 
   std::uint8_t *shadow() noexcept { return ShadowDb_.get(); }
   const std::uint8_t *shadow() const noexcept { return ShadowDb_.get(); }
@@ -121,12 +142,12 @@ public:
   pstore::database &Db;
   mutable std::mutex IOMut;
   // True if use of named timers is enabled.
-  bool TimersEnabled;
+  bool TimersEnabled = false;
 
-  std::atomic<uint64_t> ELFStringTableSize;
-  std::atomic<unsigned> PLTEntries;
-  std::atomic<unsigned>
-      GOTEntries; // The number of GOT entries to create in the output.
+  std::atomic<uint64_t> ELFStringTableSize{1U};
+  std::atomic<unsigned> PLTEntries{0U};
+  /// The number of GOT entries to create in the output.
+  std::atomic<unsigned> GOTEntries{0U};
 
   pstore::repo::compilation const &recordCompilation(
       pstore::extent<pstore::repo::compilation> const &CompilationExtent);
@@ -142,6 +163,34 @@ public:
     std::lock_guard<std::mutex> const _{OrdinalNamesMut_};
     const auto Pos = OrdinalNames_.find(InputOrdinal);
     return Pos != OrdinalNames_.end() ? Pos->second : std::string{""};
+  }
+
+  CompilationRef *createCompilationRef(const CompilationRef &CR) {
+    std::lock_guard<decltype(CompilationRefsMutex_)> _{CompilationRefsMutex_};
+    return &CompilationRefs_.push_back(CR);
+  }
+  CompilationRef *
+  createCompilationRef(const pstore::index::digest &Digest,
+                       const llvm::StringRef &Origin,
+                       const std::pair<unsigned, unsigned> &Position) {
+    std::lock_guard<decltype(CompilationRefsMutex_)> _{CompilationRefsMutex_};
+    return &CompilationRefs_.emplace_back(
+        Digest, std::make_shared<std::string>(Origin), Position);
+  }
+
+  template <typename T>
+  inline shadow::AtomicTaggedPointer *
+  shadowPointer(const pstore::typed_address<T> Addr) {
+    assert(Addr.absolute() % alignof(shadow::AtomicTaggedPointer) == 0);
+    return reinterpret_cast<shadow::AtomicTaggedPointer *>(this->shadow() +
+                                                           Addr.absolute());
+  }
+  template <typename T>
+  inline const shadow::AtomicTaggedPointer *
+  shadowPointer(const pstore::typed_address<T> Addr) const {
+    assert(Addr.absolute() % alignof(shadow::AtomicTaggedPointer) == 0);
+    return reinterpret_cast<const shadow::AtomicTaggedPointer *>(
+        this->shadow() + Addr.absolute());
   }
 
 private:
@@ -169,6 +218,9 @@ private:
   llvm::DenseMap<uint32_t, std::string> OrdinalNames_;
 
   uint64_t BaseAddress_ = 0x0000000000400000;
+
+  std::mutex CompilationRefsMutex_;
+  pstore::chunked_sequence<CompilationRef> CompilationRefs_;
 };
 
 } // namespace rld

@@ -23,6 +23,8 @@
 
 namespace rld {
 
+class GroupSet;
+
 /// \param Context  The rld context.
 /// \param Locals  The definitions provided by a compilation after symbol
 ///   resolution.
@@ -35,7 +37,8 @@ GOTPLTContainer resolveFixups(Context &Context,
                               const NotNull<GlobalSymbolsContainer *> Globals,
                               const NotNull<UndefsContainer *> Undefs,
                               uint32_t InputOrdinal,
-                              const NotNull<FixupStorage::Container *> Storage);
+                              const NotNull<FixupStorage::Container *> Storage,
+                              const NotNull<GroupSet *> NextGroup);
 
 } // end namespace rld
 

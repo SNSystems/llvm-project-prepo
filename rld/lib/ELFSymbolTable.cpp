@@ -146,7 +146,7 @@ template <typename ELFT> struct Writer {
 
     // Pass our lock to nameLength() so that it doesn't try to take one of its
     // own. The +1 here allows for the final '\0'.
-    NameOffset += Sym.nameLength(Lock) + 1U;
+    NameOffset += Sym.nameLength() + 1U;
     return NameOffset;
   }
 

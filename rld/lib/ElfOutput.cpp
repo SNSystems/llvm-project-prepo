@@ -28,6 +28,7 @@
 #include "rld/ELFSymbolTable.h"
 #include "rld/MathExtras.h"
 #include "rld/SectionKind.h"
+#include "rld/Shadow.h"
 #include "rld/copy.h"
 #include "rld/elf.h"
 
@@ -153,12 +154,12 @@ entryPoint(const Context &Ctxt, const Layout &Layout) {
         NamesIndex->find(Ctxt.Db, pstore::indirect_string{Ctxt.Db, &Start});
     if (Pos != NamesIndex->end(Ctxt.Db)) {
       assert(Pos->is_in_store());
-      auto *const EntrySymbol = rld::symbolShadow(
-          Ctxt, pstore::typed_address<pstore::address>(Pos.get_address()));
+      const shadow::AtomicTaggedPointer *const EntrySymbol = Ctxt.shadowPointer(
+          pstore::typed_address<pstore::address>(Pos.get_address()));
       assert(EntrySymbol != nullptr);
       // The shadow memory pointer may be null if the string is known, but isn't
       // used as the name of a symbol.
-      if (const Symbol *const Sym = *EntrySymbol) {
+      if (const auto *const Sym = EntrySymbol->load().get_if<Symbol *>()) {
         return addressCast<ELFT>(elf::symbolValue(*Sym));
       }
     }

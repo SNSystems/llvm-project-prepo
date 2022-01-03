@@ -31,10 +31,10 @@ private:
 /// required ensuring that the resulting storage is contiguous.
 ///
 /// \param Storage  A chunked-sequence which will be used to manage the storage.
-/// \param required  The number of contiguous bytes required.
-/// \param align  The required alignment for the start of the returned storage.
+/// \param Required  The number of contiguous bytes required.
+/// \param Align  The required alignment for the start of the returned storage.
 /// \result A pointer to a contiguous block of storage which is sufficient for
-///   \p required bytes.
+///   \p Required bytes.
 template <size_t ElementsPerChunk>
 void *
 csAlloc(pstore::chunked_sequence<uint8_t, ElementsPerChunk> *const Storage,

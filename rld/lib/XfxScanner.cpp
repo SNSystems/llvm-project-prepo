@@ -24,6 +24,7 @@
 
 // rld
 #include "rld/CSAlloc.h"
+#include "rld/GroupSet.h"
 #include "rld/context.h"
 
 // Standard library
@@ -39,8 +40,8 @@ constexpr auto DebugType = "rld-xfx-scanner";
 struct State {
   State(Context &C, const NotNull<CompilationSymbolsView *> L,
         const NotNull<GlobalSymbolsContainer *> G,
-        const NotNull<UndefsContainer *> U)
-      : Ctxt{C}, Locals{L}, Globals{G}, Undefs{U} {}
+        const NotNull<UndefsContainer *> U, const NotNull<GroupSet *> NG)
+      : Ctxt{C}, Locals{L}, Globals{G}, Undefs{U}, NextGroup{NG} {}
 
   State(State const &) = delete;
   State &operator=(State const &) = delete;
@@ -49,7 +50,16 @@ struct State {
   const NotNull<CompilationSymbolsView *> Locals;
   const NotNull<GlobalSymbolsContainer *> Globals;
   const NotNull<UndefsContainer *> Undefs;
+  const NotNull<GroupSet *> NextGroup;
 };
+
+static Symbol *symbol(shadow::TaggedPointer TP) {
+  if (auto *const CR = TP.get_if<CompilationRef *>()) {
+    return CR->Sym;
+  }
+  assert(TP.get_if<Symbol *>() != nullptr);
+  return TP.get_if<Symbol *>();
+}
 
 // resolve
 // ~~~~~~~
@@ -69,14 +79,16 @@ Symbol **resolve(State &S, const pstore::repo::fragment &Fragment,
                    << loadStdString(S.Ctxt.Db, Xfx.name) << '\n';
     });
 
-    const std::tuple<NotNull<Symbol *>, bool> Ref = referenceSymbol(
-        S.Ctxt, *S.Locals, S.Globals, S.Undefs, Xfx.name, Xfx.strength());
-    Symbol *const Sym = std::get<NotNull<Symbol *>>(Ref);
+    std::tuple<shadow::TaggedPointer, bool> Ref =
+        referenceSymbol(S.Ctxt, *S.Locals, S.Globals, S.Undefs, S.NextGroup,
+                        Xfx.name, Xfx.strength());
+
+    Symbol *const Sym = symbol(std::get<shadow::TaggedPointer>(Ref));
     assert(Sym != nullptr && "referenceSymbol must not return nullptr");
     switch (Xfx.type) {
 
-      // FIXME: PLT relocation handling is currently disabled.
 #if 0
+      // FIXME: PLT relocation handling is currently disabled.
     case llvm::ELF::R_X86_64_PLT32:
       // Note that there's currently no consideration given to whether this PLT
       // relocation can be relaxed.
@@ -121,10 +133,10 @@ void forEachNewFragment(Context &Context,
     Symbol *const Sym = NS.second.Sym;
     assert(Sym && "All local definitions must have an associated symbol");
 
-    llvmDebug(DebugType, Context.IOMut, [&]() {
-      llvm::dbgs() << "fixups for def \""
-                   << loadStdString(Context.Db, Sym->name()) << "\"\n";
-    });
+    //    llvmDebug(DebugType, Context.IOMut, [&]() {
+    //      llvm::dbgs() << "fixups for def \""
+    //                   << loadStdString(Context.Db, Sym->name()) << "\"\n";
+    //    });
 
     auto BodiesAndLock = Sym->definition();
     auto &OptionalBodies = std::get<Symbol::OptionalBodies &>(BodiesAndLock);
@@ -209,10 +221,11 @@ GOTPLTContainer rld::resolveFixups(
     Context &Context, const NotNull<CompilationSymbolsView *> Locals,
     const NotNull<GlobalSymbolsContainer *> Globals,
     const NotNull<UndefsContainer *> Undefs, uint32_t InputOrdinal,
-    const NotNull<FixupStorage::Container *> Storage) {
+    const NotNull<FixupStorage::Container *> Storage,
+    const NotNull<GroupSet *> NextGroup) {
 
   GOTPLTContainer GOTPLTs;
-  State S{Context, Locals, Globals, Undefs};
+  State S{Context, Locals, Globals, Undefs, NextGroup};
 
   forEachNewFragment(Context, Locals, InputOrdinal,
                      [&](CompilationSymbolsView::Container::value_type &NS,

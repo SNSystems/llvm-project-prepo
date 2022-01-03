@@ -14,13 +14,17 @@
 //===----------------------------------------------------------------------===//
 #include "rld/symbol.h"
 
+#include "rld/GroupSet.h"
+#include "rld/context.h"
+
+// pstore
+#include "pstore/core/hamt_set.hpp"
+
+// Local includes
 #include "CompilationBuilder.h"
 #include "EmptyStore.h"
 #include "ErrorFn.h"
 #include "StringAdder.h"
-
-#include "pstore/core/hamt_set.hpp"
-#include "rld/context.h"
 
 #include "gmock/gmock.h"
 
@@ -972,7 +976,8 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
   rld::UndefsContainer Undefs;
   rld::GlobalSymbolsContainer Globals;
   rld::CompilationSymbolsView S0{0};
-  rld::referenceSymbol(Ctx_, S0, &Globals, &Undefs,
+  rld::GroupSet NextGroup;
+  rld::referenceSymbol(Ctx_, S0, &Globals, &Undefs, &NextGroup,
                        CompilationBuilder_.storeString(Name),
                        reference_strength::strong);
   EXPECT_EQ(S0.Map.size(), 0U);
@@ -1008,10 +1013,13 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
       this->checkSymbol(Symbol0, InputNo, Linkage, 0U);
       this->checkCompilationLocalView(S1, Symbol0);
     }
-    EXPECT_EQ(rld::referenceSymbol(Ctx_, *S1, &Globals, &Undefs,
-                                   this->getStringAddress(Name),
-                                   reference_strength::strong),
-              std::make_tuple(&Symbol0, true));
+
+    std::tuple<rld::shadow::TaggedPointer, bool> ReferenceResult =
+        rld::referenceSymbol(Ctx_, *S1, &Globals, &Undefs, &NextGroup,
+                             this->getStringAddress(Name),
+                             reference_strength::strong);
+    EXPECT_EQ(std::get<0>(ReferenceResult), &Symbol0);
+    EXPECT_EQ(std::get<1>(ReferenceResult), true);
   }
 }
 
@@ -1049,6 +1057,7 @@ TEST_P(InternalCollision, InternalAfter) {
 
   rld::UndefsContainer Undefs;
   rld::GlobalSymbolsContainer Globals;
+  rld::GroupSet NextGroup;
 
   ReturnType C0 = Resolver_.defineSymbols(&Globals, &Undefs,
                                           *this->compile(Name_, OtherLinkage),
@@ -1073,11 +1082,11 @@ TEST_P(InternalCollision, InternalAfter) {
     this->checkCompilationLocalView(C0, Symbol0);
     this->checkCompilationLocalView(C1, Symbol1);
   }
-  EXPECT_EQ(rld::referenceSymbol(Ctx_, *C0, &Globals, &Undefs,
+  EXPECT_EQ(rld::referenceSymbol(Ctx_, *C0, &Globals, &Undefs, &NextGroup,
                                  this->getStringAddress(Name_),
                                  reference_strength::strong),
             std::make_tuple(&Symbol0, true));
-  EXPECT_EQ(rld::referenceSymbol(Ctx_, *C1, &Globals, &Undefs,
+  EXPECT_EQ(rld::referenceSymbol(Ctx_, *C1, &Globals, &Undefs, &NextGroup,
                                  this->getStringAddress(Name_),
                                  reference_strength::strong),
             std::make_tuple(&Symbol1, true));
@@ -1096,6 +1105,7 @@ TEST_P(InternalCollision, InternalBefore) {
 
   rld::UndefsContainer Undefs;
   rld::GlobalSymbolsContainer Globals;
+  rld::GroupSet NextGroup;
 
   ReturnType C0 = Resolver_.defineSymbols(
       &Globals, &Undefs, *this->compile(Name_, linkage::internal), Input0_,
@@ -1121,11 +1131,11 @@ TEST_P(InternalCollision, InternalBefore) {
     this->checkCompilationLocalView(C0, Symbol0);
     this->checkCompilationLocalView(C1, Symbol1);
   }
-  EXPECT_EQ(rld::referenceSymbol(Ctx_, *C0, &Globals, &Undefs,
+  EXPECT_EQ(rld::referenceSymbol(Ctx_, *C0, &Globals, &Undefs, &NextGroup,
                                  this->getStringAddress(Name_),
                                  reference_strength::strong),
             std::make_tuple(&Symbol0, true));
-  EXPECT_EQ(rld::referenceSymbol(Ctx_, *C1, &Globals, &Undefs,
+  EXPECT_EQ(rld::referenceSymbol(Ctx_, *C1, &Globals, &Undefs, &NextGroup,
                                  this->getStringAddress(Name_),
                                  reference_strength::strong),
             std::make_tuple(&Symbol1, true));

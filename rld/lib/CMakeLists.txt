@@ -28,6 +28,7 @@ add_llvm_library (LLVMrld
 
     Archive.cpp
     CSAlloc.cpp
+    Driver.cpp
     ELFProgramHeaders.cpp
     ELFSectionHeaders.cpp
     ELFSectionNames.cpp
@@ -39,6 +40,7 @@ add_llvm_library (LLVMrld
     IdentifyPass.cpp
     LayoutBuilder.cpp
     SectionKind.cpp
+    Shadow.cpp
     SpecialNames.cpp
     XfxScanner.cpp
     context.cpp

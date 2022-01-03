@@ -14,6 +14,8 @@
 //===----------------------------------------------------------------------===//
 #include "rld/symbol.h"
 
+#include "rld/GroupSet.h"
+
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -529,7 +531,7 @@ std::tuple<NotNull<Symbol *>, bool>
 SymbolResolver::defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
                              const NotNull<UndefsContainer *> Undefs,
                              const pstore::repo::definition &Def,
-                             uint32_t InputOrdinal) {
+                             const uint32_t InputOrdinal) {
 
   llvmDebug(DebugType, Context_.IOMut, [&] {
     pstore::shared_sstring_view Owner;
@@ -539,58 +541,97 @@ SymbolResolver::defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
   });
 
   // Create a new symbol with definition 'Def'.
-  auto AddSymbol = [&]() {
+  const auto AddSymbol = [&] {
+    llvmDebug(DebugType, Context_.IOMut, [&] {
+      llvm::dbgs() << "  Create def: " << loadStdString(Context_.Db, Def.name)
+                   << '\n';
+    });
     const auto IndirStr = pstore::indirect_string::read(Context_.Db, Def.name);
     const size_t Length = IndirStr.length();
     Context_.ELFStringTableSize.fetch_add(Length + 1U,
                                           std::memory_order_relaxed);
-    return this->add(Globals, IndirStr.in_store_address(), Length, Def,
-                     InputOrdinal);
+    return shadow::TaggedPointer{this->add(Globals, IndirStr.in_store_address(),
+                                           Length, Def, InputOrdinal)};
+  };
+  // Add a symbol which has the same name as a CompilationRef. The symbol
+  // wins...
+  const auto AddSymbolFromCompilationRef = [&](shadow::AtomicTaggedPointer *,
+                                               CompilationRef *const /*CR*/) {
+    llvmDebug(DebugType, Context_.IOMut, [&] {
+      llvm::dbgs() << "  Create def (overriding archdef): "
+                   << loadStdString(Context_.Db, Def.name) << '\n';
+    });
+    // FIXME: CHECK CHECK: remove from the undefs list?
+    return AddSymbol();
+  };
+  const auto Update = [&](shadow::AtomicTaggedPointer *, Symbol *const Sym) {
+    llvmDebug(DebugType, Context_.IOMut, [&] {
+      llvm::dbgs() << "  Undef to def: "
+                   << loadStdString(Context_.Db, Sym->name()) << '\n';
+    });
+    return shadow::TaggedPointer{
+        this->updateSymbol(Sym, Undefs, Def, InputOrdinal)};
   };
 
-  if (Def.linkage() == linkage::internal ||
-      Def.linkage() == linkage::internal_no_symbol) {
-    return std::make_tuple(AddSymbol(), true);
+  if (isLocalLinkage(Def.linkage())) {
+    return std::make_tuple(AddSymbol().get_if<Symbol *>(), true);
   }
-
-  return setSymbolShadow(
-      symbolShadow(Context_, Def.name), AddSymbol, [&](Symbol *const Sym) {
-        return this->updateSymbol(Sym, Undefs, Def, InputOrdinal);
-      });
+  auto X = shadow::set(Context_.shadowPointer(Def.name), AddSymbol,
+                       AddSymbolFromCompilationRef, Update);
+  return std::make_tuple(std::get<shadow::TaggedPointer>(X).get_if<Symbol *>(),
+                         std::get<bool>(X));
 }
 
 // reference symbol
 // ~~~~~~~~~~~~~~~~
-std::tuple<NotNull<Symbol *>, bool>
+std::tuple<shadow::TaggedPointer, bool>
 referenceSymbol(Context &Ctxt, const CompilationSymbolsView &Locals,
                 const NotNull<GlobalSymbolsContainer *> Globals,
-                const NotNull<UndefsContainer *> Undefs, StringAddress Name,
+                const NotNull<UndefsContainer *> Undefs,
+                const NotNull<GroupSet *> NextGroup, StringAddress Name,
                 pstore::repo::reference_strength Strength) {
 
   // Do we have a local definition for this symbol?
   const auto NamePos = Locals.Map.find(Name);
   if (NamePos != Locals.Map.end()) {
     // Yes, the symbol was defined by this module. Use it.
-    return std::make_tuple(NamePos->second.Sym, true);
+    return std::make_tuple(shadow::TaggedPointer{NamePos->second.Sym}, true);
   }
 
-  return setSymbolShadow(
-      symbolShadow(Ctxt, Name),
-      [&]() {
-        // Called for a reference to an as yet undefined symbol.
-        const auto IndirStr = pstore::indirect_string::read(Ctxt.Db, Name);
-        const size_t Length = IndirStr.length();
-        Ctxt.ELFStringTableSize.fetch_add(Length + 1U,
-                                          std::memory_order_relaxed);
-        return SymbolResolver::addUndefined(
-            Globals, Undefs, IndirStr.in_store_address(), Length, Strength);
-      },
-      [&](Symbol *const Sym) {
-        // Called if we see a reference to a symbol already in the symbol
-        // table.
-        return SymbolResolver::addReference(Sym, Globals, Undefs, Name,
-                                            Strength);
-      });
+  // Called for a reference to an as yet undefined symbol.
+  const auto CreateUndef = [&] {
+    const auto IndirStr = pstore::indirect_string::read(Ctxt.Db, Name);
+    const size_t Length = IndirStr.length();
+    Ctxt.ELFStringTableSize.fetch_add(Length + 1U, std::memory_order_relaxed);
+    return SymbolResolver::addUndefined(
+        Globals, Undefs, IndirStr.in_store_address(), Length, Strength);
+  };
+  // Despite what its name suggests, this function does not create an undef
+  // symbol. We need to keep the CompilationRef record in the shadow memory in
+  // order that the we can get the correct compilation when it comes time to
+  // turn 'NextGroup' into the set of compilations for the next iteration. Bear
+  // in mind that a specific CompilationRef record can be replaced if we later
+  // find a definition in a library member with an earlier position than the one
+  // we have here.
+  const auto CreateUndefFromCompilationRef =
+      [&](shadow::AtomicTaggedPointer *const P, CompilationRef *const CR) {
+        NextGroup->insert(P);
+        if (CR->Sym == nullptr) {
+          CR->Sym = CreateUndef();
+        }
+        return shadow::TaggedPointer{CR};
+      };
+  const auto Update = [&](shadow::AtomicTaggedPointer *, Symbol *const Sym) {
+    // Called if we see a reference to a symbol already in the symbol
+    // table.
+    return shadow::TaggedPointer{
+        SymbolResolver::addReference(Sym, Globals, Undefs, Name, Strength)};
+  };
+
+  return shadow::set(
+      Ctxt.shadowPointer(Name),
+      [&] { return shadow::TaggedPointer{CreateUndef()}; },
+      CreateUndefFromCompilationRef, Update);
 }
 
 } // end namespace rld
