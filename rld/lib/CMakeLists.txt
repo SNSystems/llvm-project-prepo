@@ -67,3 +67,6 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         -Wno-nullability-extension
     )
 endif ()
+if (WIN32)
+  target_compile_definitions (LLVMrld PUBLIC _ENABLE_EXTENDED_ALIGNED_STORAGE)
+endif (WIN32)

@@ -4,6 +4,7 @@
 
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/Process.h"
 
 using namespace llvm;
 
@@ -17,7 +18,9 @@ public:
   FileDescriptorCloser(FileDescriptorCloser const &) = delete;
   FileDescriptorCloser(FileDescriptorCloser &&) noexcept = delete;
 
-  ~FileDescriptorCloser() noexcept { ::close(FD_); }
+  ~FileDescriptorCloser() noexcept {
+    sys::Process::SafelyCloseFileDescriptor(FD_);
+  }
 
   FileDescriptorCloser &operator=(FileDescriptorCloser const &) = delete;
   FileDescriptorCloser &operator=(FileDescriptorCloser &&) noexcept = delete;
