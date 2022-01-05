@@ -95,7 +95,11 @@ static void createCompilationRefForLibraryMember(
       // so turn the undef into an CompilationRef to represent this archive
       // definition. Add this compilation to the next group to be resolved.
       NextGroup->insert(P);
-      return Create();
+
+      // FIXME: a version of createCompilationRef that takes a symbol.
+      CompilationRef *const CR = Context.createCompilationRef(LibraryMember);
+      CR->Sym = Sym;
+      return shadow::TaggedPointer{CR};
     };
     shadow::set(Context.shadowPointer(Definition.name), Create,
                 CreateFromCompilationRef, Update);

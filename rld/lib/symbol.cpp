@@ -525,6 +525,14 @@ Symbol *SymbolResolver::updateSymbol(Symbol *const Sym,
   return Sym;
 }
 
+// as symbol bool
+// ~~~~~~~~~~~~~~
+static auto asSymbolBool(std::tuple<shadow::TaggedPointer, bool> &&T) {
+  return std::make_tuple(
+      NotNull<Symbol *>{std::get<shadow::TaggedPointer>(T).get_if<Symbol *>()},
+      std::get<bool>(T));
+}
+
 // define symbol
 // ~~~~~~~~~~~~~
 std::tuple<NotNull<Symbol *>, bool>
@@ -556,17 +564,16 @@ SymbolResolver::defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
   // Add a symbol which has the same name as a CompilationRef. The symbol
   // wins...
   const auto AddSymbolFromCompilationRef = [&](shadow::AtomicTaggedPointer *,
-                                               CompilationRef *const /*CR*/) {
+                                               CompilationRef *const CR) {
     llvmDebug(DebugType, Context_.IOMut, [&] {
-      llvm::dbgs() << "  Create def (overriding archdef): "
+      llvm::dbgs() << "  Create def (overriding compilationref): "
                    << loadStdString(Context_.Db, Def.name) << '\n';
     });
-    // FIXME: CHECK CHECK: remove from the undefs list?
     return AddSymbol();
   };
   const auto Update = [&](shadow::AtomicTaggedPointer *, Symbol *const Sym) {
     llvmDebug(DebugType, Context_.IOMut, [&] {
-      llvm::dbgs() << "  Undef to def: "
+      llvm::dbgs() << "  Update symbol: "
                    << loadStdString(Context_.Db, Sym->name()) << '\n';
     });
     return shadow::TaggedPointer{
@@ -576,10 +583,8 @@ SymbolResolver::defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
   if (isLocalLinkage(Def.linkage())) {
     return std::make_tuple(AddSymbol().get_if<Symbol *>(), true);
   }
-  auto X = shadow::set(Context_.shadowPointer(Def.name), AddSymbol,
-                       AddSymbolFromCompilationRef, Update);
-  return std::make_tuple(std::get<shadow::TaggedPointer>(X).get_if<Symbol *>(),
-                         std::get<bool>(X));
+  return asSymbolBool(shadow::set(Context_.shadowPointer(Def.name), AddSymbol,
+                                  AddSymbolFromCompilationRef, Update));
 }
 
 // reference symbol

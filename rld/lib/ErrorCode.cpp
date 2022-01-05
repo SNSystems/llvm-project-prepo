@@ -37,6 +37,12 @@ std::string rld::ErrorCategory::message(int error) const {
   case ErrorCode::CompilationNotFound:
     result = "The compilation was not found";
     break;
+  case ErrorCode::UndefinedSymbol:
+    result = "Undefined symbol";
+    break;
+  case ErrorCode::UndeterminedOutputTriple:
+    result = "The output triple could not be determined";
+    break;
   }
   return result;
 }

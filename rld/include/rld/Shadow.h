@@ -138,36 +138,41 @@ inline bool TaggedPointer::operator==(const CompilationRef *const CR) const {
 class AtomicTaggedPointer {
 public:
   AtomicTaggedPointer() = default;
-  explicit AtomicTaggedPointer(TaggedPointer TP) : P{TP.Ptr_} {}
+  explicit AtomicTaggedPointer(TaggedPointer TP) : P_{TP.Ptr_} {}
   AtomicTaggedPointer(AtomicTaggedPointer const &Other) = delete;
-  AtomicTaggedPointer(AtomicTaggedPointer &&Other) = delete;
+  AtomicTaggedPointer(AtomicTaggedPointer &&Other) noexcept = delete;
+
+  ~AtomicTaggedPointer() noexcept = default;
+
+  AtomicTaggedPointer &operator=(AtomicTaggedPointer const &Other) = delete;
+  AtomicTaggedPointer &operator=(AtomicTaggedPointer &&Other) noexcept = delete;
 
   TaggedPointer
   load(std::memory_order Order = std::memory_order_seq_cst) const noexcept {
-    return TaggedPointer{P.load(Order)};
+    return TaggedPointer{P_.load(Order)};
   }
 
   void store(TaggedPointer Desired,
              std::memory_order Order = std::memory_order_seq_cst) noexcept {
-    P.store(Desired.Ptr_, Order);
+    P_.store(Desired.Ptr_, Order);
   }
 
   bool compare_exchange_weak(TaggedPointer &Expected, TaggedPointer Desired,
                              std::memory_order Success,
                              std::memory_order Failure) noexcept {
-    return P.compare_exchange_weak(Expected.Ptr_, Desired.Ptr_, Success,
-                                   Failure);
+    return P_.compare_exchange_weak(Expected.Ptr_, Desired.Ptr_, Success,
+                                    Failure);
   }
 
   bool compare_exchange_strong(TaggedPointer &Expected, TaggedPointer Desired,
                                std::memory_order Success,
                                std::memory_order Failure) noexcept {
-    return P.compare_exchange_strong(Expected.Ptr_, Desired.Ptr_, Success,
-                                     Failure);
+    return P_.compare_exchange_strong(Expected.Ptr_, Desired.Ptr_, Success,
+                                      Failure);
   }
 
 private:
-  std::atomic<void *> P{nullptr};
+  std::atomic<void *> P_{nullptr};
 };
 
 namespace details {

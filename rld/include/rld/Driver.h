@@ -82,6 +82,12 @@ private:
   static llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>>
   open(const llvm::StringRef Path);
 
+  llvm::Error runImpl(CompilationGroup *const Group, GroupSet *const NextGroup);
+  bool getOutputTriple();
+  static void debugGroupMembers(unsigned GroupNum,
+                                CompilationGroup *const Group);
+  bool reportUndefinedSymbols();
+
   pstore::database *const Db_;
   std::shared_ptr<pstore::index::compilation_index> CompilationIndex_;
   std::unique_ptr<Context> Context_;
@@ -97,7 +103,7 @@ private:
   std::atomic<bool> ErrorFlag_{false};
   uint32_t InputOrdinal_ = 0;
 
-  static constexpr auto DebugType = "rld-Driver";
+  static constexpr auto DebugType_ = "rld-Driver";
 };
 
 template <typename InputFileIterator, typename LibraryIterator,
@@ -106,101 +112,10 @@ llvm::Error Driver::run(
     const std::pair<InputFileIterator, InputFileIterator> &InputFiles,
     const std::pair<LibraryIterator, LibraryIterator> &Libraries,
     const std::pair<LibraryPathIterator, LibraryPathIterator> &LibraryPaths) {
-  llvm::SmallVector<CompilationRef *, 256> Group;
+  CompilationGroup Group;
   GroupSet NextGroup;
   this->scheduleGroup0(&Group, &NextGroup, InputFiles, Libraries, LibraryPaths);
-
-  LayoutBuilder Layout{*Context_, &Undefs_};
-
-  {
-    llvm::NamedRegionTimer LayoutTimer{
-        "Layout", "Output file layout", rld::TimerGroupName,
-        rld::TimerGroupDescription, Context_->TimersEnabled};
-    std::thread LayoutThread{&rld::LayoutBuilder::run, &Layout};
-    rld::Scanner Scan{*Context_, Layout, &Undefs_};
-
-    auto GroupNum = 0U;
-    do {
-      // print ("Group ", ngroup++, " compilations: ",
-      // ios_printer::range<decltype (group)::const_iterator>{std::cbegin
-      // (group), std::cend (group)});
-      for (CompilationRef *const Compilation : Group) {
-        WorkPool_->async(
-            [&](CompilationRef *const C, const uint32_t Ordinal) {
-              this->resolveCompilation(&Scan, *C->Origin, C->Digest, &NextGroup,
-                                       Ordinal);
-            },
-            Compilation, InputOrdinal_);
-        ++InputOrdinal_;
-      }
-      WorkPool_->wait();
-      NextGroup.transferTo(&Group);
-      ++GroupNum;
-    } while (!Group.empty() && Undefs_.strongUndefCount() > 0U);
-
-    Layout.endGroup();
-    assert(Undefs_.strongUndefCountIsCorrect() &&
-           "The strong undef count mus*t match the entries in the undefs list");
-    if (Undefs_.strongUndefCount() > 0U) {
-      std::lock_guard<decltype(Context_->IOMut)> Lock{Context_->IOMut};
-      for (auto const &U : Undefs_) {
-        assert(!U.hasDefinition());
-        if (!U.allReferencesAreWeak()) {
-          // TODO: also need to show where the reference is made.
-          llvm::errs() << "Error: Undefined symbol '"
-                       << loadStdString(Context_->Db, U.name()) << "'\n";
-        }
-      }
-      ErrorFlag_.store(true);
-    }
-
-    llvm::Optional<llvm::Triple> Triple;
-    if (!ErrorFlag_.load()) {
-      Triple = Context_->triple();
-      if (!Triple) {
-        std::lock_guard<decltype(Context_->IOMut)> Lock{Context_->IOMut};
-        llvm::errs() << "Error: The output triple could not be determined.\n";
-        ErrorFlag_.store(true);
-      }
-    }
-    llvmDebug(DebugType, Context_->IOMut, [this] {
-      llvm::dbgs() << "Output triple: " << Context_->triple()->normalize()
-                   << '\n';
-    });
-
-    if (ErrorFlag_.load()) {
-      Layout.error();
-    }
-    LayoutThread.join();
-  }
-
-  if (ErrorFlag_.load()) {
-    // FIXME: clearly this is wrong. It's a hack whilst I unify the error
-    // reporting code.
-    return llvm::Error::success();
-  }
-
-  std::tie(LO, GOTPLTs) = Layout.flattenSegments(
-      Context_->baseAddress(),
-      Layout.elfHeaderBlockSize<llvm::object::ELF64LE>());
-
-  // Get the lists of local and global symbols from layout.
-  SymbolOrder SymOrder = Layout.symbolOrder();
-
-  auto AllSymbols =
-      std::make_unique<rld::GlobalSymbolsContainer>(GlobalSymbs_->all());
-  llvmDebug(DebugType, Context_->IOMut,
-            [&] { debugDumpSymbols(*Context_, *AllSymbols); });
-
-  // Now we set about emitting an ELF executable...
-  rld::llvmDebug(DebugType, Context_->IOMut,
-                 [] { llvm::dbgs() << "Beginning output\n"; });
-
-  llvm::Error Err = elfOutput<llvm::object::ELF64LE>(
-      OutputFileName_, *Context_, *AllSymbols, SymOrder, Undefs_, *WorkPool_,
-      LO.get(), *GOTPLTs);
-  WorkPool_->wait();
-  return Err;
+  return this->runImpl(&Group, &NextGroup);
 }
 
 // schedule group 0
@@ -212,7 +127,6 @@ void Driver::scheduleGroup0(
     const std::pair<InputFileIterator, InputFileIterator> &InputFiles,
     const std::pair<LibraryIterator, LibraryIterator> &Libraries,
     const std::pair<LibraryPathIterator, LibraryPathIterator> &LibraryPaths) {
-  auto InputFileCount = 0U;
   auto ArchiveCount = uint32_t{1};
   std::for_each(
       InputFiles.first, InputFiles.second, [&](llvm::StringRef InputFilePath) {
@@ -230,12 +144,10 @@ void Driver::scheduleGroup0(
           if (llvm::ErrorOr<pstore::index::digest> DigestOrError =
                   llvm::mc::repo::getDigestFromTicket(**FileBuffer,
                                                       &Context_->Db)) {
-            // Create a CompilationRef to represent this ticket's contents and
-            // add it to the initial group of files to be resolved.
-            Group->push_back(Context_->createCompilationRef(
-                *DigestOrError, InputFilePath,
-                std::make_pair(0U, InputFileCount)));
-            ++InputFileCount;
+            // Add this compilation to the initial group to be resolved.
+            Group->try_emplace(*DigestOrError,
+                               std::make_shared<std::string>(InputFilePath));
+            // FIXME: report an error if this was already in the group.
           } else {
             return this->sayError(InputFilePath, DigestOrError.getError());
           }

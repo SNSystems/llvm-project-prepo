@@ -27,6 +27,8 @@ enum ErrorCode : int {
   FragmentIndexNotFound,
   NamesIndexNotFound,
   CompilationNotFound,
+  UndefinedSymbol,
+  UndeterminedOutputTriple,
 };
 
 class ErrorCategory : public std::error_category {
@@ -46,10 +48,6 @@ inline std::error_code make_error_code(ErrorCode const e) noexcept {
 
 } // end namespace rld
 
-namespace std {
-
-template <> struct is_error_code_enum<rld::ErrorCode> : std::true_type {};
-
-} // end namespace std
+template <> struct std::is_error_code_enum<rld::ErrorCode> : std::true_type {};
 
 #endif // RLD_ERROR_CODE_H

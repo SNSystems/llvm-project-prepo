@@ -28,6 +28,14 @@ private:
 
 } // end anonymous namespace
 
+namespace pstore {
+
+raw_ostream &operator<<(raw_ostream &OS, pstore::uint128 Digest) {
+  return OS << Digest.to_hex_string();
+}
+
+} // end namespace pstore
+
 namespace rld {
 
 // (ctor)
@@ -98,6 +106,8 @@ Driver::open(const llvm::StringRef Path) {
       llvm::sys::fs::convertFDToNativeFile(FD), Path, Status.getSize());
 }
 
+// find file
+// ~~~~~~~~~
 // Find a file by concatenating given paths. If a resulting path
 // starts with "=", the character is replaced with a --sysroot value.
 Optional<std::string> Driver::findFile(StringRef path1, const Twine &path2) {
@@ -109,6 +119,138 @@ Optional<std::string> Driver::findFile(StringRef path1, const Twine &path2) {
   //}
   return sys::fs::exists(S) ? Optional<std::string>{std::string{S}}
                             : Optional<std::string>{None};
+}
+
+// get output triple
+// ~~~~~~~~~~~~~~~~~
+// The triple will be used to determine the output architecture and file format.
+// ATM, these are both just hard-wired.
+bool Driver::getOutputTriple() {
+  llvm::Optional<llvm::Triple> Triple = Context_->triple();
+  if (!Triple) {
+    ReportError_(*Context_, "The output triple could not be determined.",
+                 ErrorCode::UndeterminedOutputTriple);
+    ErrorFlag_.store(true);
+    return false;
+  }
+
+  llvmDebug(DebugType_, Context_->IOMut, [this] {
+    llvm::dbgs() << "Output triple: " << Context_->triple()->normalize()
+                 << '\n';
+  });
+  return true;
+}
+
+// debug group members
+// ~~~~~~~~~~~~~~~~~~~
+void Driver::debugGroupMembers(unsigned GroupNum,
+                               CompilationGroup *const Group) {
+  llvm::dbgs() << "Group " << GroupNum << '\n';
+  for (const CompilationGroup::value_type &CR : *Group) {
+    llvm::dbgs() << "    " << std::get<pstore::index::digest>(CR) << ' '
+                 << *CR.second << '\n';
+  }
+  llvm::dbgs() << '\n';
+}
+
+// report undefined symbols
+// ~~~~~~~~~~~~~~~~~~~~~~~~
+bool Driver::reportUndefinedSymbols() {
+  assert(Undefs_.strongUndefCountIsCorrect() &&
+         "The strong undef count must match the entries in the undefs list");
+  if (Undefs_.strongUndefCount() > 0U) {
+    for (auto const &U : Undefs_) {
+      assert(!U.hasDefinition());
+      if (!U.allReferencesAreWeak()) {
+        // FIXME: also need to show where the reference is made. To support
+        // this, a symbol needs to contain a typed variant holding either the
+        // body (for a def) or reference origin (for an undef).
+        ReportError_(*Context_,
+                     "'" + loadStdString(Context_->Db, U.name()) + "'",
+                     ErrorCode::UndefinedSymbol);
+      }
+    }
+    ErrorFlag_.store(true);
+    return false;
+  }
+  return true;
+}
+
+// run impl
+// ~~~~~~~~
+llvm::Error Driver::runImpl(CompilationGroup *const Group,
+                            GroupSet *const NextGroup) {
+  LayoutBuilder Layout{*Context_, &Undefs_};
+
+  {
+    llvm::NamedRegionTimer LayoutTimer{
+        "Layout", "Output file layout", rld::TimerGroupName,
+        rld::TimerGroupDescription, Context_->TimersEnabled};
+    std::thread LayoutThread{&rld::LayoutBuilder::run, &Layout};
+    rld::Scanner Scan{*Context_, Layout, &Undefs_};
+
+    auto GroupNum = 0U;
+    do {
+      llvmDebug(DebugType_, Context_->IOMut,
+                [&] { Driver::debugGroupMembers(GroupNum, Group); });
+      for (CompilationGroup::value_type const &Entry : *Group) {
+        WorkPool_->async(
+            [&](CompilationGroup::value_type const &C, const uint32_t Ordinal) {
+              auto const &Digest = std::get<pstore::index::digest>(C);
+              auto const &Origin = std::get<std::shared_ptr<std::string>>(C);
+              this->resolveCompilation(&Scan, *Origin, Digest, NextGroup,
+                                       Ordinal);
+            },
+            Entry, InputOrdinal_);
+        ++InputOrdinal_;
+      }
+      WorkPool_->wait();
+      NextGroup->transferTo(*Context_, Group);
+      ++GroupNum;
+    } while (!Group->empty() && Undefs_.strongUndefCount() > 0U);
+
+    Layout.endGroup();
+    if (!ErrorFlag_.load()) {
+      this->reportUndefinedSymbols();
+    }
+
+    if (!ErrorFlag_.load()) {
+      this->getOutputTriple();
+    }
+
+    if (ErrorFlag_.load()) {
+      Layout.error();
+    }
+    LayoutThread.join();
+  }
+
+  if (ErrorFlag_.load()) {
+    // FIXME: clearly this is wrong. It's a hack whilst I unify the error
+    // reporting code.
+    return llvm::Error::success();
+  }
+
+  std::tie(LO, GOTPLTs) = Layout.flattenSegments(
+      Context_->baseAddress(),
+      Layout.elfHeaderBlockSize<llvm::object::ELF64LE>());
+
+  // Get the lists of local and global symbols from layout.
+  SymbolOrder SymOrder = Layout.symbolOrder();
+
+  auto AllSymbols =
+      std::make_unique<rld::GlobalSymbolsContainer>(GlobalSymbs_->all());
+  llvmDebug(DebugType_, Context_->IOMut,
+            [&] { debugDumpSymbols(*Context_, *AllSymbols); });
+
+  // Now we set about emitting an ELF executable...
+  rld::llvmDebug(DebugType_, Context_->IOMut,
+                 [] { llvm::dbgs() << "Beginning output\n"; });
+
+  llvm::Error Err = elfOutput<llvm::object::ELF64LE>(
+      OutputFileName_, *Context_, *AllSymbols, SymOrder, Undefs_, *WorkPool_,
+      LO.get(), *GOTPLTs);
+  WorkPool_->wait();
+  return Err;
 }
 
 } // end namespace rld
