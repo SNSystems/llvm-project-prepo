@@ -196,8 +196,7 @@ namespace details {
 ///
 /// \tparam CreateFn  A function with signature TaggedPointer().
 /// \param P  A pointer to the atomic to be set. This should lie within the
-/// repository
-///   shadow memory area.
+///   repository shadow memory area.
 /// \param [in,out] Expected  On return, the value contained by the atomic.
 /// \param Create  A function called to create a new Symbol or CompilationRef.
 /// \returns True if the state transition was completed, false otherwise.
@@ -221,19 +220,16 @@ inline bool nullToFinal(AtomicTaggedPointer *const P, TaggedPointer &Expected,
 /// \tparam CreateFromCompilationRefFn  A function with signature
 ///   TaggedPointer(std::atomic<void*>*, CompilationRef *).
 /// \param P  A pointer to the atomic to be set. This should lie within the
-/// repository
-///   shadow memory area.
+///   repository shadow memory area.
 /// \param [in,out] Expected  On entry, must point to an CompilationRef
 ///   pointer.
 /// \param CreateFromCompilationRef  A function called to update a
-/// CompilationRef or to
-///   create a symbol based on the input CompilationRef.
+///   CompilationRef or to create a symbol based on the input CompilationRef.
 /// \returns  True if the state transition was completed, false otherwise.
 ///
 /// \note This function expected to be called from within a loop which checks
-/// the value of
-///   expected. This enables use of compare_exchange_weak() which may be
-///   slightly faster than compare_exchange_strong() alternative on some
+///   the value of expected. This enables use of compare_exchange_weak() which
+///   may be slightly faster than compare_exchange_strong() alternative on some
 ///   platforms.
 template <typename CreateFromCompilationRefFn>
 inline bool compilationRefToFinal(
