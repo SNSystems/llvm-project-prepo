@@ -244,7 +244,7 @@ pstore::repo::section_content FragmentCreator::generateDataSection(
   const auto FixupType = pstore::repo::relocation_type{1}; // TODO: R_X86_64_64
   for (auto Ctr = 0U; Ctr < XFixupSize_; ++Ctr) {
     DataSection.xfixups.emplace_back(
-        Strings.pick(*G), FixupType, pstore::repo::reference_strength::strong,
+        Strings.pick(*G), FixupType, pstore::repo::binding::strong,
         static_cast<uint64_t>(Ctr) % SectionSize_, // offset
         INT64_C(8)                                 // addend
     );
