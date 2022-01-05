@@ -38,7 +38,3 @@ std::size_t writeRaw(llvm::raw_ostream &OS, Ty const &T) {
   OS.write(reinterpret_cast<char const *>(&T), sizeof(T));
   return sizeof(T);
 }
-
-
-
-

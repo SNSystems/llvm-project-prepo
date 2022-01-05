@@ -1,3 +1,17 @@
+//===- lib/CSAlloc.cpp ----------------------------------------------------===//
+//*   ____ ____    _    _ _             *
+//*  / ___/ ___|  / \  | | | ___   ___  *
+//* | |   \___ \ / _ \ | | |/ _ \ / __| *
+//* | |___ ___) / ___ \| | | (_) | (__  *
+//*  \____|____/_/   \_\_|_|\___/ \___| *
+//*                                     *
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
 #include "rld/CSAlloc.h"
 
 rld::FixupStorage::FixupStorage(unsigned NumWorkerThreads)

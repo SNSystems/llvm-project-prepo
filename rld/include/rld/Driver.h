@@ -1,3 +1,17 @@
+//===- include/rld/Driver.h -------------------------------*- mode: C++ -*-===//
+//*  ____       _                 *
+//* |  _ \ _ __(_)_   _____ _ __  *
+//* | | | | '__| \ \ / / _ \ '__| *
+//* | |_| | |  | |\ V /  __/ |    *
+//* |____/|_|  |_| \_/ \___|_|    *
+//*                               *
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
 #ifndef RLD_DRIVER_H
 #define RLD_DRIVER_H
 

@@ -1,3 +1,17 @@
+//===- include/rld/Archive.h ------------------------------*- mode: C++ -*-===//
+//*     _             _     _            *
+//*    / \   _ __ ___| |__ (_)_   _____  *
+//*   / _ \ | '__/ __| '_ \| \ \ / / _ \ *
+//*  / ___ \| | | (__| | | | |\ V /  __/ *
+//* /_/   \_\_|  \___|_| |_|_| \_/ \___| *
+//*                                      *
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
 #ifndef RLD_ARCHIVE_H
 #define RLD_ARCHIVE_H
 

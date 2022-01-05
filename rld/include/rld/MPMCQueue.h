@@ -1,3 +1,17 @@
+//===- include/rld/MPMCQueue.h ----------------------------*- mode: C++ -*-===//
+//*  __  __ ____  __  __  ____ ___                         *
+//* |  \/  |  _ \|  \/  |/ ___/ _ \ _   _  ___ _   _  ___  *
+//* | |\/| | |_) | |\/| | |  | | | | | | |/ _ \ | | |/ _ \ *
+//* | |  | |  __/| |  | | |__| |_| | |_| |  __/ |_| |  __/ *
+//* |_|  |_|_|   |_|  |_|\____\__\_\\__,_|\___|\__,_|\___| *
+//*                                                        *
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
 #ifndef RLD_MPMC_QUEUE_H
 #define RLD_MPMC_QUEUE_H
 
