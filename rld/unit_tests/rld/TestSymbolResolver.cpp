@@ -959,7 +959,7 @@ class RefBeforeDef : public TwoSymbols,
 
 } // end anonymous namespace
 
-using pstore::repo::reference_strength;
+using pstore::repo::binding;
 
 TEST_P(RefBeforeDef, DefinitionReplacesReference) {
   linkage const Linkage = this->GetParam();
@@ -973,8 +973,7 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
   rld::GlobalSymbolsContainer Globals;
   rld::CompilationSymbolsView S0{0};
   rld::referenceSymbol(Ctx_, S0, &Globals, &Undefs,
-                       CompilationBuilder_.storeString(Name),
-                       reference_strength::strong);
+                       CompilationBuilder_.storeString(Name), binding::strong);
   EXPECT_EQ(S0.Map.size(), 0U);
   ASSERT_EQ(Globals.size(), 1U);
   EXPECT_FALSE(this->getSymbol(Globals, 0U).hasDefinition());
@@ -1010,7 +1009,7 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
     }
     EXPECT_EQ(rld::referenceSymbol(Ctx_, *S1, &Globals, &Undefs,
                                    this->getStringAddress(Name),
-                                   reference_strength::strong),
+                                   binding::strong),
               std::make_tuple(&Symbol0, true));
   }
 }
@@ -1075,11 +1074,11 @@ TEST_P(InternalCollision, InternalAfter) {
   }
   EXPECT_EQ(rld::referenceSymbol(Ctx_, *C0, &Globals, &Undefs,
                                  this->getStringAddress(Name_),
-                                 reference_strength::strong),
+                                 binding::strong),
             std::make_tuple(&Symbol0, true));
   EXPECT_EQ(rld::referenceSymbol(Ctx_, *C1, &Globals, &Undefs,
                                  this->getStringAddress(Name_),
-                                 reference_strength::strong),
+                                 binding::strong),
             std::make_tuple(&Symbol1, true));
   EXPECT_TRUE(Undefs.empty());
   EXPECT_EQ(Undefs.strongUndefCount(), 0U);
@@ -1123,11 +1122,11 @@ TEST_P(InternalCollision, InternalBefore) {
   }
   EXPECT_EQ(rld::referenceSymbol(Ctx_, *C0, &Globals, &Undefs,
                                  this->getStringAddress(Name_),
-                                 reference_strength::strong),
+                                 binding::strong),
             std::make_tuple(&Symbol0, true));
   EXPECT_EQ(rld::referenceSymbol(Ctx_, *C1, &Globals, &Undefs,
                                  this->getStringAddress(Name_),
-                                 reference_strength::strong),
+                                 binding::strong),
             std::make_tuple(&Symbol1, true));
 }
 

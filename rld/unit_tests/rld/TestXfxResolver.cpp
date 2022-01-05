@@ -21,8 +21,8 @@
 #include "EmptyStore.h"
 #include "ErrorFn.h"
 
+using pstore::repo::binding;
 using pstore::repo::linkage;
-using pstore::repo::reference_strength;
 using testing::_;
 using testing::UnorderedElementsAre;
 
@@ -32,7 +32,7 @@ using testing::UnorderedElementsAre;
 static pstore::index::fragment_index::value_type
 createFragmentWithReferenceTo(CompilationBuilder::Transaction &T,
                               StringAdder &Strings, llvm::StringRef const &Name,
-                              reference_strength Strength) {
+                              binding Binding) {
   using pstore::repo::fragment;
   using pstore::repo::generic_section_creation_dispatcher;
   using pstore::repo::section_content;
@@ -42,7 +42,7 @@ createFragmentWithReferenceTo(CompilationBuilder::Transaction &T,
                               UINT8_C(1) /*alignment*/};
   DataSection.data.emplace_back(UINT8_C(0));
   DataSection.xfixups.emplace_back(Strings.add(T, Name),
-                                   pstore::repo::relocation_type{0}, Strength,
+                                   pstore::repo::relocation_type{0}, Binding,
                                    0U, // offset
                                    0); // addend
 
@@ -70,7 +70,7 @@ protected:
 
   CompilationPtr compileOneDefinitionWithReferenceTo(
       llvm::StringRef const &Name, linkage Linkage,
-      llvm::StringRef const &RefTo, reference_strength Strength);
+      llvm::StringRef const &RefTo, binding Binding);
 
   llvm::Optional<rld::CompilationSymbolsView>
   defineSymbols(CompilationPtr const &Compilation, uint32_t InputOrdinal);
@@ -86,13 +86,13 @@ protected:
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 auto XfxScannerTest::compileOneDefinitionWithReferenceTo(
     llvm::StringRef const &Name, linkage Linkage, llvm::StringRef const &RefTo,
-    reference_strength Strength) -> CompilationPtr {
+    binding Binding) -> CompilationPtr {
   std::array<CompilationBuilder::NameAndLinkagePair, 1> NL{{{std::string(Name), Linkage}}};
   return CompilationBuilder_.compile(
       std::begin(NL), std::end(NL),
-      [&RefTo, Strength](CompilationBuilder::Transaction &T,
-                         StringAdder &Strings) {
-        return createFragmentWithReferenceTo(T, Strings, RefTo, Strength);
+      [&RefTo, Binding](CompilationBuilder::Transaction &T,
+                        StringAdder &Strings) {
+        return createFragmentWithReferenceTo(T, Strings, RefTo, Binding);
       });
 }
 
@@ -133,7 +133,7 @@ TEST_F(XfxScannerTest, StrongRefToUndefined) {
   // linkage. The sole fragment contains an external fixup with a strong
   // reference to undefined symbol "x".
   const auto Compilation = this->compileOneDefinitionWithReferenceTo(
-      "f", linkage::external, "x", reference_strength::strong);
+      "f", linkage::external, "x", binding::strong);
 
   // Create an entry in the symbol table for the definition in our compilation.
   auto Locals = this->defineSymbols(Compilation, InputOrdinal);
@@ -178,7 +178,7 @@ TEST_F(XfxScannerTest, WeakRefToUndefined) {
   // linkage. The sole fragment contains an external fixup with a weak reference
   // to undefined symbol "x".
   const auto Compilation = this->compileOneDefinitionWithReferenceTo(
-      "f", linkage::external, "x", reference_strength::weak);
+      "f", linkage::external, "x", binding::weak);
 
   // Create an entry in the symbol table for the definition in our compilation.
   auto Locals = this->defineSymbols(Compilation, InputOrdinal);
@@ -227,7 +227,7 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
     // linkage. The sole fragment contains an external fixup with a weak
     // reference to the undefined symbol "x".
     const auto Compilation1 = this->compileOneDefinitionWithReferenceTo(
-        "f", linkage::external, "x", reference_strength::weak);
+        "f", linkage::external, "x", binding::weak);
     // Create an entry in the symbol table for the definition in our
     // compilation.
     auto Locals1 = this->defineSymbols(Compilation1, InputOrdinal1);
@@ -253,7 +253,7 @@ TEST_F(XfxScannerTest, WeakThenStrongRefToUndef) {
     // linkage. The sole fragment contains an external fixup with a strong
     // reference to the undefined symbol "x".
     const auto Compilation2 = this->compileOneDefinitionWithReferenceTo(
-        "g", linkage::external, "x", reference_strength::strong);
+        "g", linkage::external, "x", binding::strong);
     // Create an entry in the symbol table for the definition in our
     // compilation.
     auto Locals2 = this->defineSymbols(Compilation2, InputOrdinal2);
@@ -281,7 +281,7 @@ TEST_F(XfxScannerTest, StrongRefToExternalDef) {
   // Create a compilation containing a single symbol ("f") with external
   // linkage. The sole fragment contains an external fixup referencing "f".
   const auto Compilation = this->compileOneDefinitionWithReferenceTo(
-      "f", linkage::external, "f", reference_strength::strong);
+      "f", linkage::external, "f", binding::strong);
 
   // Create an entry in the symbol table for the definition in our compilation.
   auto Locals = this->defineSymbols(Compilation, InputOrdinal);
@@ -315,9 +315,9 @@ TEST_F(XfxScannerTest, RefToAppendDef) {
   // linkage. Each contains a single fragment which contains an external fixup
   // referencing "f".
   const auto C0 = this->compileOneDefinitionWithReferenceTo(
-      "f", linkage::append, "f", reference_strength::strong);
+      "f", linkage::append, "f", binding::strong);
   const auto C1 = this->compileOneDefinitionWithReferenceTo(
-      "f", linkage::append, "f", reference_strength::strong);
+      "f", linkage::append, "f", binding::strong);
 
   auto L0 = this->defineSymbols(C0, InputOrdinal0);
   ASSERT_TRUE(L0.hasValue()) << "Expected defineSymbols for C0 to succeed";
