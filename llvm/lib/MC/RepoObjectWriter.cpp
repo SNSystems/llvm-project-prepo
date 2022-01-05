@@ -509,8 +509,7 @@ void RepoObjectWriter::writeSectionData(ContentsType &Fragments,
         pstore::typed_address<pstore::indirect_string>(
             pstore::address{NamePtr}),
         static_cast<repo_relocation_type>(Relocation.Type),
-        IsWeak ? pstore::repo::reference_strength::weak
-               : pstore::repo::reference_strength::strong,
+        IsWeak ? pstore::repo::binding::weak : pstore::repo::binding::strong,
         Relocation.Offset, Relocation.Addend});
 
     if (IsWeak) {

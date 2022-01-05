@@ -170,9 +170,8 @@ inline Symbol *Symbol::defineImpl(std::unique_lock<SpinLock> &&Lock,
   Lock.unlock();
 
   // Remove this symbol from the undef list.
-  Undefs->remove(this, WasWeakUndefined
-                           ? pstore::repo::reference_strength::weak
-                           : pstore::repo::reference_strength::strong);
+  Undefs->remove(this, WasWeakUndefined ? pstore::repo::binding::weak
+                                        : pstore::repo::binding::strong);
   return this;
 }
 
@@ -468,8 +467,8 @@ bool UndefsContainer::strongUndefCountIsCorrect() const {
 NotNull<Symbol *> SymbolResolver::addUndefined(
     const NotNull<GlobalSymbolsContainer *> Globals,
     const NotNull<UndefsContainer *> Undefs, const pstore::address Name,
-    const size_t NameLength, const pstore::repo::reference_strength Strength) {
-  Symbol *const Sym = &Globals->emplace_back(Name, NameLength, Strength);
+    const size_t NameLength, const pstore::repo::binding Binding) {
+  Symbol *const Sym = &Globals->emplace_back(Name, NameLength, Binding);
   Undefs->insert(Sym);
   return Sym;
 }
@@ -479,9 +478,9 @@ NotNull<Symbol *> SymbolResolver::addUndefined(
 NotNull<Symbol *> SymbolResolver::addReference(
     NotNull<Symbol *> Sym, NotNull<GlobalSymbolsContainer *> Globals,
     NotNull<UndefsContainer *> Undefs, StringAddress Name,
-    pstore::repo::reference_strength Strength) {
+    pstore::repo::binding Binding) {
 
-  if (Sym->addReference(Strength)) {
+  if (Sym->addReference(Binding)) {
     Undefs->addStrongUndef();
   }
   return Sym;
@@ -594,7 +593,7 @@ referenceSymbol(Context &Ctxt, const CompilationSymbolsView &Locals,
                 const NotNull<GlobalSymbolsContainer *> Globals,
                 const NotNull<UndefsContainer *> Undefs,
                 const NotNull<GroupSet *> NextGroup, StringAddress Name,
-                pstore::repo::reference_strength Strength) {
+                pstore::repo::binding Binding) {
 
   // Do we have a local definition for this symbol?
   const auto NamePos = Locals.Map.find(Name);
@@ -609,7 +608,7 @@ referenceSymbol(Context &Ctxt, const CompilationSymbolsView &Locals,
     const size_t Length = IndirStr.length();
     Ctxt.ELFStringTableSize.fetch_add(Length + 1U, std::memory_order_relaxed);
     return SymbolResolver::addUndefined(
-        Globals, Undefs, IndirStr.in_store_address(), Length, Strength);
+        Globals, Undefs, IndirStr.in_store_address(), Length, Binding);
   };
   // Despite what its name suggests, this function does not create an undef
   // symbol. We need to keep the CompilationRef record in the shadow memory in
@@ -630,7 +629,7 @@ referenceSymbol(Context &Ctxt, const CompilationSymbolsView &Locals,
     // Called if we see a reference to a symbol already in the symbol
     // table.
     return shadow::TaggedPointer{
-        SymbolResolver::addReference(Sym, Globals, Undefs, Name, Strength)};
+        SymbolResolver::addReference(Sym, Globals, Undefs, Name, Binding)};
   };
 
   return shadow::set(

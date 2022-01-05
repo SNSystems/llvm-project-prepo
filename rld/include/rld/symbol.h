@@ -113,7 +113,7 @@ public:
     assert(Prev < std::numeric_limits<decltype(Prev)>::max());
   }
 
-  void remove(Symbol *Sym, pstore::repo::reference_strength Strength);
+  void remove(Symbol *Sym, pstore::repo::binding Strength);
   Symbol *insert(Symbol *Sym);
 
   Container::const_iterator begin() const { return List_.begin(); }
@@ -220,12 +220,12 @@ public:
   ///
   /// \param Name  The name of the symbol.
   /// \param NameLength  The number of code units in the name of the symbol.
-  /// \param Strength  The strength of the reference (weak/strong) that caused
+  /// \param Binding  The weak/strong binding of the reference that caused
   ///   the creation of this symbol.
   explicit Symbol(pstore::address Name, size_t NameLength,
-                  pstore::repo::reference_strength Strength)
-      : Name_{Name.absolute()},
-        WeakUndefined_{Strength == pstore::repo::reference_strength::weak},
+                  pstore::repo::binding Binding)
+      : Name_{Name.absolute()}, WeakUndefined_{Binding ==
+                                               pstore::repo::binding::weak},
         NameLength_{NameLength}, Contribution_{nullptr}, HasPLT_{false} {
     assert(name() == Name &&
            Name.absolute() < (UINT64_C(1) << StringAddress::total_bits));
@@ -250,8 +250,6 @@ public:
   using Mutex = SpinLock;
   using BodyContainer = llvm::SmallVector<Body, 1>;
   using OptionalBodies = llvm::Optional<BodyContainer>;
-
-  // enum { DefinitionIndex, LockIndex };
 
   auto definition() const
       -> std::tuple<const OptionalBodies &, std::unique_lock<Mutex>> {
@@ -314,10 +312,10 @@ public:
 
   /// Records a reference from an external fixup.
   ///
-  /// \param Strength  The strength of the reference (weak/strong).
+  /// \param Binding  The weak/strong binding of the reference.
   /// \returns True if the resulting symbol was previously only weakly
   ///   referenced, is now strongly referenced and undefined.
-  bool addReference(pstore::repo::reference_strength Strength);
+  bool addReference(pstore::repo::binding Binding);
 
   /// \returns True if the symbol is undefined and all references to it are
   /// weak.
@@ -523,14 +521,13 @@ inline size_t Symbol::nameLength() const {
 
 // add reference
 // ~~~~~~~~~~~~~
-inline bool Symbol::addReference(pstore::repo::reference_strength Strength) {
+inline bool Symbol::addReference(pstore::repo::binding Binding) {
   std::lock_guard<Mutex> Lock{Mut_};
   const bool WasWeak = WeakUndefined_;
   // If the symbol is weakly undefined, we must not have a definition.
   assert((!WasWeak || !Definition_.hasValue()) &&
          "A weakly undefined symbol must not have a definition");
-  WeakUndefined_ =
-      WasWeak && Strength == pstore::repo::reference_strength::weak;
+  WeakUndefined_ = WasWeak && Binding == pstore::repo::binding::weak;
   return WasWeak && !WeakUndefined_;
 }
 
@@ -543,8 +540,8 @@ inline bool Symbol::addReference(pstore::repo::reference_strength Strength) {
 // remove
 // ~~~~~~
 inline void UndefsContainer::remove(Symbol *const Sym,
-                                    pstore::repo::reference_strength Strength) {
-  if (Strength != pstore::repo::reference_strength::weak) {
+                                    pstore::repo::binding Binding) {
+  if (Binding != pstore::repo::binding::weak) {
     const auto Prev = StrongUndefCount_--;
     (void)Prev;
     assert(Prev > 0U);
@@ -770,13 +767,13 @@ public:
   /// \param Undefs  The global collection of undefined symbols.
   /// \param Name  The name of the symbol being created.
   /// \param NameLength The length of the symbol name.
-  /// \param Strength  Is this symbol table entry being created as the
+  /// \param Binding  Is this symbol table entry being created as the
   ///   result of a weak reference?
   /// \returns  The newly created symbol.
   static NotNull<Symbol *>
   addUndefined(NotNull<GlobalSymbolsContainer *> Globals,
                NotNull<UndefsContainer *> Undefs, pstore::address Name,
-               size_t NameLength, pstore::repo::reference_strength Strength);
+               size_t NameLength, pstore::repo::binding Binding);
 
   /// Records a reference to a symbol.
   ///
@@ -784,12 +781,12 @@ public:
   /// \param Globals  The container which holds defined and undefined symbols.
   /// \param Undefs  The global collection of undefined symbols.
   /// \param Name  The name of the symbol being referenced.
-  /// \param Strength  Is this a weak or strong reference to the symbol?
+  /// \param Binding  Is this a weak or strong reference to the symbol?
   /// \returns  The referenced symbol.
   static NotNull<Symbol *>
   addReference(NotNull<Symbol *> Sym, NotNull<GlobalSymbolsContainer *> Globals,
                NotNull<UndefsContainer *> Undefs, StringAddress Name,
-               pstore::repo::reference_strength Strength);
+               pstore::repo::binding Binding);
 
 private:
   std::tuple<NotNull<Symbol *>, bool>
@@ -858,7 +855,7 @@ class GroupSet;
 /// \param NextGroup The group of CompilationRefs to be processed by the next
 ///   top-level pass.
 /// \param Name  The name of the symbol being created.
-/// \param/ Strength  The strength of the reference (weak/strong) that caused
+/// \param Binding  The weak/strong binding of the reference that caused
 ///   the creation of this symbol.
 /// \return  A pointer to the referenced symbol.
 std::tuple<shadow::TaggedPointer, bool>
@@ -866,7 +863,7 @@ referenceSymbol(Context &Ctxt, const CompilationSymbolsView &Locals,
                 const NotNull<GlobalSymbolsContainer *> Globals,
                 const NotNull<UndefsContainer *> Undefs,
                 const NotNull<GroupSet *> NextGroup, StringAddress Name,
-                pstore::repo::reference_strength Strength);
+                pstore::repo::binding Binding);
 
 } // end namespace rld
 #endif // RLD_SYMBOL_H
