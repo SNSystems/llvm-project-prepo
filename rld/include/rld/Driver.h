@@ -58,7 +58,7 @@ public:
 
   template <typename InputFileIterator, typename LibraryIterator,
             typename LibraryPathIterator>
-  llvm::Error
+  bool
   run(const std::pair<InputFileIterator, InputFileIterator> &InputFiles,
       const std::pair<LibraryIterator, LibraryIterator> &Libraries,
       const std::pair<LibraryPathIterator, LibraryPathIterator> &LibraryPaths);
@@ -96,7 +96,7 @@ private:
   static llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>>
   open(const llvm::StringRef Path);
 
-  llvm::Error runImpl(CompilationGroup *const Group, GroupSet *const NextGroup);
+  bool runImpl(CompilationGroup *const Group, GroupSet *const NextGroup);
   bool getOutputTriple();
   static void debugGroupMembers(unsigned GroupNum,
                                 CompilationGroup *const Group);
@@ -122,7 +122,7 @@ private:
 
 template <typename InputFileIterator, typename LibraryIterator,
           typename LibraryPathIterator>
-llvm::Error Driver::run(
+bool Driver::run(
     const std::pair<InputFileIterator, InputFileIterator> &InputFiles,
     const std::pair<LibraryIterator, LibraryIterator> &Libraries,
     const std::pair<LibraryPathIterator, LibraryPathIterator> &LibraryPaths) {

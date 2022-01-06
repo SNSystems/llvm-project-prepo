@@ -107,8 +107,9 @@ int main(int Argc, char *Argv[]) {
 
   rld::Driver D(Db->get(), CompilationIndex, EntryPoint, NumWorkers,
                 OutputFileName, reportError);
-  ExitOnErr(D.run(std::make_pair(InputFiles.begin(), InputFiles.end()),
-                  std::make_pair(Libraries.begin(), Libraries.end()),
-                  std::make_pair(LibraryPaths.begin(), LibraryPaths.end())));
-  return EXIT_SUCCESS;
+  return D.run(std::make_pair(InputFiles.begin(), InputFiles.end()),
+               std::make_pair(Libraries.begin(), Libraries.end()),
+               std::make_pair(LibraryPaths.begin(), LibraryPaths.end()))
+             ? EXIT_SUCCESS
+             : EXIT_FAILURE;
 }

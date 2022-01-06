@@ -195,8 +195,7 @@ bool Driver::reportUndefinedSymbols() {
 
 // run impl
 // ~~~~~~~~
-llvm::Error Driver::runImpl(CompilationGroup *const Group,
-                            GroupSet *const NextGroup) {
+bool Driver::runImpl(CompilationGroup *const Group, GroupSet *const NextGroup) {
   LayoutBuilder Layout{*Context_, &Undefs_};
 
   {
@@ -242,9 +241,7 @@ llvm::Error Driver::runImpl(CompilationGroup *const Group,
   }
 
   if (ErrorFlag_.load()) {
-    // FIXME: clearly this is wrong. It's a hack whilst I unify the error
-    // reporting code.
-    return llvm::Error::success();
+    return false;
   }
 
   std::tie(LO, GOTPLTs) = Layout.flattenSegments(
@@ -266,8 +263,20 @@ llvm::Error Driver::runImpl(CompilationGroup *const Group,
   llvm::Error Err = elfOutput<llvm::object::ELF64LE>(
       OutputFileName_, *Context_, *AllSymbols, SymOrder, Undefs_, *WorkPool_,
       LO.get(), *GOTPLTs);
+  if (Err) {
+    ErrorFlag_.store(true);
+    handleAllErrors(std::move(Err), [&](const ErrorInfoBase &EI) {
+      std::string Str;
+      raw_string_ostream OS{Str};
+      EI.log(OS);
+      ReportError_(*Context_, "Output error: ", EI.convertToErrorCode());
+    });
+    return false;
+  }
+
   WorkPool_->wait();
-  return Err;
+
+  return !ErrorFlag_.load();
 }
 
 } // end namespace rld
