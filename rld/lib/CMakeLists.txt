@@ -36,6 +36,7 @@ add_llvm_library (LLVMrld
     ELFSymbolTable.cpp
     ElfOutput.cpp
     ErrorCode.cpp
+    GroupSet.cpp
     Identify.cpp
     IdentifyPass.cpp
     LayoutBuilder.cpp

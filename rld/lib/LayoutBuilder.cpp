@@ -502,13 +502,16 @@ void LayoutBuilder::debugDumpLayout() const {
        << format_hex(Segment.VirtualSize) << '\t'
        << format_hex(Segment.MaxAlign) << '\n';
   });
-  auto EmitSection =
-      makeOnce([&OS](const SectionKind Scn) { OS << '\t' << Scn << '\n'; });
+  auto EmitSection = makeOnce([&OS, this](const SectionKind Scn) {
+    const auto &Section = Layout_->Sections[Scn];
+    OS << '\t' << Scn << '\t' << format_hex(Section.VirtualSize) << '\t'
+       << format_hex(Section.MaxAlign) << '\n';
+  });
 
   pstore::shared_sstring_view Owner;
   forEachSegmentKind([&](const SegmentKind SegmentK) {
     auto VAddr = Layout_->Segments[SegmentK].VirtualAddr;
-    forEachSectionKindInFileOrder([&](const SectionKind SectionK) {
+    forEachSectionKindInFileOrder([&, this](const SectionKind SectionK) {
       if (const OutputSection *const Scn =
               Layout_->Segments[SegmentK].Sections[SectionK]) {
         for (const Contribution &C : Scn->Contributions) {
@@ -518,8 +521,7 @@ void LayoutBuilder::debugDumpLayout() const {
           OS << "\t\t" << format_hex(VAddr) << '\t' << format_hex(C.Size)
              << '\t' << format_hex(C.Align) << '\t'
              << stringViewAsRef(loadString(Ctx_.Db, C.Name, &Owner)) << '\t'
-             << format_hex(C.Align) << '\t' << format_hex(C.InputOrdinal)
-             << '\n';
+             << Ctx_.ordinalName(C.InputOrdinal) << '\n';
           VAddr += C.Size;
         }
       }

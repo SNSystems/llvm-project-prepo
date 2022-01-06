@@ -42,8 +42,8 @@ template <> struct llvm::DenseMapInfo<pstore::index::digest> {
 
 namespace rld {
 
-using CompilationGroup =
-    llvm::DenseMap<pstore::index::digest, std::shared_ptr<std::string>>;
+using CompilationGroup = llvm::SmallVector<
+    std::pair<pstore::index::digest, std::shared_ptr<std::string>>, 256>;
 
 class GroupSet {
 public:
@@ -58,27 +58,7 @@ public:
     Set_.clear();
   }
 
-  void transferTo(Context &C,
-                  llvm::DenseMap<pstore::index::digest,
-                                 std::shared_ptr<std::string>> *const Group) {
-    std::lock_guard<std::mutex> _{Mutex_};
-    Group->clear();
-    Group->reserve(Set_.size());
-
-    for (auto P : Set_) {
-      if (auto *const CR =
-              P->load(std::memory_order_acquire).get_if<CompilationRef *>()) {
-        Group->try_emplace(CR->Digest, CR->Origin);
-
-        if (CR->Sym != nullptr) {
-          P->store(shadow::TaggedPointer{CR->Sym}, std::memory_order_release);
-        } else {
-          P->store(shadow::TaggedPointer{}, std::memory_order_release);
-        }
-      }
-    }
-    Set_.clear();
-  }
+  void transferTo(Context &C, CompilationGroup *const Group);
 
   template <typename Function> void for_each(Function F) {
     std::lock_guard<std::mutex> _{Mutex_};
@@ -88,8 +68,6 @@ public:
 private:
   llvm::DenseSet<shadow::AtomicTaggedPointer *> Set_;
   std::mutex Mutex_;
-
-  static constexpr auto DebugType_ = "rld-GroupSet";
 };
 
 } // end namespace rld

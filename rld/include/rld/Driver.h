@@ -159,9 +159,8 @@ void Driver::scheduleGroup0(
                   llvm::mc::repo::getDigestFromTicket(**FileBuffer,
                                                       &Context_->Db)) {
             // Add this compilation to the initial group to be resolved.
-            Group->try_emplace(*DigestOrError,
-                               std::make_shared<std::string>(InputFilePath));
-            // FIXME: report an error if this was already in the group.
+            Group->emplace_back(*DigestOrError,
+                                std::make_shared<std::string>(InputFilePath));
           } else {
             return this->sayError(InputFilePath, DigestOrError.getError());
           }
