@@ -226,18 +226,16 @@ bool Driver::runImpl(CompilationGroup *const Group, GroupSet *const NextGroup) {
     } while (!Group->empty() && Undefs_.strongUndefCount() > 0U);
 
     Layout.endGroup();
-    if (!ErrorFlag_.load()) {
-      this->reportUndefinedSymbols();
-    }
-
-    if (!ErrorFlag_.load()) {
-      this->getOutputTriple();
-    }
-
     if (ErrorFlag_.load()) {
       Layout.error();
     }
     LayoutThread.join();
+    if (!ErrorFlag_.load()) {
+      this->reportUndefinedSymbols();
+    }
+    if (!ErrorFlag_.load()) {
+      this->getOutputTriple();
+    }
   }
 
   if (ErrorFlag_.load()) {

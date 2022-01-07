@@ -518,6 +518,10 @@ void LayoutBuilder::debugDumpLayout() const {
           EmitSegment(SegmentK);
           EmitSection(SectionK);
           VAddr = alignTo(VAddr, C.Align);
+          // TODO: If we encounter a contribution from a definition that was
+          // later overridden (e.g., weak-external followed by external or
+          // common with a later, larger, definition) then we should indicate
+          // that by, say, writing the name in parentheses.
           OS << "\t\t" << format_hex(VAddr) << '\t' << format_hex(C.Size)
              << '\t' << format_hex(C.Align) << '\t'
              << stringViewAsRef(loadString(Ctx_.Db, C.Name, &Owner)) << '\t'
@@ -536,67 +540,71 @@ void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
                                    const StringAddress Aliasee,
                                    const SectionKind SectionK,
                                    const bool Start) {
-#if 0
   if (Alias == StringAddress::null() || Aliasee == StringAddress::null()) {
     return;
   }
-  setSymbolShadow(
-      symbolShadow(Ctx_, Alias),
-      []() -> Symbol * {
-        return nullptr; // Symbol doesn't exist. Do nothing.
-      },
-      [&](Symbol *Sym) -> Symbol * {
-        if (Sym->hasDefinition()) {
-          // We already have a definition. Do nothing.
-          return Sym;
+  const auto AddSymbol = [&] {
+    // Symbol doesn't exist. Do nothing.
+    return shadow::TaggedPointer{};
+  };
+  const auto AddSymbolFromCompilationRef = [&](shadow::AtomicTaggedPointer *,
+                                               CompilationRef *const CR) {
+    return AddSymbol();
+  };
+  const auto Update = [&](shadow::AtomicTaggedPointer *, Symbol *Sym) {
+    if (Sym->hasDefinition()) {
+      // We already have a definition. Do nothing.
+      return shadow::TaggedPointer{Sym};
+    }
+    shadow::AtomicTaggedPointer *const Ctors = Ctx_.shadowPointer(Aliasee);
+    // The shadow memory pointer may be null if the string is known, but
+    // isn't used as the name of a symbol.
+    if (const Symbol *const AliaseeSym = Ctors->load().get_if<Symbol *>()) {
+      const auto CtorsDef = AliaseeSym->definition();
+      if (const auto &Bodies =
+              std::get<const Symbol::OptionalBodies &>(CtorsDef)) {
+        const Symbol::Body &FirstBody = Bodies->front();
+
+        constexpr auto InputOrdinal = std::numeric_limits<uint32_t>::max();
+        SymbolResolver Resolver{Ctx_};
+        Sym = Resolver.updateSymbol(Sym, Undefs_, FirstBody.definition(),
+                                    InputOrdinal);
+        assert(Sym != nullptr);
+        if (Start) {
+          Sym->setFirstContribution(
+              &Layout_->Sections[SectionK].Contributions.front());
+        } else {
+          unsigned Alignment = 1;
+          unsigned Size = 0;
+
+          OutputSection *const OutputSection = &Layout_->Sections[SectionK];
+          OutputSection->Contributions.emplace_back(
+              nullptr,       // The contribution's fragment section.
+              nullptr,       // The array of external fixups to be applied when
+                             // copying the contribution.
+              nullptr,       // The contributions for the sections.
+              OutputSection, // The output section to which the contribution
+                             // belongs.
+              alignTo(
+                  LayoutBuilder::prevSectionEnd(OutputSection->Contributions),
+                  Alignment), // Offset
+              Size, Alignment, InputOrdinal, SectionK, Alias);
+          Sym->setFirstContribution(&OutputSection->Contributions.back());
         }
-        auto *const Ctors = symbolShadow(Ctx_, Aliasee);
-        // The shadow memory pointer may be null if the string is known, but
-        // isn't used as the name of a symbol.
-        if (const Symbol *const AliaseeSym = *Ctors) {
-          const auto CtorsDef = AliaseeSym->definition();
-          if (const auto &Bodies =
-                  std::get<const Symbol::OptionalBodies &>(CtorsDef)) {
-            const Symbol::Body &FirstBody = Bodies->front();
 
-            constexpr auto InputOrdinal = std::numeric_limits<uint32_t>::max();
-            SymbolResolver Resolver{Ctx_};
-            Sym = Resolver.updateSymbol(Sym, Undefs_, FirstBody.definition(),
-                                        InputOrdinal);
-            assert(Sym != nullptr);
-            if (Start) {
-              Sym->setFirstContribution(
-                  &Layout_->Sections[SectionK].Contributions.front());
-            } else {
-              unsigned Alignment = 1;
-              unsigned Size = 0;
-
-              OutputSection *const OutputSection = &Layout_->Sections[SectionK];
-              OutputSection->Contributions.emplace_back(
-                  nullptr, // The contribution's fragment section.
-                  nullptr, // The array of external fixups to be applied when
-                           // copying the contribution.
-                  nullptr, // The contributions for the sections.
-                  OutputSection, // The output section to which the contribution
-                                 // belongs.
-                  alignTo(LayoutBuilder::prevSectionEnd(
-                              OutputSection->Contributions),
-                          Alignment), // Offset
-                  Size, Alignment, InputOrdinal, SectionK, Alias);
-              Sym->setFirstContribution(&OutputSection->Contributions.back());
-            }
-
-            // c.f. addSymbolBody
-            if (isLocalLinkage(FirstBody.linkage())) {
-              LocalEmit_.append(Sym);
-            } else {
-              GlobalEmit_.append(Sym);
-            }
-          }
+        // c.f. addSymbolBody
+        if (isLocalLinkage(FirstBody.linkage())) {
+          LocalEmit_.append(Sym);
+        } else {
+          GlobalEmit_.append(Sym);
         }
-        return Sym;
-      });
-#endif
+      }
+    }
+    return shadow::TaggedPointer{Sym};
+  };
+
+  shadow::set(Ctx_.shadowPointer(Alias), AddSymbol, AddSymbolFromCompilationRef,
+              Update);
 }
 
 // error

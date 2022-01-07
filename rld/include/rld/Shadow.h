@@ -337,8 +337,7 @@ set(AtomicTaggedPointer *const P, const CreateFn Create,
       assert(OriginalSym != nullptr);
       if (details::symbolToFinal(P, Expected /*in,out*/, Update)) {
         const auto OK = static_cast<bool>(Expected);
-        TaggedPointer x = OK ? Expected : TaggedPointer{OriginalSym};
-        return std::make_tuple(x, OK);
+        return std::make_tuple(OK ? Expected : TaggedPointer{OriginalSym}, OK);
       }
     }
   }
