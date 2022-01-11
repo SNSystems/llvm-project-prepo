@@ -277,4 +277,18 @@ bool Driver::runImpl(CompilationGroup *const Group, GroupSet *const NextGroup) {
   return !ErrorFlag_.load();
 }
 
+void Driver::doIterateArchiveMembers(std::string const &InputFilePath,
+                                     std::shared_ptr<MemoryBuffer> MB,
+                                     uint32_t ArchiveCount,
+                                     GroupSet *const NextGroup) {
+  WorkPool_->async(
+      [this, ArchiveCount, NextGroup,
+       InputFilePath](std::shared_ptr<llvm::MemoryBuffer> FileBuffer) {
+        iterateArchiveMembers(&ErrorFlag_, *Context_, WorkPool_.get(),
+                              InputFilePath, ArchiveCount, FileBuffer.get(),
+                              NextGroup, CompilationIndex_);
+      },
+      MB);
+}
+
 } // end namespace rld

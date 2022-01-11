@@ -45,9 +45,9 @@ using CompilationIndex = std::shared_ptr<pstore::index::compilation_index>;
 void iterateArchiveMembers(std::atomic<bool> *const ErrorFlag, Context &Context,
                            llvm::ThreadPool *WorkPool,
                            const std::string ArchivePath, unsigned ArchiveIndex,
-                           const std::shared_ptr<llvm::MemoryBuffer> FileBuffer,
+                           llvm::MemoryBuffer *FileBuffer,
                            GroupSet *const NextGroup,
-                           CompilationIndex const &CompilationIndex);
+                           const CompilationIndex &CompilationIndex);
 } // end namespace rld
 
 #endif // RLD_ARCHIVE_H

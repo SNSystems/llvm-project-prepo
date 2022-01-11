@@ -76,10 +76,20 @@ private:
       const std::pair<LibraryIterator, LibraryIterator> &Libraries,
       const std::pair<LibraryPathIterator, LibraryPathIterator> &LibraryPaths);
 
+  template <typename GroupContainer>
+  uint32_t addFile(llvm::StringRef InputFilePath, GroupContainer *const Group,
+                   GroupSet *const NextGroup, uint32_t ArchiveCount);
+
+  void doIterateArchiveMembers(std::string const &InputFilePath,
+                               std::shared_ptr<llvm::MemoryBuffer> MB,
+                               uint32_t ArchiveCount,
+                               GroupSet *const NextGroup);
+
   template <typename LibraryPathIterator>
   void addLibrary(
       llvm::StringRef Library, unsigned ArchiveCount, GroupSet *const NextGroup,
       const std::pair<LibraryPathIterator, LibraryPathIterator> &LibraryPaths);
+
   template <typename LibraryPathIterator>
   llvm::Optional<std::string> searchLibraryBaseName(
       llvm::StringRef Name,
@@ -144,50 +154,56 @@ void Driver::scheduleGroup0(
   auto ArchiveCount = uint32_t{1};
   std::for_each(
       InputFiles.first, InputFiles.second, [&](llvm::StringRef InputFilePath) {
-        llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileBuffer =
-            open(InputFilePath);
-        if (!FileBuffer) {
-          return this->sayError(InputFilePath, FileBuffer.getError());
-        }
-        const llvm::ErrorOr<FileKind> Kind = getFileKind(**FileBuffer);
-        if (!Kind) {
-          return this->sayError(InputFilePath, FileBuffer.getError());
-        }
-        switch (*Kind) {
-        case FileKind::Ticket:
-          if (llvm::ErrorOr<pstore::index::digest> DigestOrError =
-                  llvm::mc::repo::getDigestFromTicket(**FileBuffer,
-                                                      &Context_->Db)) {
-            // Add this compilation to the initial group to be resolved.
-            Group->emplace_back(*DigestOrError,
-                                std::make_shared<std::string>(InputFilePath));
-          } else {
-            return this->sayError(InputFilePath, DigestOrError.getError());
-          }
-          break;
-        case FileKind::Archive:
-          // The arguments to async() are passed to std::bind() whose arguments
-          // must be copyable. This means that we can't pass the FileBuffer
-          // unique_ptr<> but instead must wrap the underlying memory in a
-          // shared)_ptr<>.
-          WorkPool_->async(
-              iterateArchiveMembers, &ErrorFlag_, std::ref(*Context_),
-              WorkPool_.get(), std::string{InputFilePath}, ArchiveCount,
-              std::shared_ptr<llvm::MemoryBuffer>{FileBuffer->release()},
-              NextGroup, CompilationIndex_);
-          ++ArchiveCount;
-          break;
-        case FileKind::Unknown:
-          return this->sayError(
-              InputFilePath,
-              make_error_code(llvm::object::object_error::invalid_file_type));
-        }
+        ArchiveCount =
+            this->addFile(InputFilePath, Group, NextGroup, ArchiveCount);
       });
-
   std::for_each(
       Libraries.first, Libraries.second, [&](llvm::StringRef Library) {
         this->addLibrary(Library, ArchiveCount++, NextGroup, LibraryPaths);
       });
+}
+
+template <typename GroupContainer>
+uint32_t Driver::addFile(llvm::StringRef InputFilePath,
+                         GroupContainer *const Group, GroupSet *const NextGroup,
+                         uint32_t ArchiveCount) {
+  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileBuffer =
+      open(InputFilePath);
+  if (!FileBuffer) {
+    this->sayError(InputFilePath, FileBuffer.getError());
+    return ArchiveCount;
+  }
+
+  const llvm::ErrorOr<FileKind> Kind = getFileKind(**FileBuffer);
+  if (!Kind) {
+    this->sayError(InputFilePath, Kind.getError());
+    return ArchiveCount;
+  }
+  switch (*Kind) {
+  case FileKind::Ticket:
+    if (const llvm::ErrorOr<pstore::index::digest> DigestOrError =
+            llvm::mc::repo::getDigestFromTicket(**FileBuffer, &Context_->Db)) {
+      // Add this compilation to the initial group to be resolved.
+      Group->emplace_back(*DigestOrError,
+                          std::make_shared<std::string>(InputFilePath));
+    } else {
+      this->sayError(InputFilePath, DigestOrError.getError());
+      return ArchiveCount;
+    }
+    break;
+  case FileKind::Archive:
+    this->doIterateArchiveMembers(std::string{InputFilePath},
+                                  std::move(*FileBuffer), ArchiveCount,
+                                  NextGroup);
+    ++ArchiveCount;
+    break;
+  case FileKind::Unknown:
+    this->sayError(
+        InputFilePath,
+        make_error_code(llvm::object::object_error::invalid_file_type));
+    return ArchiveCount;
+  }
+  return ArchiveCount;
 }
 
 template <typename LibraryPathIterator>
@@ -208,7 +224,7 @@ void Driver::addLibrary(
   }
   const llvm::ErrorOr<FileKind> Kind = getFileKind(**FileBuffer);
   if (!Kind) {
-    return this->sayError(*LibPath, FileBuffer.getError());
+    return this->sayError(*LibPath, Kind.getError());
   }
   if (*Kind != FileKind::Archive) {
     // FIXME: Is there a better error?
@@ -216,11 +232,8 @@ void Driver::addLibrary(
         *LibPath,
         make_error_code(llvm::object::object_error::invalid_file_type));
   }
-
-  WorkPool_->async(iterateArchiveMembers, &ErrorFlag_, std::ref(*Context_),
-                   WorkPool_.get(), *LibPath, ArchiveCount,
-                   std::shared_ptr<llvm::MemoryBuffer>{FileBuffer->release()},
-                   NextGroup, std::ref(CompilationIndex_));
+  this->doIterateArchiveMembers(*LibPath, std::move(*FileBuffer), ArchiveCount,
+                                NextGroup);
 }
 
 // This is for -l<basename>. We'll look for lib<basename>.so or lib<basename>.a

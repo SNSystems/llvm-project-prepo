@@ -151,7 +151,7 @@ void iterateArchiveMembers(std::atomic<bool> *const ErrorFlag, Context &Context,
                            ThreadPool *const WorkPool,
                            const std::string ArchivePath,
                            const unsigned ArchiveIndex,
-                           const std::shared_ptr<MemoryBuffer> FileBuffer,
+                           llvm::MemoryBuffer *const FileBuffer,
                            GroupSet *const NextGroup,
                            CompilationIndex const &CompilationIndex) {
   llvmDebug(DebugType, Context.IOMut, [&ArchivePath] {
@@ -175,9 +175,8 @@ void iterateArchiveMembers(std::atomic<bool> *const ErrorFlag, Context &Context,
       return reportError(ErrorFlag, Context, ArchivePath,
                          ChildName.takeError());
     }
-    SmallString<256> TempBuffer;
     auto MemberPath = std::make_shared<std::string>(
-        (ArchivePath + "(" + *ChildName + ")").toStringRef(TempBuffer));
+        (Twine{ArchivePath} + "(" + Twine{*ChildName} + ")").str());
     llvmDebug(DebugType, Context.IOMut, [&MemberPath] {
       dbgs() << "Archive member: \"" << *MemberPath << "\"\n";
     });
