@@ -219,7 +219,8 @@ static ErrorOr<TicketFile> getTicket(const llvm::MemoryBufferRef &Buffer,
     return mc::repo::TicketError::NotATicket;
   }
 
-  TicketFile Ticket = *reinterpret_cast<const TicketFile *>(Contents.data());
+  TicketFile Ticket;
+  std::memcpy(&Ticket, Contents.data(), sizeof(Ticket));
 
   support::endianness Endian;
   if (Ticket.Magic == LERepoMagic) {
