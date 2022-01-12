@@ -560,16 +560,6 @@ SymbolResolver::defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
     return shadow::TaggedPointer{this->add(Globals, IndirStr.in_store_address(),
                                            Length, Def, InputOrdinal)};
   };
-  // Add a symbol which has the same name as a CompilationRef. The symbol
-  // wins...
-  const auto AddSymbolFromCompilationRef = [&](shadow::AtomicTaggedPointer *,
-                                               CompilationRef *const CR) {
-    llvmDebug(DebugType, Context_.IOMut, [&] {
-      llvm::dbgs() << "  Create def (overriding compilationref): "
-                   << loadStdString(Context_.Db, Def.name) << '\n';
-    });
-    return AddSymbol();
-  };
   const auto Update = [&](shadow::AtomicTaggedPointer *, Symbol *const Sym) {
     llvmDebug(DebugType, Context_.IOMut, [&] {
       llvm::dbgs() << "  Update symbol: "
@@ -578,6 +568,16 @@ SymbolResolver::defineSymbol(const NotNull<GlobalSymbolsContainer *> Globals,
     return shadow::TaggedPointer{
         this->updateSymbol(Sym, Undefs, Def, InputOrdinal)};
   };
+  // Add a symbol which has the same name as a CompilationRef. The symbol
+  // wins...
+  const auto AddSymbolFromCompilationRef =
+      [&](shadow::AtomicTaggedPointer *const P, CompilationRef *const CR) {
+        llvmDebug(DebugType, Context_.IOMut, [&] {
+          llvm::dbgs() << "  CompilationRef to Symbol: "
+                       << loadStdString(Context_.Db, Def.name) << '\n';
+        });
+        return CR->Sym == nullptr ? AddSymbol() : Update(P, CR->Sym);
+      };
 
   if (isLocalLinkage(Def.linkage())) {
     return std::make_tuple(AddSymbol().get_if<Symbol *>(), true);
