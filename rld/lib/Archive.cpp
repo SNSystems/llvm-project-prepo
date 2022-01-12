@@ -94,7 +94,7 @@ static void createCompilationRefForLibraryMember(
       llvmDebug(DebugType, Context.IOMut, [&] {
         dbgs() << "  Rejected: '" << loadStdString(Context.Db, Definition.name)
                << "' in favor of (" << CR->Position.first << ','
-               << CR->Position.second << ')';
+               << CR->Position.second << ")\n";
       });
       return shadow::TaggedPointer{CR};
     };
