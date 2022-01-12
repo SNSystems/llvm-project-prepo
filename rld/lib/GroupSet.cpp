@@ -17,13 +17,13 @@
 using namespace llvm;
 
 void rld::GroupSet::transferTo(Context &C, CompilationGroup *const Group) {
-  llvm::DenseMap<pstore::index::digest, std::shared_ptr<std::string>> linkees;
+  llvm::DenseMap<pstore::index::digest, std::shared_ptr<std::string>> Linkees;
   {
     std::lock_guard<std::mutex> _{Mutex_};
     for (auto P : Set_) {
       if (auto *const CR =
               P->load(std::memory_order_acquire).get_if<CompilationRef *>()) {
-        linkees.try_emplace(CR->Digest, CR->Origin);
+        Linkees.try_emplace(CR->Digest, CR->Origin);
         P->store(shadow::TaggedPointer{CR->Sym != nullptr ? CR->Sym : nullptr},
                  std::memory_order_release);
       }
@@ -32,6 +32,6 @@ void rld::GroupSet::transferTo(Context &C, CompilationGroup *const Group) {
   }
 
   Group->clear();
-  Group->reserve(linkees.size());
-  std::copy(std::begin(linkees), std::end(linkees), std::back_inserter(*Group));
+  Group->reserve(Linkees.size());
+  std::copy(std::begin(Linkees), std::end(Linkees), std::back_inserter(*Group));
 }
