@@ -31,29 +31,37 @@ using namespace rld;
 
 namespace {
 
-cl::list<std::string> InputFiles{cl::Positional, cl::desc{"<ticket path>"}};
+cl::list<std::string> InputFiles{cl::Positional, cl::desc{"<input-file>..."}};
 
 cl::opt<std::string> RepoPath{"repo", cl::Optional,
-                              cl::desc{"Program repository path"},
-                              cl::init("./clang.db")};
+                              cl::desc{"Program repository file"},
+                              cl::value_desc{"FILE"}, cl::init("./clang.db")};
+
 cl::opt<std::string> EntryPoint{"entry-point", cl::desc{"Set start address"},
-                                cl::value_desc{"symbol"}, cl::init("_start")};
-cl::alias EntryPoint2{"E", cl::desc{"Alias for --entry-point"},
+                                cl::value_desc{"ADDRESS"}, cl::init("_start")};
+cl::alias EntryPoint2{"E", cl::Prefix, cl::desc{"Alias for --entry-point"},
                       cl::aliasopt{EntryPoint}};
-cl::opt<std::string> OutputFileName{"o", cl::desc{"Output filename"},
-                                    cl::value_desc{"filename"},
+
+cl::opt<std::string> OutputFileName{"output", cl::desc{"Set output file name"},
+                                    cl::value_desc{"FILE"},
                                     cl::init("./a.out")};
+cl::alias OutputFileName2{"o", cl::Prefix, cl::desc{"Alias for --output"},
+                          cl::aliasopt{OutputFileName}};
+
 cl::list<std::string> Libraries{"library",
                                 cl::desc{"Search for library LIBNAME"},
                                 cl::value_desc{"LIBNAME"}};
-cl::alias Libraries2{"l", cl::value_desc{"Alias for --library"},
+cl::alias Libraries2{"l", cl::Prefix, cl::desc{"Alias for --library"},
                      cl::aliasopt{Libraries}};
+
 cl::list<std::string> LibraryPaths{
     "library-path", cl::desc{"Add DIRECTORY to library search path"},
     cl::value_desc{"DIRECTORY"}};
-cl::alias LibraryPaths2{"L", cl::value_desc{"Alias for --library-path"},
-                        cl::aliasopt{LibraryPaths2}};
+cl::alias LibraryPaths2{"L", cl::Prefix, cl::desc{"Alias for --library-path"},
+                        cl::aliasopt{LibraryPaths}};
 
+// Hidden options
+// ==============
 cl::opt<bool> TimersEnabled{
     "enable-timers", cl::Hidden,
     cl::desc{"Time each job, printing elapsed time for each on exit"}};
@@ -84,7 +92,7 @@ static ErrorOr<std::unique_ptr<pstore::database>> openRepository() {
 }
 
 int main(int Argc, char *Argv[]) {
-  cl::ParseCommandLineOptions(Argc, Argv);
+  cl::ParseCommandLineOptions(Argc, Argv, "Program Repository Linker");
 
   ExitOnError ExitOnErr;
   ExitOnErr.setBanner(std::string{Argv[0]} + ": error: ");
