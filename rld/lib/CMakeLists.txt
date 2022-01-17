@@ -37,8 +37,6 @@ add_llvm_library (LLVMrld
     ElfOutput.cpp
     ErrorCode.cpp
     GroupSet.cpp
-    Identify.cpp
-    IdentifyPass.cpp
     LayoutBuilder.cpp
     SectionKind.cpp
     Shadow.cpp
