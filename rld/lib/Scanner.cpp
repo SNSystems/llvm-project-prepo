@@ -12,7 +12,17 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#include "rld/scanner.h"
+#include "rld/Scanner.h"
+
+#include "rld/LayoutBuilder.h"
+#include "rld/XfxScanner.h"
+
+#include "pstore/core/database.hpp"
+#include "pstore/core/hamt_map.hpp"
+#include "pstore/core/index_types.hpp"
+#include "pstore/core/sstring_view_archive.hpp"
+#include "pstore/mcrepo/compilation.hpp"
+#include "pstore/mcrepo/fragment.hpp"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/BinaryFormat/Magic.h"
@@ -24,16 +34,6 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
-
-#include "pstore/core/database.hpp"
-#include "pstore/core/hamt_map.hpp"
-#include "pstore/core/index_types.hpp"
-#include "pstore/core/sstring_view_archive.hpp"
-#include "pstore/mcrepo/compilation.hpp"
-#include "pstore/mcrepo/fragment.hpp"
-
-#include "rld/LayoutBuilder.h"
-#include "rld/XfxScanner.h"
 
 namespace {
 

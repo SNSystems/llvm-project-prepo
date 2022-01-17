@@ -15,10 +15,10 @@
 #ifndef RLD_ELFOUTPUT_H
 #define RLD_ELFOUTPUT_H
 
+#include "rld/Symbol.h"
+
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ThreadPool.h"
-
-#include "rld/symbol.h"
 
 namespace llvm {
 class StringRef;

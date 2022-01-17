@@ -12,8 +12,8 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#include "rld/context.h"
-#include "rld/symbol.h"
+#include "rld/Context.h"
+#include "rld/Symbol.h"
 
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Memory.h"

@@ -12,15 +12,10 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#include "rld/ElfOutput.h"
+#include "rld/ELFOutput.h"
 
-#include "llvm/ADT/StringRef.h"
-#include "llvm/BinaryFormat/ELF.h"
-#include "llvm/MC/MCRepoTicketFile.h"
-#include "llvm/Object/ELFTypes.h"
-#include "llvm/Support/FileOutputBuffer.h"
-#include "llvm/Support/Timer.h"
-
+#include "rld/Copy.h"
+#include "rld/ELF.h"
 #include "rld/ELFProgramHeaders.h"
 #include "rld/ELFSectionHeaders.h"
 #include "rld/ELFSectionNames.h"
@@ -29,10 +24,15 @@
 #include "rld/MathExtras.h"
 #include "rld/SectionKind.h"
 #include "rld/Shadow.h"
-#include "rld/copy.h"
-#include "rld/elf.h"
 
 #include "pstore/core/hamt_set.hpp"
+
+#include "llvm/ADT/StringRef.h"
+#include "llvm/BinaryFormat/ELF.h"
+#include "llvm/MC/MCRepoTicketFile.h"
+#include "llvm/Object/ELFTypes.h"
+#include "llvm/Support/FileOutputBuffer.h"
+#include "llvm/Support/Timer.h"
 
 #include <bitset>
 
@@ -43,9 +43,6 @@ auto DebugType = "rld-ElfOutput";
 }
 
 static constexpr auto NumImplicitSections = 1U; // The null section.
-
-
-
 
 // build section to index table
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -263,21 +260,21 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
     Ehdr->e_shstrndx = SectionToIndex[SectionKind::shstrtab];
   });
 
-  WorkPool.async([&Context, BufferStart, Layout, &FileRegions,
-                  &SegmentFileOffsets] {
-    // Produce the program header table.
-    auto *const Start = reinterpret_cast<Elf_Phdr *>(
-        BufferStart + FileRegions[Region::SegmentTable].offset());
-    auto *const End = elf::emitProgramHeaders<ELFT>(
-        Start, Context, FileRegions[Region::SectionData],
-        FileRegions[Region::SegmentTable], *Layout, SegmentFileOffsets);
+  WorkPool.async(
+      [&Context, BufferStart, Layout, &FileRegions, &SegmentFileOffsets] {
+        // Produce the program header table.
+        auto *const Start = reinterpret_cast<Elf_Phdr *>(
+            BufferStart + FileRegions[Region::SegmentTable].offset());
+        auto *const End = elf::emitProgramHeaders<ELFT>(
+            Start, Context, FileRegions[Region::SectionData],
+            FileRegions[Region::SegmentTable], *Layout, SegmentFileOffsets);
 
-    (void)End;
-    assert(End - Start == Layout->numberOfSegments());
-    assert(reinterpret_cast<uint8_t *>(Start) +
-               FileRegions[Region::SegmentTable].size() ==
-           reinterpret_cast<uint8_t *>(End));
-  });
+        (void)End;
+        assert(End - Start == Layout->numberOfSegments());
+        assert(reinterpret_cast<uint8_t *>(Start) +
+                   FileRegions[Region::SegmentTable].size() ==
+               reinterpret_cast<uint8_t *>(End));
+      });
 
   WorkPool.async([Layout, BufferStart, &SectionFileOffsets, &NameOffsets,
                   &FileRegions, &SymOrder

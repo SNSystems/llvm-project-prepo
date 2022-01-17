@@ -12,7 +12,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#include "rld/elf.h"
+#include "rld/ELF.h"
 
 llvm::ErrorOr<unsigned> rld::elf::details::machineFromTriple(
     llvm::Optional<llvm::Triple> const &Triple) {

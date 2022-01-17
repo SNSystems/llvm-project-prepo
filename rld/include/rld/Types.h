@@ -29,7 +29,8 @@ namespace rld {
 
 using StringAddress = pstore::typed_address<pstore::indirect_string>;
 using FragmentAddress = pstore::typed_address<pstore::repo::fragment>;
-using CompilationIndexPtr = std::shared_ptr<pstore::index::compilation_index const>;
+using CompilationIndexPtr =
+    std::shared_ptr<pstore::index::compilation_index const>;
 using FragmentPtr = std::shared_ptr<pstore::repo::fragment const>;
 
 template <typename T> using NotNull = pstore::gsl::not_null<T>;

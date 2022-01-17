@@ -12,15 +12,14 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#include "rld/symbol.h"
+#include "rld/Symbol.h"
 
+#include "rld/Contribution.h"
 #include "rld/GroupSet.h"
+#include "rld/OutputSection.h"
 
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-
-#include "rld/Contribution.h"
-#include "rld/OutputSection.h"
 
 #include <algorithm>
 #include <type_traits>
@@ -386,30 +385,30 @@ Symbol *Symbol::updateWeakSymbol(const pstore::database &Db,
 // ~~~~~~~~~~~~~~~~~~
 void debugDumpSymbols(Context const &Ctx,
                       GlobalSymbolsContainer const &Globals) {
-    auto &OS = llvm::dbgs();
-    OS << "There are " << Globals.size() << " symbols\n";
-    for (auto const &S : Globals) {
-      // Note that requesting a symbol's definition returns an owned lock on the
-      // object. That means that we need to get the name first since accessing
-      // both will try to acquire the same lock.
-      auto const Name = S.name();
-      auto const X = S.definition();
-      auto const &Def = std::get<const Symbol::OptionalBodies &>(X);
+  auto &OS = llvm::dbgs();
+  OS << "There are " << Globals.size() << " symbols\n";
+  for (auto const &S : Globals) {
+    // Note that requesting a symbol's definition returns an owned lock on the
+    // object. That means that we need to get the name first since accessing
+    // both will try to acquire the same lock.
+    auto const Name = S.name();
+    auto const X = S.definition();
+    auto const &Def = std::get<const Symbol::OptionalBodies &>(X);
 
-      auto const IsDefined = Def.hasValue();
-      pstore::shared_sstring_view Owner;
-      OS << "  " << stringViewAsRef(loadString(Ctx.Db, Name, &Owner))
-         << ": defined: " << (IsDefined ? "yes" : "no");
-      if (IsDefined) {
-        auto Sep = ", ordinals: [";
-        for (auto const &Body : *Def) {
-          OS << Sep << Body.inputOrdinal();
-          Sep = ",";
-        }
-        OS << ']';
+    auto const IsDefined = Def.hasValue();
+    pstore::shared_sstring_view Owner;
+    OS << "  " << stringViewAsRef(loadString(Ctx.Db, Name, &Owner))
+       << ": defined: " << (IsDefined ? "yes" : "no");
+    if (IsDefined) {
+      auto Sep = ", ordinals: [";
+      for (auto const &Body : *Def) {
+        OS << Sep << Body.inputOrdinal();
+        Sep = ",";
       }
-      OS << "\n";
+      OS << ']';
     }
+    OS << "\n";
+  }
 }
 
 //*   ___ _     _          _    ___ _                          *

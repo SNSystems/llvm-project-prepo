@@ -15,10 +15,10 @@
 #ifndef RLD_GROUP_SET_H
 #define RLD_GROUP_SET_H
 
-#include "pstore/core/index_types.hpp"
-
+#include "rld/Context.h"
 #include "rld/Shadow.h"
-#include "rld/context.h"
+
+#include "pstore/core/index_types.hpp"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"

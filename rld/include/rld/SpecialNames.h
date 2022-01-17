@@ -15,7 +15,7 @@
 #ifndef RLD_SPECIALNAMES_H
 #define RLD_SPECIALNAMES_H
 
-#include "rld/types.h"
+#include "rld/Types.h"
 
 namespace pstore {
 class database;

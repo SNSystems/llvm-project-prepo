@@ -15,7 +15,7 @@
 #ifndef RLD_ELFSTRINGTABLE_H
 #define RLD_ELFSTRINGTABLE_H
 
-#include "rld/symbol.h"
+#include "rld/Symbol.h"
 
 #include <cstdint>
 

@@ -15,15 +15,15 @@
 #ifndef RLD_SCANNER_H
 #define RLD_SCANNER_H
 
+#include "rld/Context.h"
+#include "rld/Symbol.h"
+#include "rld/XfxScanner.h"
+
 #include "pstore/core/address.hpp"
 #include "pstore/core/index_types.hpp"
 #include "pstore/core/indirect_string.hpp"
 #include "pstore/mcrepo/compilation.hpp"
 #include "pstore/mcrepo/fragment.hpp"
-
-#include "rld/XfxScanner.h"
-#include "rld/context.h"
-#include "rld/symbol.h"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Optional.h"

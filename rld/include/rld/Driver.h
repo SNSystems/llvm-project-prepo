@@ -16,11 +16,14 @@
 #define RLD_DRIVER_H
 
 #include "rld/Archive.h"
-#include "rld/ElfOutput.h"
+#include "rld/ELFOutput.h"
 #include "rld/GroupSet.h"
 #include "rld/LayoutBuilder.h"
-#include "rld/scanner.h"
-#include "rld/symbol.h"
+#include "rld/Scanner.h"
+#include "rld/Symbol.h"
+
+#include "pstore/core/hamt_map.hpp"
+#include "pstore/core/index_types.hpp"
 
 #include "llvm/ADT/StringRef.h"
 #include "llvm/MC/MCRepoTicketFile.h"
@@ -28,9 +31,6 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/ThreadPool.h"
 #include "llvm/Support/Timer.h"
-
-#include "pstore/core/hamt_map.hpp"
-#include "pstore/core/index_types.hpp"
 
 namespace rld {
 

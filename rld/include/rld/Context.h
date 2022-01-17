@@ -16,7 +16,9 @@
 #define RLD_CONTEXT_H
 
 #include "rld/Shadow.h"
-#include "rld/types.h"
+#include "rld/Types.h"
+
+#include "pstore/adt/chunked_sequence.hpp"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Optional.h"
@@ -24,8 +26,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/Format.h"
-
-#include "pstore/adt/chunked_sequence.hpp"
 
 #include <functional>
 #include <memory>
@@ -63,7 +63,7 @@ size_t stringLength(const pstore::database &Db, const pstore::address Addr);
 class Symbol;
 
 #ifndef NDEBUG
-inline bool llvmDebugEnabled (char const *DebugFype) {
+inline bool llvmDebugEnabled(char const *DebugFype) {
   return llvm::DebugFlag && llvm::isCurrentDebugType(DebugFype);
 }
 #else

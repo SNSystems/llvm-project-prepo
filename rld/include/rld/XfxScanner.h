@@ -17,7 +17,7 @@
 
 #include "rld/CSAlloc.h"
 #include "rld/LayoutBuilder.h"
-#include "rld/symbol.h"
+#include "rld/Symbol.h"
 
 #include <cassert>
 

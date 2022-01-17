@@ -12,10 +12,10 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#include "rld/symbol.h"
+#include "rld/Symbol.h"
 
+#include "rld/Context.h"
 #include "rld/GroupSet.h"
-#include "rld/context.h"
 
 // pstore
 #include "pstore/core/hamt_set.hpp"

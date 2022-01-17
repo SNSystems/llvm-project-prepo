@@ -15,9 +15,9 @@
 #include "rld/LayoutBuilder.h"
 
 #include "rld/Algorithm.h"
+#include "rld/Context.h"
 #include "rld/MathExtras.h"
 #include "rld/SpecialNames.h"
-#include "rld/context.h"
 
 #include "llvm/ADT/Twine.h"
 #include "llvm/BinaryFormat/ELF.h"

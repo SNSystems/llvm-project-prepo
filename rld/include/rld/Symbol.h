@@ -15,20 +15,20 @@
 #ifndef RLD_SYMBOL_H
 #define RLD_SYMBOL_H
 
+#include "rld/Context.h"
 #include "rld/Contribution.h"
 #include "rld/SectionArray.h"
 #include "rld/Shadow.h"
-#include "rld/context.h"
+
+#include "pstore/core/address.hpp"
+#include "pstore/core/indirect_string.hpp"
+#include "pstore/mcrepo/compilation.hpp"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/simple_ilist.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-
-#include "pstore/core/address.hpp"
-#include "pstore/core/indirect_string.hpp"
-#include "pstore/mcrepo/compilation.hpp"
 
 #include <atomic>
 #include <memory>
@@ -509,15 +509,11 @@ private:
 
 // name
 // ~~~~
-inline pstore::address Symbol::name() const {
-  return pstore::address{Name_};
-}
+inline pstore::address Symbol::name() const { return pstore::address{Name_}; }
 
 // name length
 // ~~~~~~~~~~~
-inline size_t Symbol::nameLength() const {
-  return NameLength_;
-}
+inline size_t Symbol::nameLength() const { return NameLength_; }
 
 // add reference
 // ~~~~~~~~~~~~~

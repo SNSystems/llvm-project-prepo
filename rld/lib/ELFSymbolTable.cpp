@@ -20,12 +20,12 @@
 //===----------------------------------------------------------------------===//
 #include "rld/ELFSymbolTable.h"
 
-#include "llvm/Object/ELFTypes.h"
-
-#include "rld/ElfOutput.h"
+#include "rld/ELF.h"
+#include "rld/ELFOutput.h"
 #include "rld/LayoutBuilder.h"
 #include "rld/SectionArray.h"
-#include "rld/elf.h"
+
+#include "llvm/Object/ELFTypes.h"
 
 using namespace rld;
 

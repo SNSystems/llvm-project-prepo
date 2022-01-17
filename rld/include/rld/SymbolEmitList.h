@@ -15,7 +15,7 @@
 #ifndef RLD_SYMBOL_EMIT_LIST_H
 #define RLD_SYMBOL_EMIT_LIST_H
 
-#include "rld/symbol.h"
+#include "rld/Symbol.h"
 
 #include <cassert>
 
