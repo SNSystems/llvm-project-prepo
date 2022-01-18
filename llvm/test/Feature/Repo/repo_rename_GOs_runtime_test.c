@@ -8,7 +8,7 @@
 // RUN: env REPOFILE=%t.db repo2obj %t1.o --repo %t.db -o %t1.elf.o
 // RUN: env REPOFILE=%t.db clang -c -o -O3 -target x86_64-pc-linux-gnu-repo %s -o %t2.o
 // RUN: env REPOFILE=%t.db repo2obj %t2.o --repo %t.db -o %t2.elf.o
-// RUN: clang -o %t.out -O3 -target x86_64-pc-linux-gnu-repo %t.elf.o %t1.elf.o %t2.elf.o
+// RUN: clang -o %t.out -O3 -target x86_64-pc-linux-gnu-elf %t.elf.o %t1.elf.o %t2.elf.o
 // RUN: %t.out | FileCheck %s
 
 extern void func1(void);
