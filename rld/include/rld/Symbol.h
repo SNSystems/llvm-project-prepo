@@ -1,10 +1,10 @@
-//===- include/rld/symbol.h -------------------------------*- mode: C++ -*-===//
-//*                      _           _  *
-//*  ___ _   _ _ __ ___ | |__   ___ | | *
-//* / __| | | | '_ ` _ \| '_ \ / _ \| | *
-//* \__ \ |_| | | | | | | |_) | (_) | | *
-//* |___/\__, |_| |_| |_|_.__/ \___/|_| *
-//*      |___/                          *
+//===- include/rld/Symbol.h -------------------------------*- mode: C++ -*-===//
+//*  ____                  _           _  *
+//* / ___| _   _ _ __ ___ | |__   ___ | | *
+//* \___ \| | | | '_ ` _ \| '_ \ / _ \| | *
+//*  ___) | |_| | | | | | | |_) | (_) | | *
+//* |____/ \__, |_| |_| |_|_.__/ \___/|_| *
+//*        |___/                          *
 //===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -15,20 +15,20 @@
 #ifndef RLD_SYMBOL_H
 #define RLD_SYMBOL_H
 
+#include "rld/Context.h"
 #include "rld/Contribution.h"
 #include "rld/SectionArray.h"
 #include "rld/Shadow.h"
-#include "rld/context.h"
+
+#include "pstore/core/address.hpp"
+#include "pstore/core/indirect_string.hpp"
+#include "pstore/mcrepo/compilation.hpp"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/simple_ilist.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-
-#include "pstore/core/address.hpp"
-#include "pstore/core/indirect_string.hpp"
-#include "pstore/mcrepo/compilation.hpp"
 
 #include <atomic>
 #include <memory>
@@ -509,15 +509,11 @@ private:
 
 // name
 // ~~~~
-inline pstore::address Symbol::name() const {
-  return pstore::address{Name_};
-}
+inline pstore::address Symbol::name() const { return pstore::address{Name_}; }
 
 // name length
 // ~~~~~~~~~~~
-inline size_t Symbol::nameLength() const {
-  return NameLength_;
-}
+inline size_t Symbol::nameLength() const { return NameLength_; }
 
 // add reference
 // ~~~~~~~~~~~~~

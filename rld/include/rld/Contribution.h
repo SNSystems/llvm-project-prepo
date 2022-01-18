@@ -15,10 +15,11 @@
 #ifndef RLD_CONTRIBUTION_H
 #define RLD_CONTRIBUTION_H
 
+#include "rld/Context.h"
+#include "rld/SectionKind.h"
+
 #include "pstore/mcrepo/section.hpp"
 
-#include "rld/SectionKind.h"
-#include "rld/context.h"
 
 namespace rld {
 

@@ -1,10 +1,10 @@
-//===- include/rld/scanner.h ------------------------------*- mode: C++ -*-===//
-//*                                       *
-//*  ___  ___ __ _ _ __  _ __   ___ _ __  *
-//* / __|/ __/ _` | '_ \| '_ \ / _ \ '__| *
-//* \__ \ (_| (_| | | | | | | |  __/ |    *
-//* |___/\___\__,_|_| |_|_| |_|\___|_|    *
-//*                                       *
+//===- include/rld/Scanner.h ------------------------------*- mode: C++ -*-===//
+//*  ____                                   *
+//* / ___|  ___ __ _ _ __  _ __   ___ _ __  *
+//* \___ \ / __/ _` | '_ \| '_ \ / _ \ '__| *
+//*  ___) | (_| (_| | | | | | | |  __/ |    *
+//* |____/ \___\__,_|_| |_|_| |_|\___|_|    *
+//*                                         *
 //===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -15,15 +15,15 @@
 #ifndef RLD_SCANNER_H
 #define RLD_SCANNER_H
 
+#include "rld/Context.h"
+#include "rld/Symbol.h"
+#include "rld/XfxScanner.h"
+
 #include "pstore/core/address.hpp"
 #include "pstore/core/index_types.hpp"
 #include "pstore/core/indirect_string.hpp"
 #include "pstore/mcrepo/compilation.hpp"
 #include "pstore/mcrepo/fragment.hpp"
-
-#include "rld/XfxScanner.h"
-#include "rld/context.h"
-#include "rld/symbol.h"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Optional.h"

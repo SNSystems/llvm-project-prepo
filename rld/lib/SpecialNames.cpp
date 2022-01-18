@@ -14,7 +14,7 @@
 //===----------------------------------------------------------------------===//
 #include "rld/SpecialNames.h"
 
-#include "rld/types.h"
+#include "rld/Types.h"
 
 #include "pstore/core/hamt_set.hpp"
 

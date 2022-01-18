@@ -28,25 +28,25 @@ add_llvm_library (LLVMrld
 
     Archive.cpp
     CSAlloc.cpp
+    Context.cpp
+    Copy.cpp
     Driver.cpp
+    ELF.cpp
+    ELFOutput.cpp
     ELFProgramHeaders.cpp
     ELFSectionHeaders.cpp
     ELFSectionNames.cpp
     ELFStringTable.cpp
     ELFSymbolTable.cpp
-    ElfOutput.cpp
     ErrorCode.cpp
     GroupSet.cpp
     LayoutBuilder.cpp
+    Scanner.cpp
     SectionKind.cpp
     Shadow.cpp
     SpecialNames.cpp
+    Symbol.cpp
     XfxScanner.cpp
-    context.cpp
-    copy.cpp
-    elf.cpp
-    scanner.cpp
-    symbol.cpp
 
     ADDITIONAL_HEADER_DIRS
     "${RLD_INCLUDE_DIR}/rld"

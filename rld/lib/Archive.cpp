@@ -14,11 +14,11 @@
 //===----------------------------------------------------------------------===//
 #include "rld/Archive.h"
 
+#include "rld/Context.h"
 #include "rld/ErrorCode.h"
 #include "rld/GroupSet.h"
 #include "rld/Shadow.h"
-#include "rld/context.h"
-#include "rld/symbol.h"
+#include "rld/Symbol.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/BinaryFormat/Magic.h"
@@ -47,7 +47,7 @@ static void reportError(std::atomic<bool> *const ErrorFlag,
 }
 
 // create CompilationRef for library member
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 static void createCompilationRefForLibraryMember(
     std::atomic<bool> *const ErrorFlag, Context &Context,
     const CompilationIndex &CompilationIndex,

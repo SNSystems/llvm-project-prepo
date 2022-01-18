@@ -1,10 +1,10 @@
-//===- lib/copy.cpp -------------------------------------------------------===//
-//*                         *
-//*   ___ ___  _ __  _   _  *
-//*  / __/ _ \| '_ \| | | | *
-//* | (_| (_) | |_) | |_| | *
-//*  \___\___/| .__/ \__, | *
-//*           |_|    |___/  *
+//===- lib/Copy.cpp -------------------------------------------------------===//
+//*   ____                   *
+//*  / ___|___  _ __  _   _  *
+//* | |   / _ \| '_ \| | | | *
+//* | |__| (_) | |_) | |_| | *
+//*  \____\___/| .__/ \__, | *
+//*            |_|    |___/  *
 //===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -12,7 +12,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#include "rld/copy.h"
+#include "rld/Copy.h"
 
 #include "rld/MPMCQueue.h"
 #include "rld/MathExtras.h"
@@ -338,7 +338,8 @@ void copyContribution<SectionKind::linked_definitions>(uint8_t *, Context &,
 
 // Represents a job in the queue of blocks to be copied to the output.
 struct WorkItem {
-  using ContributionIterator = OutputSection::ContributionVector::chunk::const_iterator;
+  using ContributionIterator =
+      OutputSection::ContributionVector::chunk::const_iterator;
   using HandlerFn = void (*)(uint8_t *, Context &, const Layout &,
                              const GOTPLTContainer &, ContributionIterator,
                              ContributionIterator);
@@ -355,9 +356,9 @@ struct WorkItem {
   // Function responsible for performing the copy.
   HandlerFn Handler = nullptr;
   // The first contribution to be copied.
-  ContributionIterator First {static_cast<const Contribution *> (nullptr)};
+  ContributionIterator First{static_cast<const Contribution *>(nullptr)};
   // The end of the range of contributions to be copied.
-  ContributionIterator Last {static_cast<const Contribution *> (nullptr)};
+  ContributionIterator Last{static_cast<const Contribution *>(nullptr)};
 };
 
 static constexpr char const *jobName(const SectionKind SectionK) {
@@ -390,15 +391,18 @@ static std::string sectionTimerName(const bool TimersEnabled) {
 }
 
 template <SectionKind SectionK>
-static void copySection(uint8_t *const Data, Context &Context, const Layout &Layout,
-                 const GOTPLTContainer & /*GOTPLTs*/, WorkItem::ContributionIterator First,
-                 WorkItem::ContributionIterator Last) {
+static void copySection(uint8_t *const Data, Context &Context,
+                        const Layout &Layout,
+                        const GOTPLTContainer & /*GOTPLTs*/,
+                        WorkItem::ContributionIterator First,
+                        WorkItem::ContributionIterator Last) {
   llvm::NamedRegionTimer _{sectionTimerName<SectionK>(Context.TimersEnabled),
                            "Copy section", rld::TimerGroupName,
                            rld::TimerGroupDescription, Context.TimersEnabled};
 
   std::for_each(First, Last, [&](const Contribution &Contribution) {
-    llvmDebug(DebugType, Context.IOMut, [] { llvm::dbgs() << SectionK << ": "; });
+    llvmDebug(DebugType, Context.IOMut,
+              [] { llvm::dbgs() << SectionK << ": "; });
 
     auto *const Dest = Data + alignTo(Contribution.Offset, Contribution.Align);
     switch (Contribution.SectionK) {

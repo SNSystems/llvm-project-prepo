@@ -1,10 +1,10 @@
-//===- include/rld/types.h --------------------------------*- mode: C++ -*-===//
-//*  _                          *
-//* | |_ _   _ _ __   ___  ___  *
-//* | __| | | | '_ \ / _ \/ __| *
-//* | |_| |_| | |_) |  __/\__ \ *
-//*  \__|\__, | .__/ \___||___/ *
-//*      |___/|_|               *
+//===- include/rld/Types.h --------------------------------*- mode: C++ -*-===//
+//*  _____                       *
+//* |_   _|   _ _ __   ___  ___  *
+//*   | || | | | '_ \ / _ \/ __| *
+//*   | || |_| | |_) |  __/\__ \ *
+//*   |_| \__, | .__/ \___||___/ *
+//*       |___/|_|               *
 //===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -29,7 +29,8 @@ namespace rld {
 
 using StringAddress = pstore::typed_address<pstore::indirect_string>;
 using FragmentAddress = pstore::typed_address<pstore::repo::fragment>;
-using CompilationIndexPtr = std::shared_ptr<pstore::index::compilation_index const>;
+using CompilationIndexPtr =
+    std::shared_ptr<pstore::index::compilation_index const>;
 using FragmentPtr = std::shared_ptr<pstore::repo::fragment const>;
 
 template <typename T> using NotNull = pstore::gsl::not_null<T>;

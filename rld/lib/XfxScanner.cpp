@@ -14,6 +14,11 @@
 //===----------------------------------------------------------------------===//
 #include "rld/XfxScanner.h"
 
+// rld
+#include "rld/CSAlloc.h"
+#include "rld/Context.h"
+#include "rld/GroupSet.h"
+
 // pstore
 #include "pstore/mcrepo/section.hpp"
 #include "pstore/mcrepo/section_sparray.hpp"
@@ -21,11 +26,6 @@
 // LLVM
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/Support/Endian.h"
-
-// rld
-#include "rld/CSAlloc.h"
-#include "rld/GroupSet.h"
-#include "rld/context.h"
 
 // Standard library
 #include <array>

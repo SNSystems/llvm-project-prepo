@@ -1,10 +1,10 @@
-//===- lib/elf.cpp --------------------------------------------------------===//
-//*       _  __  *
-//*   ___| |/ _| *
-//*  / _ \ | |_  *
-//* |  __/ |  _| *
-//*  \___|_|_|   *
-//*              *
+//===- lib/ELF.cpp --------------------------------------------------------===//
+//*  _____ _     _____  *
+//* | ____| |   |  ___| *
+//* |  _| | |   | |_    *
+//* | |___| |___|  _|   *
+//* |_____|_____|_|     *
+//*                     *
 //===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -12,7 +12,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#include "rld/elf.h"
+#include "rld/ELF.h"
 
 llvm::ErrorOr<unsigned> rld::elf::details::machineFromTriple(
     llvm::Optional<llvm::Triple> const &Triple) {

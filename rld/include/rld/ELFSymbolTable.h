@@ -23,7 +23,7 @@
 #define RLD_ELFSYMBOLTABLE_H
 
 #include "rld/LayoutBuilder.h"
-#include "rld/symbol.h"
+#include "rld/Symbol.h"
 
 #include "llvm/Object/ELF.h"
 

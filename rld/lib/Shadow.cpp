@@ -14,7 +14,7 @@
 //===----------------------------------------------------------------------===//
 #include "rld/Shadow.h"
 
-#include "rld/symbol.h"
+#include "rld/Symbol.h"
 
 static_assert(
     alignof(rld::Symbol) > 1U,

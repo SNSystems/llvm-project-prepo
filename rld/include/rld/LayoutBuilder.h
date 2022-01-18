@@ -15,18 +15,18 @@
 #ifndef RLD_LAYOUT_BUILDER_H
 #define RLD_LAYOUT_BUILDER_H
 
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseSet.h"
-#include "llvm/Object/ELF.h"
-#include "llvm/Object/ELFTypes.h"
-
 #include "rld/AdvanceEnum.h"
 #include "rld/Contribution.h"
 #include "rld/OutputSection.h"
 #include "rld/SectionArray.h"
 #include "rld/SectionKind.h"
+#include "rld/Symbol.h"
 #include "rld/SymbolEmitList.h"
-#include "rld/symbol.h"
+
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/Object/ELF.h"
+#include "llvm/Object/ELFTypes.h"
 
 #include <condition_variable>
 #include <cstdlib>

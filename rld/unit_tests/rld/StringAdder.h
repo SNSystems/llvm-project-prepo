@@ -15,7 +15,7 @@
 #ifndef RLD_UNIT_TESTS_STRING_ADDER_H
 #define RLD_UNIT_TESTS_STRING_ADDER_H
 
-#include "rld/types.h"
+#include "rld/Types.h"
 
 #include "pstore/core/hamt_set.hpp"
 #include "pstore/core/index_types.hpp"

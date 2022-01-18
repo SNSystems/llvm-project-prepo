@@ -19,7 +19,8 @@
 //
 //===----------------------------------------------------------------------===//
 #include "rld/ELFSectionNames.h"
-#include "rld/elf.h"
+
+#include "rld/ELF.h"
 
 using namespace rld;
 

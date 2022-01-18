@@ -1,10 +1,10 @@
-//===- lib/scanner.cpp ----------------------------------------------------===//
-//*                                       *
-//*  ___  ___ __ _ _ __  _ __   ___ _ __  *
-//* / __|/ __/ _` | '_ \| '_ \ / _ \ '__| *
-//* \__ \ (_| (_| | | | | | | |  __/ |    *
-//* |___/\___\__,_|_| |_|_| |_|\___|_|    *
-//*                                       *
+//===- lib/Scanner.cpp ----------------------------------------------------===//
+//*  ____                                   *
+//* / ___|  ___ __ _ _ __  _ __   ___ _ __  *
+//* \___ \ / __/ _` | '_ \| '_ \ / _ \ '__| *
+//*  ___) | (_| (_| | | | | | | |  __/ |    *
+//* |____/ \___\__,_|_| |_|_| |_|\___|_|    *
+//*                                         *
 //===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -12,7 +12,17 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#include "rld/scanner.h"
+#include "rld/Scanner.h"
+
+#include "rld/LayoutBuilder.h"
+#include "rld/XfxScanner.h"
+
+#include "pstore/core/database.hpp"
+#include "pstore/core/hamt_map.hpp"
+#include "pstore/core/index_types.hpp"
+#include "pstore/core/sstring_view_archive.hpp"
+#include "pstore/mcrepo/compilation.hpp"
+#include "pstore/mcrepo/fragment.hpp"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/BinaryFormat/Magic.h"
@@ -24,16 +34,6 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
-
-#include "pstore/core/database.hpp"
-#include "pstore/core/hamt_map.hpp"
-#include "pstore/core/index_types.hpp"
-#include "pstore/core/sstring_view_archive.hpp"
-#include "pstore/mcrepo/compilation.hpp"
-#include "pstore/mcrepo/fragment.hpp"
-
-#include "rld/LayoutBuilder.h"
-#include "rld/XfxScanner.h"
 
 namespace {
 
