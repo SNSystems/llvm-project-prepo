@@ -123,7 +123,6 @@ void RepoToolChain::AddCXXStdlibLibArgs(const ArgList &Args,
                                         ArgStringList &CmdArgs) const {
   CmdArgs.push_back("-lc++");
   CmdArgs.push_back("-lc++abi");
-  CmdArgs.push_back("-lunwind");
 }
 
 Tool *RepoToolChain::buildLinker() const {
@@ -163,15 +162,19 @@ void RepoToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
 
   const Driver &D = getDriver();
 
-  if (!DriverArgs.hasArg(options::OPT_nobuiltininc)) {
-    // Add the Clang builtin headers (<resource>/include).
-    SmallString<128> ResourceDirInclude(D.ResourceDir);
-    llvm::sys::path::append(ResourceDirInclude, "include");
-    addSystemInclude(DriverArgs, CC1Args, ResourceDirInclude);
-  }
-
   if (DriverArgs.hasArg(options::OPT_nostdlibinc))
     return;
+
+  if (!DriverArgs.hasArg(options::OPT_nostdinc) &&
+      !DriverArgs.hasArg(options::OPT_nostdlibinc) &&
+      !DriverArgs.hasArg(options::OPT_nobuiltininc) &&
+      !DriverArgs.hasArg(options::OPT_nostdincxx)) {
+      // On musl-repo, libc++ is installed alongside the compiler in include/c++/v1,
+      // so get from '<install>/bin' to '<install>/include/c++/v1'.
+      llvm::SmallString<128> P = llvm::StringRef(getDriver().getInstalledDir());
+      llvm::sys::path::append(P, "..", "include", "c++", "v1");
+      addSystemInclude(DriverArgs, CC1Args, P);
+  }
 
   if (!DriverArgs.hasArg(options::OPT_nobuiltininc)) {
     if (!D.SysRoot.empty()) {
@@ -182,18 +185,6 @@ void RepoToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
       addSystemInclude(DriverArgs, CC1Args, "/usr/local/musl/include");
     }
   }
-
-  if (DriverArgs.hasArg(options::OPT_nostdinc) ||
-      DriverArgs.hasArg(options::OPT_nostdlibinc) ||
-      DriverArgs.hasArg(options::OPT_nobuiltininc) ||
-      DriverArgs.hasArg(options::OPT_nostdincxx))
-    return;
-
-  // On musl-repo, libc++ is installed alongside the compiler in include/c++/v1,
-  // so get from '<install>/bin' to '<install>/include/c++/v1'.
-  llvm::SmallString<128> P = llvm::StringRef(getDriver().getInstalledDir());
-  llvm::sys::path::append(P, "..", "include", "c++", "v1");
-  addSystemInclude(DriverArgs, CC1Args, P);
 }
 
 ToolChain::CXXStdlibType
@@ -214,5 +205,5 @@ RepoToolChain::GetCXXStdlibType(const ArgList &Args) const {
   else if (Value == "libc++")
     return ToolChain::CST_Libcxx;
   else
-    return ToolChain::CST_Libstdcxx;
+    return ToolChain::CST_Libcxx;
 }

@@ -9,9 +9,8 @@
 // RUN:   | FileCheck --check-prefix=CHECK-X86-64-LIBCXX-MUSL %s
 
 // CHECK-X86-64-LIBCXX-MUSL: "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
-// CHECK-X86-64-LIBCXX-MUSL: "-internal-isystem" "[[RESOURCE_DIR]]{{(/|\\\\)}}include"
-// CHECK-X86-64-LIBCXX-MUSL: "-internal-isystem" "{{/|\\\\}}usr{{/|\\\\}}local{{/|\\\\}}musl{{/|\\\\}}include"
 // CHECK-X86-64-LIBCXX-MUSL: "-internal-isystem" "{{.*}}basic_linux_libcxx_tree{{/|\\\\}}bin{{/|\\\\}}..{{/|\\\\}}include{{/|\\\\}}c++{{/|\\\\}}v1"
+// CHECK-X86-64-LIBCXX-MUSL: "-internal-isystem" "{{/|\\\\}}usr{{/|\\\\}}local{{/|\\\\}}musl{{/|\\\\}}include"
 
 // -----------------------------------------------------------------------------
 // Checking the header search
@@ -31,9 +30,8 @@
 // RUN:   | FileCheck --check-prefix=CHECK-X86-64-LIBCXX-GNU %s
 
 // CHECK-X86-64-LIBCXX-GNU: "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
-// CHECK-X86-64-LIBCXX-GNU: "-internal-isystem" "[[RESOURCE_DIR]]{{(/|\\\\)}}include"
-// CHECK-X86-64-LIBCXX-GNU: "-internal-externc-isystem" "/usr/include"
 // CHECK-X86-64-LIBCXX-GNU-NOT: "-internal-isystem" "{{.*}}basic_linux_libcxx_tree{{/|\\\\}}bin{{/|\\\\}}..{{/|\\\\}}include{{/|\\\\}}c++{{/|\\\\}}v1"
+// CHECK-X86-64-LIBCXX-GNU: "-internal-externc-isystem" "/usr/include"
 
 // -----------------------------------------------------------------------------
 // Checking the header search
@@ -48,9 +46,8 @@
 
 // CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
 // CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-isysroot" "[[SYSROOT:[^"]+]]"
-// CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-internal-isystem" "[[RESOURCE_DIR]]{{(/|\\\\)}}include"
-// CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}include"
 // CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-internal-isystem" "{{.*}}basic_linux_libcxx_tree{{/|\\\\}}bin{{/|\\\\}}..{{/|\\\\}}include{{/|\\\\}}c++{{/|\\\\}}v1"
+// CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}include"
 
 // -----------------------------------------------------------------------------
 // Checking the header search
@@ -73,7 +70,6 @@
 // CHECK-X86-64-LIBCXX-SYSROOT: "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
 // CHECK-X86-64-LIBCXX-SYSROOT: "-isysroot" "[[SYSROOT:[^"]+]]"
 // CHECK-X86-64-LIBCXX-SYSROOT: "-internal-isystem" "{{.*}}basic_linux_libcxx_tree{{/|\\\\}}usr{{/|\\\\}}include{{/|\\\\}}c++{{/|\\\\}}v1"
-// CHECK-X86-64-LIBCXX-SYSROOT: "-internal-isystem" "[[RESOURCE_DIR]]{{(/|\\\\)}}include"
 // CHECK-X86-64-LIBCXX-SYSROOT: "-internal-externc-isystem" "[[SYSROOT]]{{/|\\\\}}include"
 
 // -----------------------------------------------------------------------------
@@ -166,7 +162,6 @@
 // CHECK-NOSTDLIBINC-SYSROOT: "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
 // CHECK-NOSTDLIBINC-SYSROOT: "-isysroot" "[[SYSROOT:[^"]+]]"
 // CHECK-NOSTDLIBINC-SYSROOT-NOT: "-internal-isystem" "{{.*}}basic_linux_libcxx_tree{{/|\\\\}}bin{{/|\\\\}}..{{/|\\\\}}include{{/|\\\\}}c++{{/|\\\\}}v1"
-// CHECK-NOSTDLIBINC-SYSROOT: "-internal-isystem" "[[RESOURCE_DIR]]{{/|\\\\}}include"
 // CHECK-NOSTDLIBINC-SYSROOT-NOT: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}include"
 
 // -----------------------------------------------------------------------------
@@ -332,35 +327,42 @@
 // RUN:   %s 2>&1 \
 // RUN:   | FileCheck -check-prefix=CHECK006 %s
 
+// CHECK006:   "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
+// CHECK006:  "-L{{/|\\\\}}usr{{/|\\\\}}local{{/|\\\\}}musl{{/|\\\\}}lib"
+// CHECK006:  "-L[[RESOURCE_DIR]]{{/|\\\\}}lib{{/|\\\\}}linux"
+// CHECK006:  "-L{{.*}}basic_linux_libcxx_tree{{/|\\\\}}bin{{/|\\\\}}..{{/|\\\\}}lib"
+// CHECK006:  "-lc++" "-lc++abi"
+
 // RUN: %clangxx -### -target x86_64-pc-linux-gnu-repo \
 // RUN:   -resource-dir=%S/Inputs/resource_dir \
 // RUN:   -ccc-install-dir %S/Inputs/basic_linux_libcxx_tree/bin \
 // RUN:   %s 2>&1 \
-// RUN:   | FileCheck -check-prefix=CHECK006 %s
+// RUN:   | FileCheck -check-prefix=CHECK007 %s
 
 // RUN: %clangxx -### -target x86_64-pc-linux-repo \
 // RUN:   -resource-dir=%S/Inputs/resource_dir \
 // RUN:   -ccc-install-dir %S/Inputs/basic_linux_libcxx_tree/bin \
 // RUN:   %s 2>&1 \
-// RUN:   | FileCheck -check-prefix=CHECK006 %s
+// RUN:   | FileCheck -check-prefix=CHECK007 %s
 
-// CHECK006:   "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
-// CHECK006-NOT:  "-L{{/|\\\\}}usr{{/|\\\\}}local{{/|\\\\}}musl{{/|\\\\}}lib"
-// CHECK006-NOT:  "-L[[RESOURCE_DIR]]{{/|\\\\}}lib{{/|\\\\}}linux"
-// CHECK006-NOT:  "-L{{.*}}basic_linux_libcxx_tree{{/|\\\\}}bin{{/|\\\\}}..{{/|\\\\}}lib"
-// CHECK006-NOT:  "-lc++" "-lc++abi" "-lunwind"
+// CHECK007:   "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
+// CHECK007-NOT:  "-L{{/|\\\\}}usr{{/|\\\\}}local{{/|\\\\}}musl{{/|\\\\}}lib"
+// CHECK007-NOT:  "-L[[RESOURCE_DIR]]{{/|\\\\}}lib{{/|\\\\}}linux"
+// CHECK007-NOT:  "-L{{.*}}basic_linux_libcxx_tree{{/|\\\\}}bin{{/|\\\\}}..{{/|\\\\}}lib"
+// CHECK007-NOT:  "-lc++" "-lc++abi"
+// CHECK007: "-lstdc++"
 
 // -----------------------------------------------------------------------------
 // Checking the invoked linker for elf.
 // Passing -musl, -gnu and linux
 // -----------------------------------------------------------------------------
 // RUN: %clang -### -target x86_64-pc-linux-musl %s 2>&1 \
-// RUN:   | FileCheck -check-prefix=CHECK007 %s
+// RUN:   | FileCheck -check-prefix=CHECK008 %s
 
 // RUN: %clang -### -target x86_64-pc-linux-gnu %s 2>&1 \
-// RUN:   | FileCheck -check-prefix=CHECK007 %s
+// RUN:   | FileCheck -check-prefix=CHECK008 %s
 
 // RUN: %clang -### -target x86_64-pc-linux %s 2>&1 \
-// RUN:   | FileCheck -check-prefix=CHECK007 %s
+// RUN:   | FileCheck -check-prefix=CHECK008 %s
 
-// CHECK007:      "{{.*}}ld"
+// CHECK008:      "{{.*}}ld"
