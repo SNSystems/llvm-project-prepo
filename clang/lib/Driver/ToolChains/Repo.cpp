@@ -37,18 +37,18 @@ static void constructRepoLinkArgs(Compilation &C, const JobAction &JA,
   if (!Args.hasArg(options::OPT_nostartfiles, options::OPT_nostdlib)) {
     CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/crt1.t"));
     CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/crt1_asm.t"));
+    CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/libc_repo.a"));
   }
 
   auto CRTPath = RTC.getCompilerRTPath();
+  if (!RTC.getVFS().exists(CRTPath)) // Build compiler-rt as stand-alone
+    CRTPath = "/usr/lib/linux";
   if (!Args.hasArg(options::OPT_nostartfiles, options::OPT_nostdlib)) {
     CmdArgs.push_back(
         Args.MakeArgString(CRTPath + "/clang_rt.crtbegin-x86_64.o"));
     CmdArgs.push_back(
         Args.MakeArgString(CRTPath + "/clang_rt.crtend-x86_64.o"));
   }
-
-  // Temporarily disable the code since rld doesn't support -L and -l yet.
-#if 0
 
   //----------------------------------------------------------------------------
   // Library Search Paths
@@ -75,7 +75,6 @@ static void constructRepoLinkArgs(Compilation &C, const JobAction &JA,
   //----------------------------------------------------------------------------
   if (!Args.hasArg(options::OPT_nostdlib, options::OPT_nodefaultlibs)) {
     CmdArgs.push_back("-lclang_rt.builtins-x86_64");
-    CmdArgs.push_back("-lc");
   }
 
   if (D.CCCIsCXX()) {
@@ -83,7 +82,6 @@ static void constructRepoLinkArgs(Compilation &C, const JobAction &JA,
       RTC.AddCXXStdlibLibArgs(Args, CmdArgs);
   }
 
-#endif // 0
   return;
 }
 

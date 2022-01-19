@@ -525,6 +525,7 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
       std::string MuslRoot = D.SysRoot.empty() ? "/usr/local/musl" : D.SysRoot;
       CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/crt1.t"));
       CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/crt1_asm.t"));
+      CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/libc_repo.a"));
     }
 
     if (IsVE) {
@@ -537,6 +538,8 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     else if (IsRepo &&
              !Args.hasArg(options::OPT_nostartfiles, options::OPT_nostdlib)) {
       auto CRTPath = ToolChain.getCompilerRTPath();
+      if (!ToolChain.getVFS().exists(CRTPath))
+        CRTPath = "/usr/lib/linux";
       CmdArgs.push_back(
           Args.MakeArgString(CRTPath + "/clang_rt.crtbegin-x86_64.o"));
       CmdArgs.push_back(
