@@ -104,9 +104,9 @@ void repo::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 RepoToolChain::RepoToolChain(const Driver &D, const llvm::Triple &Triple,
                              const llvm::opt::ArgList &Args)
     : ToolChain(D, Triple, Args) {
-  getProgramPaths().push_back(getDriver().getInstalledDir());
-  if (getDriver().getInstalledDir() != getDriver().Dir)
-    getProgramPaths().push_back(getDriver().Dir);
+  getProgramPaths().push_back(D.getInstalledDir());
+  if (D.getInstalledDir() != D.Dir)
+    getProgramPaths().push_back(D.Dir);
 
   if (!D.SysRoot.empty()) {
     SmallString<128> P(D.SysRoot);
@@ -114,7 +114,7 @@ RepoToolChain::RepoToolChain(const Driver &D, const llvm::Triple &Triple,
     getFilePaths().push_back(std::string(P.str()));
   }
 
-  getFilePaths().push_back(getDriver().Dir + "/../lib");
+  getFilePaths().push_back(D.Dir + "/../lib");
 }
 
 RepoToolChain::~RepoToolChain() {}
