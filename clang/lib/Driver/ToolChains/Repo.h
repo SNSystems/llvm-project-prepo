@@ -35,16 +35,16 @@ public:
 
 namespace toolchains {
 
-class LLVM_LIBRARY_VISIBILITY RepoToolChain : public ToolChain {
+class LLVM_LIBRARY_VISIBILITY RepoMuslToolChain : public ToolChain {
   friend class Linux;
 
 protected:
   Tool *buildLinker() const override;
 
 public:
-  RepoToolChain(const Driver &D, const llvm::Triple &Triple,
-                const llvm::opt::ArgList &Args);
-  ~RepoToolChain() override;
+  RepoMuslToolChain(const Driver &D, const llvm::Triple &Triple,
+                    const llvm::opt::ArgList &Args);
+  ~RepoMuslToolChain() override;
 
   bool isPICDefault() const override;
   bool isPIEDefault() const override;

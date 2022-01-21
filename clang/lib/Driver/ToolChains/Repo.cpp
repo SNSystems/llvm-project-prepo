@@ -19,7 +19,7 @@ using namespace clang;
 using namespace llvm::opt;
 
 static void constructRepoLinkArgs(Compilation &C, const JobAction &JA,
-                                  const toolchains::RepoToolChain &RTC,
+                                  const toolchains::RepoMuslToolChain &RTC,
                                   const InputInfo &Output,
                                   const InputInfoList &Inputs,
                                   const ArgList &Args, ArgStringList &CmdArgs,
@@ -90,7 +90,8 @@ void repo::Linker::ConstructJob(Compilation &C, const JobAction &JA,
                                 const InputInfoList &Inputs,
                                 const ArgList &Args,
                                 const char *LinkingOutput) const {
-  auto &RTC = static_cast<const toolchains::RepoToolChain &>(getToolChain());
+  auto &RTC =
+      static_cast<const toolchains::RepoMuslToolChain &>(getToolChain());
 
   ArgStringList CmdArgs;
   constructRepoLinkArgs(C, JA, RTC, Output, Inputs, Args, CmdArgs,
@@ -101,8 +102,9 @@ void repo::Linker::ConstructJob(Compilation &C, const JobAction &JA,
       JA, *this, ResponseFileSupport::AtFileCurCP(), Exec, CmdArgs, Inputs));
 }
 
-RepoToolChain::RepoToolChain(const Driver &D, const llvm::Triple &Triple,
-                             const llvm::opt::ArgList &Args)
+RepoMuslToolChain::RepoMuslToolChain(const Driver &D,
+                                     const llvm::Triple &Triple,
+                                     const llvm::opt::ArgList &Args)
     : ToolChain(D, Triple, Args) {
   getProgramPaths().push_back(D.getInstalledDir());
   if (D.getInstalledDir() != D.Dir)
@@ -117,46 +119,34 @@ RepoToolChain::RepoToolChain(const Driver &D, const llvm::Triple &Triple,
   getFilePaths().push_back(D.Dir + "/../lib");
 }
 
-RepoToolChain::~RepoToolChain() {}
+RepoMuslToolChain::~RepoMuslToolChain() {}
 
-void RepoToolChain::AddCXXStdlibLibArgs(const ArgList &Args,
-                                        ArgStringList &CmdArgs) const {
+void RepoMuslToolChain::AddCXXStdlibLibArgs(const ArgList &Args,
+                                            ArgStringList &CmdArgs) const {
   CmdArgs.push_back("-lc++");
   CmdArgs.push_back("-lc++abi");
 }
 
-Tool *RepoToolChain::buildLinker() const {
+Tool *RepoMuslToolChain::buildLinker() const {
   return new tools::repo::Linker(*this);
 }
 
-bool RepoToolChain::isPICDefault() const {
-  switch (getArch()) {
-  case llvm::Triple::x86_64:
-    return getTriple().isOSWindows();
-  case llvm::Triple::mips64:
-  case llvm::Triple::mips64el:
-    return true;
-  default:
-    return false;
-  }
-}
+bool RepoMuslToolChain::isPICDefault() const { return false; }
 
-bool RepoToolChain::isPIEDefault() const { return false; }
+bool RepoMuslToolChain::isPIEDefault() const { return false; }
 
-bool RepoToolChain::isPICDefaultForced() const {
-  return getArch() == llvm::Triple::x86_64 && getTriple().isOSWindows();
-}
+bool RepoMuslToolChain::isPICDefaultForced() const { return false; }
 
-void RepoToolChain::addClangTargetOptions(const ArgList &DriverArgs,
-                                          ArgStringList &CC1Args,
-                                          Action::OffloadKind) const {
+void RepoMuslToolChain::addClangTargetOptions(const ArgList &DriverArgs,
+                                              ArgStringList &CC1Args,
+                                              Action::OffloadKind) const {
   if (!DriverArgs.hasFlag(options::OPT_fuse_init_array,
                           options::OPT_fno_use_init_array, true))
     CC1Args.push_back("-fno-use-init-array");
 }
 
-void RepoToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
-                                              ArgStringList &CC1Args) const {
+void RepoMuslToolChain::AddClangSystemIncludeArgs(
+    const ArgList &DriverArgs, ArgStringList &CC1Args) const {
   if (DriverArgs.hasArg(options::OPT_nostdinc))
     return;
 
@@ -169,11 +159,12 @@ void RepoToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
       !DriverArgs.hasArg(options::OPT_nostdlibinc) &&
       !DriverArgs.hasArg(options::OPT_nobuiltininc) &&
       !DriverArgs.hasArg(options::OPT_nostdincxx)) {
-      // On musl-repo, libc++ is installed alongside the compiler in include/c++/v1,
-      // so get from '<install>/bin' to '<install>/include/c++/v1'.
-      llvm::SmallString<128> P = llvm::StringRef(getDriver().getInstalledDir());
-      llvm::sys::path::append(P, "..", "include", "c++", "v1");
-      addSystemInclude(DriverArgs, CC1Args, P);
+    // On musl-repo, libc++ is installed alongside the compiler in
+    // include/c++/v1, so get from '<install>/bin' to
+    // '<install>/include/c++/v1'.
+    llvm::SmallString<128> P = llvm::StringRef(D.getInstalledDir());
+    llvm::sys::path::append(P, "..", "include", "c++", "v1");
+    addSystemInclude(DriverArgs, CC1Args, P);
   }
 
   if (!DriverArgs.hasArg(options::OPT_nobuiltininc)) {
@@ -188,22 +179,17 @@ void RepoToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
 }
 
 ToolChain::CXXStdlibType
-RepoToolChain::GetCXXStdlibType(const ArgList &Args) const {
+RepoMuslToolChain::GetCXXStdlibType(const ArgList &Args) const {
   Arg *A = Args.getLastArg(options::OPT_stdlib_EQ);
-  if (!A) {
-    if (getTriple().isMusl())
+  if (A) {
+    StringRef Value = A->getValue();
+    if (Value == "libstdc++")
+      return ToolChain::CST_Libstdcxx;
+    else if (Value == "libc++")
       return ToolChain::CST_Libcxx;
     else
-      return ToolChain::CST_Libstdcxx;
+      getDriver().Diag(diag::err_drv_invalid_stdlib_name)
+          << A->getAsString(Args);
   }
-  StringRef Value = A->getValue();
-  if (Value != "libstdc++" && Value != "libc++")
-    getDriver().Diag(diag::err_drv_invalid_stdlib_name) << A->getAsString(Args);
-
-  if (Value == "libstdc++")
-    return ToolChain::CST_Libstdcxx;
-  else if (Value == "libc++")
-    return ToolChain::CST_Libcxx;
-  else
-    return ToolChain::CST_Libcxx;
+  return ToolChain::CST_Libcxx;
 }
