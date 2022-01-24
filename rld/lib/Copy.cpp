@@ -340,6 +340,7 @@ void copyContribution<SectionKind::linked_definitions>(uint8_t *, Context &,
 struct WorkItem {
   using ContributionIterator =
       OutputSection::ContributionVector::chunk::const_iterator;
+
   using HandlerFn = void (*)(uint8_t *, Context &, const Layout &,
                              const GOTPLTContainer &, ContributionIterator,
                              ContributionIterator);

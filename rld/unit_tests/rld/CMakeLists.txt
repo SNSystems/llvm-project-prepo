@@ -17,10 +17,11 @@ add_rld_unittest(rldTests
   EmptyStore.cpp
   StringAdder.cpp
   TestCSAlloc.cpp
-  TestMathExtras.cpp
   TestMPMCQueue.cpp
+  TestMathExtras.cpp
   TestSymbolEmitList.cpp
   TestSymbolResolver.cpp
+  TestVariant.cpp
   TestXfxResolver.cpp
 )
 target_link_libraries (rldTests PRIVATE LLVMrld)
