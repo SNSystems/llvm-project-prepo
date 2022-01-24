@@ -18,31 +18,33 @@ using namespace clang::driver::toolchains;
 using namespace clang;
 using namespace llvm::opt;
 
-static void constructRepoLinkArgs(Compilation &C, const JobAction &JA,
-                                  const toolchains::RepoMuslToolChain &RTC,
-                                  const InputInfo &Output,
-                                  const InputInfoList &Inputs,
-                                  const ArgList &Args, ArgStringList &CmdArgs,
-                                  const char *LinkingOutput) {
+static void constructRepoMuslLinkArgs(Compilation &C, const JobAction &JA,
+                                      const toolchains::RepoMuslToolChain &RTC,
+                                      const InputInfo &Output,
+                                      const InputInfoList &Inputs,
+                                      const ArgList &Args,
+                                      ArgStringList &CmdArgs,
+                                      const char *LinkingOutput) {
 
   const Driver &D = RTC.getDriver();
 
   //----------------------------------------------------------------------------
   //
   //----------------------------------------------------------------------------
-  CmdArgs.push_back("-o");
-  CmdArgs.push_back(Output.getFilename());
 
-  std::string MuslRoot = D.SysRoot.empty() ? "/usr/local/musl" : D.SysRoot;
+  const std::string MuslRoot = D.SysRoot.empty() ? "/usr/local/musl" : D.SysRoot;
   if (!Args.hasArg(options::OPT_nostartfiles, options::OPT_nostdlib)) {
     CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/crt1.t"));
     CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/crt1_asm.t"));
     CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/libc_repo.a"));
   }
 
+  // If compiler-rt is built inside of LLVM project, we could find its path
+  // using getCompilerRTPath function. If build compiler-rt as stand-alone
+  // project and give --sysroot=preference, use sysroot as the libary root.
   auto CRTPath = RTC.getCompilerRTPath();
-  if (!RTC.getVFS().exists(CRTPath)) // Build compiler-rt as stand-alone
-    CRTPath = "/usr/lib/linux";
+  if (!RTC.getVFS().exists(CRTPath))
+    CRTPath = D.SysRoot.empty() ? "/usrlib/linux" : D.SysRoot + "/lib/linux/";
   if (!Args.hasArg(options::OPT_nostartfiles, options::OPT_nostdlib)) {
     CmdArgs.push_back(
         Args.MakeArgString(CRTPath + "/clang_rt.crtbegin-x86_64.o"));
@@ -58,8 +60,7 @@ static void constructRepoLinkArgs(Compilation &C, const JobAction &JA,
   if (RTC.getVFS().exists(CRTPath))
     CmdArgs.push_back(Args.MakeArgString("-L" + CRTPath));
 
-  const ToolChain::path_list &LibPaths = RTC.getFilePaths();
-  for (const auto &LibPath : LibPaths)
+  for (const auto &LibPath : RTC.getFilePaths())
     CmdArgs.push_back(Args.MakeArgString(StringRef("-L") + LibPath));
 
   //----------------------------------------------------------------------------
@@ -68,7 +69,6 @@ static void constructRepoLinkArgs(Compilation &C, const JobAction &JA,
   Args.AddAllArgs(CmdArgs,
                   {options::OPT_T_Group, options::OPT_e, options::OPT_s,
                    options::OPT_t, options::OPT_u_Group});
-  AddLinkerInputs(RTC, Inputs, Args, CmdArgs, JA);
 
   //----------------------------------------------------------------------------
   // Libraries
@@ -77,12 +77,9 @@ static void constructRepoLinkArgs(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-lclang_rt.builtins-x86_64");
   }
 
-  if (D.CCCIsCXX()) {
-    if (RTC.ShouldLinkCXXStdlib(Args))
-      RTC.AddCXXStdlibLibArgs(Args, CmdArgs);
+  if (D.CCCIsCXX() && RTC.ShouldLinkCXXStdlib(Args)) {
+    RTC.AddCXXStdlibLibArgs(Args, CmdArgs);
   }
-
-  return;
 }
 
 void repo::Linker::ConstructJob(Compilation &C, const JobAction &JA,
@@ -90,16 +87,23 @@ void repo::Linker::ConstructJob(Compilation &C, const JobAction &JA,
                                 const InputInfoList &Inputs,
                                 const ArgList &Args,
                                 const char *LinkingOutput) const {
-  auto &RTC =
-      static_cast<const toolchains::RepoMuslToolChain &>(getToolChain());
 
+  const ToolChain &TC = getToolChain();
   ArgStringList CmdArgs;
-  constructRepoLinkArgs(C, JA, RTC, Output, Inputs, Args, CmdArgs,
-                        LinkingOutput);
 
-  const char *Exec = Args.MakeArgString(RTC.GetLinkerPath());
+  AddLinkerInputs(TC, Inputs, Args, CmdArgs, JA);
+  CmdArgs.push_back("-o");
+  CmdArgs.push_back(Output.getFilename());
+
+  if (getToolChain().getTriple().isMusl()) {
+    constructRepoMuslLinkArgs(
+        C, JA,
+        static_cast<const toolchains::RepoMuslToolChain &>(getToolChain()),
+        Output, Inputs, Args, CmdArgs, LinkingOutput);
+  }
   C.addCommand(std::make_unique<Command>(
-      JA, *this, ResponseFileSupport::AtFileCurCP(), Exec, CmdArgs, Inputs));
+      JA, *this, ResponseFileSupport::AtFileCurCP(),
+      Args.MakeArgString(TC.GetLinkerPath()), CmdArgs, Inputs));
 }
 
 RepoMuslToolChain::RepoMuslToolChain(const Driver &D,
@@ -159,9 +163,8 @@ void RepoMuslToolChain::AddClangSystemIncludeArgs(
       !DriverArgs.hasArg(options::OPT_nostdlibinc) &&
       !DriverArgs.hasArg(options::OPT_nobuiltininc) &&
       !DriverArgs.hasArg(options::OPT_nostdincxx)) {
-    // On musl-repo, libc++ is installed alongside the compiler in
-    // include/c++/v1, so get from '<install>/bin' to
-    // '<install>/include/c++/v1'.
+    // On repo, libc++ is installed alongside the compiler in include/c++/v1, so
+    // get from '<install>/bin' to '<install>/include/c++/v1'.
     llvm::SmallString<128> P = llvm::StringRef(D.getInstalledDir());
     llvm::sys::path::append(P, "..", "include", "c++", "v1");
     addSystemInclude(DriverArgs, CC1Args, P);

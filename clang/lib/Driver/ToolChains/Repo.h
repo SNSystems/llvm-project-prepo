@@ -18,6 +18,7 @@ namespace driver {
 namespace tools {
 namespace repo {
 
+/// A class to directly call repo linker when targeting on *-repo.
 class LLVM_LIBRARY_VISIBILITY Linker : public Tool {
 public:
   Linker(const ToolChain &TC) : Tool("repo::Linker", "rld", TC) {}
@@ -35,6 +36,14 @@ public:
 
 namespace toolchains {
 
+/// RepoMuslToolChain - A tool chain using the repo tools and repo-based
+/// musl-libc and llvm libc++ libraries to perform compilation and linking
+/// commands. Currently does not support repo-based glibc library but
+/// compilation is fine.
+/// Since the *-musl-* toolchain doesn't support in the upstream LLVM, we need
+/// to add this class when targetting on repo and using musl libc linrary. We
+/// could add the musl toolchain support (like gnu toolchain).
+/// TODO: support musl toolcahin in upstream LLVM.
 class LLVM_LIBRARY_VISIBILITY RepoMuslToolChain : public ToolChain {
   friend class Linux;
 

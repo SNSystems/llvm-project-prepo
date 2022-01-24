@@ -556,10 +556,7 @@ std::string ToolChain::GetLinkerPath() const {
     if (llvm::sys::fs::can_execute(UseLinker))
       return std::string(UseLinker);
   } else if (Triple.isOSBinFormatRepo()) {
-    llvm::SmallString<8> LinkerName;
-    LinkerName.append("rld");
-
-    std::string LinkerPath(GetProgramPath(LinkerName.c_str()));
+    std::string LinkerPath(GetProgramPath("rld"));
     if (llvm::sys::fs::can_execute(LinkerPath))
       return LinkerPath;
   } else if (UseLinker.empty() || UseLinker == "ld") {

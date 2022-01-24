@@ -160,12 +160,6 @@
 // RUN: %clang -### -target x86_64-pc-linux-musl-repo %s 2>&1 \
 // RUN:   | FileCheck -check-prefix=CHECK005 %s
 
-// RUN: %clang -### -target x86_64-pc-linux-gnu-repo %s 2>&1 \
-// RUN:   | FileCheck -check-prefix=CHECK005 %s
-
-// RUN: %clang -### -target x86_64-pc-linux-repo %s 2>&1 \
-// RUN:   | FileCheck -check-prefix=CHECK005 %s
-
 // CHECK005-NOT:          -fno-use-init-array
 
 // -----------------------------------------------------------------------------
