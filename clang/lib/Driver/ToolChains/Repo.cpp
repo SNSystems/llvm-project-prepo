@@ -32,7 +32,8 @@ static void constructRepoMuslLinkArgs(Compilation &C, const JobAction &JA,
   //
   //----------------------------------------------------------------------------
 
-  const std::string MuslRoot = D.SysRoot.empty() ? "/usr/local/musl" : D.SysRoot;
+  const std::string MuslRoot =
+      D.SysRoot.empty() ? "/usr/local/musl" : D.SysRoot;
   if (!Args.hasArg(options::OPT_nostartfiles, options::OPT_nostdlib)) {
     CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/crt1.t"));
     CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/crt1_asm.t"));
@@ -42,14 +43,19 @@ static void constructRepoMuslLinkArgs(Compilation &C, const JobAction &JA,
   // If compiler-rt is built inside of LLVM project, we could find its path
   // using getCompilerRTPath function. If build compiler-rt as stand-alone
   // project and give --sysroot=preference, use sysroot as the libary root.
-  auto CRTPath = RTC.getCompilerRTPath();
-  if (!RTC.getVFS().exists(CRTPath))
-    CRTPath = D.SysRoot.empty() ? "/usrlib/linux" : D.SysRoot + "/lib/linux/";
+  SmallString<128> CRTPath(RTC.getCompilerRTPath());
+  if (!llvm::sys::fs::exists(Twine(CRTPath))) {
+    CRTPath.clear();
+    llvm::sys::path::append(CRTPath, D.SysRoot.empty() ? "/usr" : D.SysRoot);
+    llvm::sys::path::append(CRTPath, "/lib/linux");
+  }
   if (!Args.hasArg(options::OPT_nostartfiles, options::OPT_nostdlib)) {
-    CmdArgs.push_back(
-        Args.MakeArgString(CRTPath + "/clang_rt.crtbegin-x86_64.o"));
-    CmdArgs.push_back(
-        Args.MakeArgString(CRTPath + "/clang_rt.crtend-x86_64.o"));
+    auto CRTBegin = CRTPath;
+    llvm::sys::path::append(CRTBegin, "/clang_rt.crtbegin-x86_64.o");
+    auto CRTEnd = CRTPath;
+    llvm::sys::path::append(CRTEnd, "/clang_rt.crtend-x86_64.o");
+    CmdArgs.push_back(Args.MakeArgString(CRTBegin));
+    CmdArgs.push_back(Args.MakeArgString(CRTEnd));
   }
 
   //----------------------------------------------------------------------------
@@ -123,7 +129,7 @@ RepoMuslToolChain::RepoMuslToolChain(const Driver &D,
   getFilePaths().push_back(D.Dir + "/../lib");
 }
 
-RepoMuslToolChain::~RepoMuslToolChain() {}
+RepoMuslToolChain::~RepoMuslToolChain() = default;
 
 void RepoMuslToolChain::AddCXXStdlibLibArgs(const ArgList &Args,
                                             ArgStringList &CmdArgs) const {
@@ -183,16 +189,13 @@ void RepoMuslToolChain::AddClangSystemIncludeArgs(
 
 ToolChain::CXXStdlibType
 RepoMuslToolChain::GetCXXStdlibType(const ArgList &Args) const {
-  Arg *A = Args.getLastArg(options::OPT_stdlib_EQ);
-  if (A) {
+  if (Arg *const A = Args.getLastArg(options::OPT_stdlib_EQ)) {
     StringRef Value = A->getValue();
     if (Value == "libstdc++")
       return ToolChain::CST_Libstdcxx;
-    else if (Value == "libc++")
+    if (Value == "libc++")
       return ToolChain::CST_Libcxx;
-    else
-      getDriver().Diag(diag::err_drv_invalid_stdlib_name)
-          << A->getAsString(Args);
+    getDriver().Diag(diag::err_drv_invalid_stdlib_name) << A->getAsString(Args);
   }
   return ToolChain::CST_Libcxx;
 }
