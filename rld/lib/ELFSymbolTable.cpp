@@ -25,6 +25,8 @@
 #include "rld/LayoutBuilder.h"
 #include "rld/SectionArray.h"
 
+#include "rld/Copy.h" // for WorkItem
+
 #include "llvm/Object/ELFTypes.h"
 
 using namespace rld;
@@ -114,123 +116,226 @@ template uint64_t elf::prepareSymbolTableSection<llvm::object::ELF64BE>(
 template uint64_t elf::prepareSymbolTableSection<llvm::object::ELF64LE>(
     Layout *const Lout, const GlobalSymbolsContainer &Globals);
 
-namespace {
-
-template <typename ELFT> struct Writer {
-  using Elf_Word = typename llvm::object::ELFFile<ELFT>::Elf_Word;
-  using Elf_Sym = typename llvm::object::ELFFile<ELFT>::Elf_Sym;
-
-  // Build a symbol.
-  static typename Elf_Word::value_type
-  writeSymbol(Elf_Sym *const SymbolOut, const Symbol &Sym,
-              typename Elf_Word::value_type NameOffset,
-              const SectionIndexedArray<unsigned> &SectionToIndex) {
-    const std::tuple<const Symbol::OptionalBodies &,
-                     std::unique_lock<Symbol::Mutex>>
-        Def = Sym.definition();
-    auto &Bodies = std::get<const Symbol::OptionalBodies &>(Def);
-    auto &Lock = std::get<std::unique_lock<Symbol::Mutex>>(Def);
-    if (!Bodies) {
-      // This is an undefined symbol.
-      std::memset(SymbolOut, 0, sizeof(*SymbolOut));
-      assert(Sym.allReferencesAreWeak(Lock) &&
-             "Undefined entries in the symbol table must be weakly referenced");
-      SymbolOut->setBinding(llvm::ELF::STB_WEAK);
-    } else {
-      // If there are multiple bodies associated with a symbol then the ELF
-      // symbol simply points to the first.
-      const Symbol::Body &B = Bodies->front();
-      const Contribution *const C = Sym.contribution();
-      assert(C != nullptr);
-      const pstore::repo::section_kind Kind = B.fragment()->front();
-
-      SymbolOut->st_value = elf::symbolValue(*C);
-      SymbolOut->st_shndx = SectionToIndex[C->OScn->SectionK];
-      SymbolOut->st_size = std::accumulate(
-          Bodies->begin(), Bodies->end(), uint64_t{0},
-          [&Kind](const uint64_t Acc, Symbol::Body const &Body) -> uint64_t {
-            return Acc + fragmentSectionSize(Kind, Body.fragment());
-          });
-      SymbolOut->setVisibility(elf::elfVisibility<ELFT>(B.visibility()));
-      SymbolOut->setBindingAndType(linkageToELFBinding(B.linkage()),
-                                   sectionToSymbolType(C->OScn->SectionK));
-    }
-    SymbolOut->st_name = Elf_Word{NameOffset};
-
-    // Pass our lock to nameLength() so that it doesn't try to take one of its
-    // own. The +1 here allows for the final '\0'.
-    NameOffset += Sym.nameLength() + 1U;
-    return NameOffset;
-  }
-
-  static constexpr uint64_t
-  fragmentSectionSize(const pstore::repo::section_kind Kind,
-                      FragmentPtr const &F) {
-    if (!F->has_section(Kind)) {
-      return 0U;
-    }
+// symbol size
+// ~~~~~~~~~~~
+static uint64_t symbolSize(const pstore::repo::section_kind Kind,
+                           const Symbol::BodyContainer &Bodies) {
+  return std::accumulate(Bodies.begin(), Bodies.end(), uint64_t{0},
+                         [Kind](const uint64_t Acc, Symbol::Body const &Body) {
+                           const FragmentPtr &F = Body.fragment();
+                           if (!F->has_section(Kind)) {
+                             return Acc;
+                           }
+                           auto Size = uint64_t{0};
 #define X(x)                                                                   \
   case pstore::repo::section_kind::x:                                          \
-    return F->at<pstore::repo::section_kind::x>().size();
+    Size = F->at<pstore::repo::section_kind::x>().size();                      \
+    break;
 
-    switch (Kind) {
-      PSTORE_MCREPO_SECTION_KINDS
-    case pstore::repo::section_kind::last:
-      break;
-    }
+                           switch (Kind) {
+                             PSTORE_MCREPO_SECTION_KINDS
+                           case pstore::repo::section_kind::last:
+                             break;
+                           }
 #undef X
-    return 0U;
-  }
+                           return Acc + Size;
+                         });
+}
+
+namespace {
+
+template <typename ELFT> class Writer {
+public:
+  using Elf_Sym = typename llvm::object::ELFFile<ELFT>::Elf_Sym;
+
+  /// Adds the work of writing the collection of symbols given by \p EmitList to
+  /// the job work \p Q. The start output address is given by \p Dest.
+  ///
+  /// \param Q  The queue to which work is added.
+  /// \param Dest  The address of the symbol table storage in the output file.
+  /// \param EmitList  The list of symbols to be emitted.
+  /// \returns  The end of the range of address that will be written by the
+  ///   queued work.
+  static Elf_Sym *schedulePartitions(MPMCQueue<WorkItem> &Q, Elf_Sym *Dest,
+                                     const SymbolEmitList &EmitList);
+
+  /// Adds the work of writing the undefined symbols given by \p Undefs to the
+  /// job work \p Q. The start output address is given by \p Dest.
+  ///
+  /// \param Q  The queue to which work is added.
+  /// \param Dest  The address of the symbol table storage in the output file.
+  /// \param Undefs  The collection of undefined symbols.
+  /// \returns  The end of the range of address that will be written by the
+  ///   queued work.
+  static Elf_Sym *scheduleUndefRange(MPMCQueue<WorkItem> &Q, Elf_Sym *Dest,
+                                     const UndefsContainer &Undefs);
+
+private:
+  static void
+  writeSymbolTablePartition(uint8_t *Dest, Context &Context, const Layout &Lout,
+                            const GOTPLTContainer &GOTPLTs,
+                            const SectionIndexedArray<unsigned> &SectionToIndex,
+                            WorkItem::Pointer First, WorkItem::Pointer Last);
+
+  static void
+  writeUndefSymbolRange(uint8_t *Dest, Context &Context, const Layout &Lout,
+                        const GOTPLTContainer &GOTPLTs,
+                        const SectionIndexedArray<unsigned> &SectionToIndex,
+                        WorkItem::Pointer First, WorkItem::Pointer Last);
+
+  /// Write an individual ELF symbol.
+  ///
+  /// \param SymbolOut  The memory to which the symbol table entry will be
+  /// written.
+  /// \param Sym  The symbol to be written.
+  /// \param SectionToIndex  The mapping of rld to ELF sections.
+  static Elf_Sym *
+  writeSymbol(Elf_Sym *const SymbolOut, const Symbol &Sym,
+              const SectionIndexedArray<unsigned> &SectionToIndex);
 };
+
+// Symbol Table Partitions
+// ~~~~~~~~~~~~~~~~~~~~~~~
+template <typename ELFT>
+auto Writer<ELFT>::schedulePartitions(MPMCQueue<WorkItem> &Q, Elf_Sym *Dest,
+                                      const SymbolEmitList &EmitList)
+    -> Elf_Sym * {
+  auto Out = Dest;
+  for (auto Pos = EmitList.partitionsBegin(); *Pos != nullptr;) {
+    auto Next = Pos;
+    std::advance(Next, 1);
+    Q.emplace(reinterpret_cast<uint8_t *>(Out), &writeSymbolTablePartition,
+              WorkItem::Pointer{in_place_type_t<const Symbol *>{}, *Pos},
+              WorkItem::Pointer{in_place_type_t<const Symbol *>{}, *Next});
+    Out += SymbolEmitList::PartitionSize;
+    Pos = Next;
+  }
+  // The last partition may not be full, so compute the last symbol address
+  // here.
+  return Dest + EmitList.size();
+}
+
+template <typename ELFT>
+void Writer<ELFT>::writeSymbolTablePartition(
+    uint8_t *Dest, Context & /*Context*/, const Layout & /*Lout*/,
+    const GOTPLTContainer & /*GOTPLTs*/,
+    const SectionIndexedArray<unsigned> &SectionToIndex,
+    WorkItem::Pointer First, WorkItem::Pointer Last) {
+
+  auto *SymbolOut = reinterpret_cast<Elf_Sym *>(Dest);
+  auto *const End = get<Symbol const *>(Last);
+  for (auto *Sym = get<Symbol const *>(First); Sym != End;
+       Sym = Sym->NextEmit) {
+    assert(Sym != nullptr);
+    SymbolOut = Writer<ELFT>::writeSymbol(SymbolOut, *Sym, SectionToIndex);
+  }
+}
+
+// Undefined Symbols
+// ~~~~~~~~~~~~~~~~~
+template <typename ELFT>
+auto Writer<ELFT>::scheduleUndefRange(MPMCQueue<WorkItem> &Q, Elf_Sym *Dest,
+                                      const UndefsContainer &Undefs)
+    -> Elf_Sym * {
+  Q.emplace(reinterpret_cast<uint8_t *>(Dest), &writeUndefSymbolRange,
+            WorkItem::Pointer{Undefs.begin()}, WorkItem::Pointer{Undefs.end()});
+  return Dest + std::distance(Undefs.begin(), Undefs.end());
+}
+
+template <typename ELFT>
+void Writer<ELFT>::writeUndefSymbolRange(
+    uint8_t *Dest, Context & /*Context*/, const Layout & /*Lout*/,
+    const GOTPLTContainer & /*GOTPLTs*/,
+    const SectionIndexedArray<unsigned> &SectionToIndex,
+    WorkItem::Pointer First, WorkItem::Pointer Last) {
+
+  using Iterator = UndefsContainer::Container::const_iterator;
+  auto *SymbolOut = reinterpret_cast<Elf_Sym *>(Dest);
+  std::for_each(
+      get<Iterator>(First), get<Iterator>(Last), [&](const Symbol &Sym) {
+        SymbolOut = Writer<ELFT>::writeSymbol(SymbolOut, Sym, SectionToIndex);
+      });
+}
+
+// Build a symbol.
+template <typename ELFT>
+auto Writer<ELFT>::writeSymbol(
+    Elf_Sym *const SymbolOut, const Symbol &Sym,
+    const SectionIndexedArray<unsigned> &SectionToIndex) -> Elf_Sym * {
+  const std::tuple<const Symbol::OptionalBodies &,
+                   std::unique_lock<Symbol::Mutex>>
+      Def = Sym.definition();
+  auto &Bodies = std::get<const Symbol::OptionalBodies &>(Def);
+  auto &Lock = std::get<std::unique_lock<Symbol::Mutex>>(Def);
+  if (!Bodies) {
+    // This is an undefined symbol.
+    std::memset(SymbolOut, 0, sizeof(*SymbolOut));
+    assert(Sym.allReferencesAreWeak(Lock) &&
+           "Undefined entries in the symbol table must be weakly referenced");
+    SymbolOut->st_name = Sym.elfNameOffset();
+    SymbolOut->setBinding(llvm::ELF::STB_WEAK);
+    return SymbolOut + 1;
+  }
+  // If there are multiple bodies associated with a symbol then the ELF
+  // symbol simply points to the first.
+  const Symbol::Body &B = Bodies->front();
+  const Contribution *const C = Sym.contribution();
+  assert(C != nullptr);
+  SymbolOut->st_name = Sym.elfNameOffset();
+  SymbolOut->setBindingAndType(linkageToELFBinding(B.linkage()),
+                               sectionToSymbolType(C->OScn->SectionK));
+  SymbolOut->setVisibility(elf::elfVisibility<ELFT>(B.visibility()));
+  SymbolOut->st_shndx = SectionToIndex[C->OScn->SectionK];
+  SymbolOut->st_value = elf::symbolValue(*C);
+  SymbolOut->st_size = symbolSize(B.fragment()->front(), *Bodies);
+  return SymbolOut + 1;
+}
 
 } // end anonymous namespace
 
-// write symbol table
-// ~~~~~~~~~~~~~~~~~~
+// schedule symbol table
+// ~~~~~~~~~~~~~~~~~~~~~
 template <typename ELFT>
-typename llvm::object::ELFFile<ELFT>::Elf_Sym *
-elf::writeSymbolTable(typename llvm::object::ELFFile<ELFT>::Elf_Sym *SymbolOut,
-                      const SymbolOrder &SymOrder,
-                      const UndefsContainer &Undefs,
-                      const SectionIndexedArray<unsigned> &SectionToIndex) {
-  using Elf_Word = typename llvm::object::ELFFile<ELFT>::Elf_Word;
-  static_assert(std::is_unsigned<typename Elf_Word::value_type>::value,
-                "Expected ELF_Word to be unsigned");
+void rld::elf::scheduleSymbolTable(
+    Context &Context, MPMCQueue<WorkItem> &Q, uint8_t *const Out,
+    const SymbolOrder &SymOrder, const UndefsContainer &Undefs,
+    const SectionIndexedArray<unsigned> &SectionToIndex,
+    const uint64_t SymbolTableSize) {
+  using Elf_Sym = typename llvm::object::ELFFile<ELFT>::Elf_Sym;
+  auto *SymbolOut = reinterpret_cast<Elf_Sym *>(Out);
 
-  auto NameOffset =
-      typename Elf_Word::value_type{1}; // 1 to allow for the initial '\0'.
-  // The initial null symbol.
-  std::memset(SymbolOut, 0, sizeof(*SymbolOut));
+  // The initial null symbol. Easiest to get that special case out of the way as
+  // soon as possible.
+  std::memset(SymbolOut, 0, sizeof(Elf_Sym));
   ++SymbolOut;
+  // Locals and globals
+  SymbolOut = Writer<ELFT>::schedulePartitions(Q, SymbolOut, SymOrder.locals());
+  SymbolOut =
+      Writer<ELFT>::schedulePartitions(Q, SymbolOut, SymOrder.globals());
+  // Undefined symbols.
+  SymbolOut = Writer<ELFT>::scheduleUndefRange(Q, SymbolOut, Undefs);
 
-  SymOrder.walk(Undefs, [&](const Symbol &Sym) {
-    NameOffset =
-        Writer<ELFT>::writeSymbol(SymbolOut, Sym, NameOffset, SectionToIndex);
-    ++SymbolOut;
-  });
-  return SymbolOut;
+  // FIXME: check against SymbolTableSize. Bytes or values?
+  //  assert (  auto *SymbolOut = reinterpret_cast<Elf_Sym *>(Out);
 }
 
-template auto elf::writeSymbolTable<llvm::object::ELF32BE>(
-    typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Sym *SymbolOut,
+template void rld::elf::scheduleSymbolTable<llvm::object::ELF32BE>(
+    Context &Context, MPMCQueue<WorkItem> &Q, uint8_t *const Out,
     const SymbolOrder &SymOrder, const UndefsContainer &Undefs,
-    const SectionIndexedArray<unsigned> &SectionToIndex) ->
-    typename llvm::object::ELFFile<llvm::object::ELF32BE>::Elf_Sym *;
-
-template auto elf::writeSymbolTable<llvm::object::ELF32LE>(
-    typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Sym *SymbolOut,
+    const SectionIndexedArray<unsigned> &SectionToIndex,
+    const uint64_t SymbolTableSize);
+template void rld::elf::scheduleSymbolTable<llvm::object::ELF32LE>(
+    Context &Context, MPMCQueue<WorkItem> &Q, uint8_t *const Out,
     const SymbolOrder &SymOrder, const UndefsContainer &Undefs,
-    const SectionIndexedArray<unsigned> &SectionToIndex) ->
-    typename llvm::object::ELFFile<llvm::object::ELF32LE>::Elf_Sym *;
-
-template auto elf::writeSymbolTable<llvm::object::ELF64BE>(
-    typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Sym *SymbolOut,
+    const SectionIndexedArray<unsigned> &SectionToIndex,
+    const uint64_t SymbolTableSize);
+template void rld::elf::scheduleSymbolTable<llvm::object::ELF64BE>(
+    Context &Context, MPMCQueue<WorkItem> &Q, uint8_t *const Out,
     const SymbolOrder &SymOrder, const UndefsContainer &Undefs,
-    const SectionIndexedArray<unsigned> &SectionToIndex) ->
-    typename llvm::object::ELFFile<llvm::object::ELF64BE>::Elf_Sym *;
-
-template auto elf::writeSymbolTable<llvm::object::ELF64LE>(
-    typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Sym *SymbolOut,
+    const SectionIndexedArray<unsigned> &SectionToIndex,
+    const uint64_t SymbolTableSize);
+template void rld::elf::scheduleSymbolTable<llvm::object::ELF64LE>(
+    Context &Context, MPMCQueue<WorkItem> &Q, uint8_t *const Out,
     const SymbolOrder &SymOrder, const UndefsContainer &Undefs,
-    const SectionIndexedArray<unsigned> &SectionToIndex) ->
-    typename llvm::object::ELFFile<llvm::object::ELF64LE>::Elf_Sym *;
+    const SectionIndexedArray<unsigned> &SectionToIndex,
+    const uint64_t SymbolTableSize);

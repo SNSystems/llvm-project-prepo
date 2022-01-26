@@ -23,11 +23,15 @@
 #define RLD_ELFSYMBOLTABLE_H
 
 #include "rld/LayoutBuilder.h"
+#include "rld/MPMCQueue.h"
 #include "rld/Symbol.h"
 
 #include "llvm/Object/ELF.h"
 
 namespace rld {
+
+struct WorkItem;
+
 namespace elf {
 
 inline uint64_t symbolValue(const Contribution &C) {
@@ -45,10 +49,11 @@ uint64_t prepareSymbolTableSection(Layout *const Lout,
                                    const GlobalSymbolsContainer &Globals);
 
 template <typename ELFT>
-typename llvm::object::ELFFile<ELFT>::Elf_Sym *
-writeSymbolTable(typename llvm::object::ELFFile<ELFT>::Elf_Sym *SymbolOut,
-                 const SymbolOrder &SymOrder, const UndefsContainer &Undefs,
-                 const SectionIndexedArray<unsigned> &SectionToIndex);
+void scheduleSymbolTable(Context &Context, MPMCQueue<WorkItem> &Q,
+                         uint8_t *const Out, const SymbolOrder &SymOrder,
+                         const UndefsContainer &Undefs,
+                         const SectionIndexedArray<unsigned> &SectionToIndex,
+                         const uint64_t SymbolTableSize);
 
 } // end namespace elf
 } // end namespace rld

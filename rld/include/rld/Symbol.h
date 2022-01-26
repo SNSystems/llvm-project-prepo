@@ -116,7 +116,9 @@ public:
   void remove(Symbol *Sym, pstore::repo::binding Strength);
   Symbol *insert(Symbol *Sym);
 
+  Container::iterator begin() { return List_.begin(); }
   Container::const_iterator begin() const { return List_.begin(); }
+  Container::iterator end() { return List_.end(); }
   Container::const_iterator end() const { return List_.end(); }
 
   /// A debugging aid which returns true if the cached count of strongly
@@ -414,7 +416,14 @@ public:
     return true;
   }
 
-  // Set by the layout thread and read during final output.
+  uint64_t setELFNameOffset(const uint64_t Offset) {
+    assert(ELFNameOffset_ == 0 && Offset != 0);
+    ELFNameOffset_ = Offset;
+    return ELFNameOffset_ + this->nameLength() + 1U;
+  }
+  uint64_t elfNameOffset() const { assert (ELFNameOffset_ != 0); return ELFNameOffset_; }
+
+  /// Set by the layout thread and read during final output.
   Symbol *NextEmit = nullptr;
 
 private:
@@ -490,6 +499,7 @@ private:
   /// reference? This will always be false if the symbol is defined.
   uint64_t WeakUndefined_ : 1;
   const size_t NameLength_;
+  size_t ELFNameOffset_ = 0;
 
   /// The output contribution produced by this symbol. Set during layout.
   std::atomic<Contribution *> Contribution_;

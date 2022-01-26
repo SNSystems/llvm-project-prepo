@@ -16,22 +16,24 @@
 #define RLD_ELFSTRINGTABLE_H
 
 #include "rld/Symbol.h"
+#include "rld/WorkItem.h"
 
 #include <cstdint>
 
 namespace rld {
 
 class Layout;
-struct SymbolOrder;
+class SymbolOrder;
 
 namespace elf {
 
 uint64_t prepareStringTable(Layout *const Lout, const Context &Ctxt,
                             const GlobalSymbolsContainer &Globals);
 
-uint8_t *writeStrings(uint8_t *StringOut, const Context &Context,
-                      const SymbolOrder &SymOrder,
-                      const UndefsContainer &Undefs);
+template <typename ELFT>
+void scheduleStrings(Context &Context, MPMCQueue<WorkItem> &Q, uint8_t *Out,
+                     const SymbolOrder &SymOrder,
+                     const UndefsContainer &Undefs);
 
 } // end namespace elf
 } // end namespace rld

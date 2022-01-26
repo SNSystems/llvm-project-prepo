@@ -16,6 +16,8 @@
 
 #include "gmock/gmock.h"
 
+#include <vector>
+
 namespace {
 
 struct TestSymbol {
@@ -38,16 +40,18 @@ public:
 } // end anonymous namespace
 
 TEST(EmitList, InitialState) {
-  rld::EmitList<TestSymbol> EL;
+  rld::EmitList<TestSymbol, size_t{2}> EL;
   EXPECT_EQ(EL.head(), nullptr);
   EXPECT_EQ(EL.size(), 0U);
 }
 
 TEST(EmitList, Three) {
   using testing::_;
+  using testing::ElementsAre;
   using testing::Invoke;
 
-  rld::EmitList<TestSymbol> EL;
+  static constexpr auto PartitionSize = size_t{2};
+  rld::EmitList<TestSymbol, PartitionSize> EL;
 
   MockTestSymbol S1;
   MockTestSymbol S2;
@@ -74,4 +78,8 @@ TEST(EmitList, Three) {
   EXPECT_EQ(S1.NextEmit, &S2);
   EXPECT_EQ(S2.NextEmit, &S3);
   EXPECT_EQ(S3.NextEmit, nullptr);
+
+  const std::vector<TestSymbol *> Partitions(EL.partitionsBegin(),
+                                             EL.partitionsEnd());
+  EXPECT_THAT(Partitions, ElementsAre(&S1, &S3, nullptr));
 }

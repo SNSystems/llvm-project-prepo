@@ -14,8 +14,6 @@
 //===----------------------------------------------------------------------===//
 #include "rld/ELFStringTable.h"
 
-#include "rld/LayoutBuilder.h"
-
 // prepare string table
 // ~~~~~~~~~~~~~~~~~~~~
 uint64_t rld::elf::prepareStringTable(Layout *const Lout, const Context &Ctxt,
@@ -38,24 +36,93 @@ uint64_t rld::elf::prepareStringTable(Layout *const Lout, const Context &Ctxt,
   return StringTableSize;
 }
 
-// write strings
-// ~~~~~~~~~~~~~
-uint8_t *rld::elf::writeStrings(uint8_t *StringOut, const Context &Context,
-                                const SymbolOrder &SymOrder,
-                                const UndefsContainer &Undefs) {
-  *(StringOut++) = '\0'; // The string table's initial null entry.
+using namespace rld;
+
+// Copy a string.
+static uint8_t *writeString(uint8_t *Dest, Context &Context,
+                            const Symbol &Sym) {
   pstore::shared_sstring_view Owner;
-
-  SymOrder.walk(Undefs, [&](const Symbol &Sym) {
-    // Copy a string.
-    const pstore::raw_sstring_view Str = pstore::get_sstring_view(
-        Context.Db, Sym.name(), Sym.nameLength(), &Owner);
-    auto *const StringOutEnd =
-        std::copy(std::begin(Str), std::end(Str), StringOut);
-    assert(StringOut + Sym.nameLength() == StringOutEnd);
-    StringOut = StringOutEnd;
-    *(StringOut++) = '\0';
-  });
-
-  return StringOut;
+  const pstore::raw_sstring_view Str = pstore::get_sstring_view(
+      Context.Db, Sym.name(), Sym.nameLength(), &Owner);
+  auto *const StringOutEnd = std::copy(std::begin(Str), std::end(Str), Dest);
+  assert(Dest + Sym.nameLength() == StringOutEnd);
+  Dest = StringOutEnd;
+  *(Dest++) = '\0';
+  return Dest;
 }
+
+// Symbol Table Partition Names
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+static void
+writeStringTablePartition(uint8_t *Dest, Context &Context,
+                          const Layout & /*Lout*/,
+                          const GOTPLTContainer & /*GOTPLTs*/,
+                          const SectionIndexedArray<unsigned> &SectionToIndex,
+                          WorkItem::Pointer First, WorkItem::Pointer Last) {
+
+  auto *const End = get<Symbol const *>(Last);
+  for (auto *Sym = get<Symbol const *>(First); Sym != End;
+       Sym = Sym->NextEmit) {
+    assert(Sym != nullptr);
+    writeString(Dest + Sym->elfNameOffset(), Context, *Sym);
+  }
+}
+
+static void schedulePartitions(MPMCQueue<WorkItem> &Q, uint8_t *Dest,
+                               const SymbolEmitList &EmitList) {
+  for (auto Pos = EmitList.partitionsBegin(); *Pos != nullptr;) {
+    auto Next = Pos;
+    std::advance(Next, 1);
+    Q.emplace(Dest, &writeStringTablePartition,
+              WorkItem::Pointer{in_place_type_t<const Symbol *>{}, *Pos},
+              WorkItem::Pointer{in_place_type_t<const Symbol *>{}, *Next});
+    Pos = Next;
+  }
+}
+
+// Undefined Symbol Names
+// ~~~~~~~~~~~~~~~~~~~~~~
+static void
+writeUndefSymbolRange(uint8_t *Dest, Context &Context, const Layout & /*Lout*/,
+                      const GOTPLTContainer & /*GOTPLTs*/,
+                      const SectionIndexedArray<unsigned> & /*SectionToIndex*/,
+                      WorkItem::Pointer First, WorkItem::Pointer Last) {
+
+  using Iterator = UndefsContainer::Container::const_iterator;
+  std::for_each(get<Iterator>(First), get<Iterator>(Last),
+                [Dest, &Context](const Symbol &Sym) {
+                  writeString(Dest + Sym.elfNameOffset(), Context, Sym);
+                });
+}
+
+static void scheduleUndefRange(MPMCQueue<WorkItem> &Q, uint8_t *Dest,
+                               const UndefsContainer &Undefs) {
+  Q.emplace(Dest, &writeUndefSymbolRange, WorkItem::Pointer{Undefs.begin()},
+            WorkItem::Pointer{Undefs.end()});
+}
+
+template <typename ELFT>
+void rld::elf::scheduleStrings(Context &Context, MPMCQueue<WorkItem> &Q,
+                               uint8_t *Out, const SymbolOrder &SymOrder,
+                               const UndefsContainer &Undefs) {
+
+  *Out = '\0'; // The string table's initial null entry.
+  // Locals and globals
+  schedulePartitions(Q, Out, SymOrder.locals());
+  schedulePartitions(Q, Out, SymOrder.globals());
+  // Undefined symbols.
+  scheduleUndefRange(Q, Out, Undefs);
+}
+
+template void rld::elf::scheduleStrings<llvm::object::ELF32BE>(
+    Context &Context, MPMCQueue<WorkItem> &Q, uint8_t *Out,
+    const SymbolOrder &SymOrder, const UndefsContainer &Undefs);
+template void rld::elf::scheduleStrings<llvm::object::ELF32LE>(
+    Context &Context, MPMCQueue<WorkItem> &Q, uint8_t *Out,
+    const SymbolOrder &SymOrder, const UndefsContainer &Undefs);
+template void rld::elf::scheduleStrings<llvm::object::ELF64BE>(
+    Context &Context, MPMCQueue<WorkItem> &Q, uint8_t *Out,
+    const SymbolOrder &SymOrder, const UndefsContainer &Undefs);
+template void rld::elf::scheduleStrings<llvm::object::ELF64LE>(
+    Context &Context, MPMCQueue<WorkItem> &Q, uint8_t *Out,
+    const SymbolOrder &SymOrder, const UndefsContainer &Undefs);

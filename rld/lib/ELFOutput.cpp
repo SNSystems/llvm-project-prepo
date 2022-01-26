@@ -165,6 +165,27 @@ entryPoint(const Context &Ctxt, const Layout &Layout) {
   return defaultEntryPoint<ELFT>(Ctxt, Layout);
 }
 
+#if 0
+template <typename ELFT>
+static void scheduleSymbolTableWrite (Context &Context,
+                                      MPMCQueue<WorkItem> &Q,
+                                      uint8_t *const Out,
+                                      const SymbolOrder &SymOrder,
+                                      const UndefsContainer &Undefs,
+                                      const SectionIndexedArray<unsigned> & SectionToIndex,
+                                      const uint64_t SymbolTableSize) {
+
+  using Elf_Sym = typename llvm::object::ELFFile<ELFT>::Elf_Sym;
+  auto * const OutSym = reinterpret_cast<Elf_Sym *> (Out);
+  Elf_Sym *const SymbolEnd = elf::writeSymbolTable<ELFT>(
+      OutSym, SymOrder, Undefs, SectionToIndex);
+  (void)SymbolTableSize;
+  (void)SymbolEnd;
+  assert(SymbolEnd >= OutSym &&
+         static_cast<size_t>(SymbolEnd - OutSym) == SymbolTableSize);
+}
+#endif
+
 enum class Region { FileHeader, SegmentTable, SectionData, SectionTable, Last };
 
 template <typename ELFT>
@@ -177,7 +198,6 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
   using Elf_Ehdr = typename llvm::object::ELFFile<ELFT>::Elf_Ehdr;
   using Elf_Shdr = typename llvm::object::ELFFile<ELFT>::Elf_Shdr;
   using Elf_Phdr = typename llvm::object::ELFFile<ELFT>::Elf_Phdr;
-  using Elf_Sym = typename llvm::object::ELFFile<ELFT>::Elf_Sym;
 
   llvm::NamedRegionTimer Timer("ELF Output", "Binary Output Phase",
                                rld::TimerGroupName, rld::TimerGroupDescription,
@@ -287,7 +307,7 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
     auto *const Start = reinterpret_cast<Elf_Shdr *>(
         BufferStart + FileRegions[Region::SectionTable].offset());
     auto *const End = elf::emitSectionHeaders<ELFT>(
-        Start, *Layout, SectionFileOffsets, NameOffsets, SymOrder.LocalsSize,
+        Start, *Layout, SectionFileOffsets, NameOffsets, SymOrder.localSize(),
         FileRegions[Region::SectionData].offset());
 
     (void)End;
@@ -313,6 +333,7 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
                  Layout->Sections[SectionKind::shstrtab].FileSize);
     });
   }
+#if 0
   {
     assert(SectionFileOffsets[SectionKind::strtab].hasValue() &&
            "The strtab section should have been assigned an offset");
@@ -335,32 +356,43 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
              static_cast<size_t>(StringEnd - StringStart) == StringTableSize);
     });
   }
-  {
-    assert(SectionFileOffsets[SectionKind::symtab].hasValue() &&
-           "The symbol section should have been assigned an offset");
-    auto *const SymbolStart = reinterpret_cast<Elf_Sym *>(
-        BufferStart + FileRegions[Region::SectionData].offset() +
-        *SectionFileOffsets[SectionKind::symtab]);
+#endif
+  MPMCQueue<WorkItem> Q{std::size_t{1024}};
 
-    WorkPool.async([SymbolStart, &Context, &SymOrder, &Undefs, &SectionToIndex,
-                    SymbolTableSize] {
-      llvm::NamedRegionTimer _{"Symbol Table", "Write the symbol table",
-                               rld::TimerGroupName, rld::TimerGroupDescription,
-                               Context.TimersEnabled};
-
-      Elf_Sym *const SymbolEnd = elf::writeSymbolTable<ELFT>(
-          SymbolStart, SymOrder, Undefs, SectionToIndex);
-      (void)SymbolTableSize;
-      (void)SymbolEnd;
-      assert(SymbolEnd >= SymbolStart &&
-             static_cast<size_t>(SymbolEnd - SymbolStart) == SymbolTableSize);
-    });
+  assert(llvm::llvm_is_multithreaded());
+  const auto NumConsumers = std::max(WorkPool.getThreadCount(), 1U);
+  for (auto Ctr = 0U; Ctr < NumConsumers; ++Ctr) {
+    WorkPool.async(
+        [&] { workConsumer(Q, Context, *Layout, GOTPLTs, SectionToIndex); });
   }
 
-  copyToOutput(Context, WorkPool, BufferStart, *Layout, GOTPLTs,
-               SectionFileOffsets, FileRegions[Region::SectionData].offset());
-  WorkPool.wait();
+  // Schedule string table emission.
+  assert(SectionFileOffsets[SectionKind::strtab].hasValue() &&
+         "The strtab section should have been assigned an offset");
+  elf::scheduleStrings<ELFT>(Context, Q,
+                             BufferStart +
+                                 FileRegions[Region::SectionData].offset() +
+                                 *SectionFileOffsets[SectionKind::strtab],
+                             SymOrder, Undefs);
 
+  // Schedule symbol table emission.
+  assert(SectionFileOffsets[SectionKind::symtab].hasValue() &&
+         "The symbol section should have been assigned an offset");
+  elf::scheduleSymbolTable<ELFT>(
+      Context, Q,
+      BufferStart + FileRegions[Region::SectionData].offset() +
+          *SectionFileOffsets[SectionKind::symtab],
+      SymOrder, Undefs, SectionToIndex, SymbolTableSize);
+
+  // Schedule all of the copy/fixup work.
+  copyToOutput(Context, Q, BufferStart, *Layout, GOTPLTs, SectionFileOffsets,
+               FileRegions[Region::SectionData].offset());
+
+  // Queue one job per consumer which tells it to exit.
+  for (auto Ctr = 0U; Ctr < NumConsumers; ++Ctr) {
+    Q.emplace();
+  }
+  WorkPool.wait();
   return (*Out)->commit();
 }
 

@@ -18,6 +18,7 @@
 #include <limits>
 #include <type_traits>
 
+namespace rld {
 namespace type_list {
 
 struct BadType {};
@@ -47,15 +48,15 @@ struct TypeToIndexHelper<Index, T, Member1, Others...> {
 
 // index to type helper
 // ~~~~~~~~~~~~~~~~~~~~
-template <IndexType Index, typename... TypeList> struct IndexToType_helper;
-template <IndexType Index> struct IndexToType_helper<Index> {
+template <IndexType Index, typename... TypeList> struct IndexToTypeHelper;
+template <IndexType Index> struct IndexToTypeHelper<Index> {
   using type = BadType;
 };
 template <IndexType Index, typename Member1, typename... Others>
-struct IndexToType_helper<Index, Member1, Others...> {
+struct IndexToTypeHelper<Index, Member1, Others...> {
   using type = std::conditional_t<
       (Index > IndexType{0}),
-      typename IndexToType_helper<Index - IndexType{1}, Others...>::type,
+      typename IndexToTypeHelper<Index - IndexType{1}, Others...>::type,
       Member1>;
 };
 
@@ -134,7 +135,7 @@ template <typename T, typename... TypeList> struct TypeToIndex {
 /// Yields the type at index Index within the list of types given by TypeList or
 /// BadType if Index lies beyond the length of the list.
 template <IndexType Index, typename... TypeList> struct IndexToType {
-  using type = typename details::IndexToType_helper<Index, TypeList...>::type;
+  using type = typename details::IndexToTypeHelper<Index, TypeList...>::type;
 };
 /// Yields the type at index Index within the list of types given by TypeList or
 /// BadType if Index lies beyond the length of the list.
@@ -147,63 +148,65 @@ template <typename... TypeList> struct Front {
   using type = typename details::FrontHelper<TypeList...>::type;
 };
 template <typename... TypeList>
-using front_t = typename Front<TypeList...>::type;
+using Front_t = typename Front<TypeList...>::type;
 
 } // end namespace type_list
+} // end namespace rld
 
 // Tests
 
-static_assert(type_list::Size<char, int>::value == 2U,
+static_assert(rld::type_list::Size<char, int>::value == 2U,
               "the size of list [char, int] should be 2");
-static_assert(type_list::Size<char>::value == 1U,
+static_assert(rld::type_list::Size<char>::value == 1U,
               "the size of list [char] should be 1");
-static_assert(type_list::Size<>::value == 0U,
+static_assert(rld::type_list::Size<>::value == 0U,
               "the size of the empty list should be 0");
 
-static_assert(type_list::IsOneOf<long, char, int, long>::value,
+static_assert(rld::type_list::IsOneOf<long, char, int, long>::value,
               "IsOneOf<> should yield true because long is in the list "
               "[char, int, long]");
 static_assert(
-    type_list::IsOneOf<int, char, int>::value,
+    rld::type_list::IsOneOf<int, char, int>::value,
     "IsOneOf<> should be true because int is in the list [char, int]");
 static_assert(
-    !type_list::IsOneOf<int, char>::value,
+    !rld::type_list::IsOneOf<int, char>::value,
     "IsOneOf<> should be false because int is not in the list [char]");
 static_assert(
-    !type_list::IsOneOf<int, char, long>::value,
+    !rld::type_list::IsOneOf<int, char, long>::value,
     "IsOneOf<> should be false because int is not in the list [char, long]");
-static_assert(!type_list::IsOneOf<int>::value,
+static_assert(!rld::type_list::IsOneOf<int>::value,
               "IsOneOf<> should be false because int is not in the empty list");
 
-static_assert(type_list::TypeToIndex<int, char, int>::value == 1U,
+static_assert(rld::type_list::TypeToIndex<int, char, int>::value == 1U,
               "TypeToIndex<> should return 1 because int is the second "
               "element in [char, int]");
-static_assert(type_list::TypeToIndex<char, char, int>::value == 0U,
+static_assert(rld::type_list::TypeToIndex<char, char, int>::value == 0U,
               "TypeToIndex<> should return 0 because char is the first "
               "element in [char, int]");
-static_assert(type_list::TypeToIndex<char>::value == type_list::BadIndex,
+static_assert(rld::type_list::TypeToIndex<char>::value ==
+                  rld::type_list::BadIndex,
               "TypeToIndex<> should return BadIndex because char is not in "
               "the empty list");
-static_assert(type_list::TypeToIndex<char, int, long>::value ==
-                  type_list::BadIndex,
+static_assert(rld::type_list::TypeToIndex<char, int, long>::value ==
+                  rld::type_list::BadIndex,
               "TypeToIndex<> shoiuld return BadIndex because char is not in "
               "list [int, long]");
 
 static_assert(
-    std::is_same<type_list::IndexToType_t<0U, char, int>, char>::value,
+    std::is_same<rld::type_list::IndexToType_t<0U, char, int>, char>::value,
     "IndexToType_t<> should yield char because this is at index 0 in the "
     "list [char, int]");
 static_assert(
-    std::is_same<type_list::IndexToType_t<1U, char, int>, int>::value,
+    std::is_same<rld::type_list::IndexToType_t<1U, char, int>, int>::value,
     "IndexToType_t<> should yield int because this is at index 1 in the list "
     "[char, int]");
-static_assert(std::is_same<type_list::IndexToType_t<2U, char, int>,
-                           type_list::BadType>::value,
+static_assert(std::is_same<rld::type_list::IndexToType_t<2U, char, int>,
+                           rld::type_list::BadType>::value,
               "IndexToType_t<> should yield BadType becuase there is no "
               "type at index 2 in the "
               "list [char, int]");
 
-static_assert(std::is_same<type_list::front_t<int, char>, int>::value,
+static_assert(std::is_same<rld::type_list::Front_t<int, char>, int>::value,
               "front_t<> should yield int as the first of [int, char]");
 
 #endif // RLD_TYPE_LIST_H

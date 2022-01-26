@@ -280,8 +280,8 @@ public:
 
   template <typename ELFT> uint64_t elfHeaderBlockSize() const;
 
-  SymbolOrder symbolOrder() const {
-    return {LocalEmit_, GlobalEmit_};
+  SymbolOrder symbolOrder() {
+    return {std::move(LocalEmit_), std::move(GlobalEmit_)};
   }
 
   static SectionKind mapInputToOutputSection(SectionKind InputSection) {
@@ -388,6 +388,10 @@ private:
 
   SymbolEmitList LocalEmit_;
   SymbolEmitList GlobalEmit_;
+  /// The offset within the ELF symbol table string section for the name of this
+  /// symbol. Initialized to 1 to allow for the mandatory initial empty string
+  /// in that table.
+  uint64_t ELFNameOffset_ = 1;
 
   static constexpr decltype(auto) sectionNum(pstore::repo::section_kind SKind) {
     return static_cast<std::underlying_type<pstore::repo::section_kind>::type>(

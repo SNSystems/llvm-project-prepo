@@ -465,10 +465,8 @@ void LayoutBuilder::addSymbolBody(Symbol *const Sym, const Symbol::Body &Body,
     llvm::dbgs() << "  Layout:" << loadStdString(Ctx_.Db, Name) << '\n';
   });
 
-  if (isLocalLinkage(Body.linkage())) {
-    LocalEmit_.append(Sym);
-  } else {
-    GlobalEmit_.append(Sym);
+  if ((isLocalLinkage(Body.linkage()) ? &LocalEmit_ : &GlobalEmit_)->append(Sym)) {
+    ELFNameOffset_ = Sym->setELFNameOffset(ELFNameOffset_);
   }
 
   ContributionSpArray::iterator CIt{};
@@ -593,10 +591,8 @@ void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
         }
 
         // c.f. addSymbolBody
-        if (isLocalLinkage(FirstBody.linkage())) {
-          LocalEmit_.append(Sym);
-        } else {
-          GlobalEmit_.append(Sym);
+        if ((isLocalLinkage(FirstBody.linkage()) ? &LocalEmit_ : &GlobalEmit_)->append(Sym)) {
+          ELFNameOffset_ = Sym->setELFNameOffset(ELFNameOffset_);
         }
       }
     }
@@ -762,6 +758,11 @@ void LayoutBuilder::run() {
   this->addAliasSymbol(Magics.FiniArrayEnd, Magics.GlobalDtors,
                        SectionKind::fini_array, false);
 
+
+  // Assign positions in the symbol string table to all of the undefined symbols.
+  for (Symbol & Sym: *Undefs_) {
+    ELFNameOffset_ = Sym.setELFNameOffset(ELFNameOffset_);
+  }
   LocalEmit_.last();
   GlobalEmit_.last();
 }

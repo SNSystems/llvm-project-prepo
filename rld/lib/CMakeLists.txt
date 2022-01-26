@@ -46,6 +46,7 @@ add_llvm_library (LLVMrld
     Shadow.cpp
     SpecialNames.cpp
     Symbol.cpp
+    WorkItem.cpp
     XfxScanner.cpp
 
     ADDITIONAL_HEADER_DIRS

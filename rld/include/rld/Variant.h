@@ -28,19 +28,19 @@ namespace rld {
 // naming convention.
 // NOLINTNEXTLINE(readability-identifier-naming)
 struct in_place_t {
-  explicit in_place_t() = default;
+  constexpr in_place_t() = default;
 };
 // This type is emulating std::in_place_type_t from C++17, so we use the
 // standard's naming convention.
 // NOLINTNEXTLINE(readability-identifier-naming)
 template <typename T> struct in_place_type_t {
-  explicit in_place_type_t() = default;
+  constexpr in_place_type_t() = default;
 };
 // This type is emulating std::in_place_index_t from C++17, so we use the
 // standard's naming convention.
 // NOLINTNEXTLINE(readability-identifier-naming)
 template <std::size_t I> struct in_place_index_t {
-  explicit in_place_index_t() = default;
+  constexpr in_place_index_t() = default;
 };
 
 // Inline variables are not supported in C++14, so we don't have the following
@@ -267,11 +267,16 @@ public:
     new (&Storage) T(std::forward<Args...>(Argv)...);
   }
 
-  template <typename T, typename = typename std::enable_if_t<
-                            type_list::IsOneOf<T, Types...>::value>>
+  template <typename T, typename = typename std::enable_if_t<type_list::IsOneOf<
+                            std::remove_reference_t<T>, Types...>::value>>
   explicit constexpr Variant(T &&Other)
-      : Holds{type_list::TypeToIndex<T, Types...>::value} {
-    new (&Storage) T(std::forward<T>(Other));
+      : Holds{type_list::TypeToIndex<std::remove_reference_t<T>,
+                                     Types...>::value} {
+    using NoRefT = std::remove_reference_t<T>;
+    static_assert(type_list::TypeToIndex<NoRefT, Types...>::value !=
+                      type_list::BadIndex,
+                  "type T was not found in the type list");
+    new (&Storage) NoRefT(std::forward<T>(Other));
   }
   Variant(Variant const &Other) : Holds{Other.Holds} {
     helper::copy(Other.Holds, &this->storage(), &Other.storage());

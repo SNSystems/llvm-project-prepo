@@ -336,32 +336,6 @@ void copyContribution<SectionKind::linked_definitions>(uint8_t *, Context &,
   // discard
 }
 
-// Represents a job in the queue of blocks to be copied to the output.
-struct WorkItem {
-  using ContributionIterator =
-      OutputSection::ContributionVector::chunk::const_iterator;
-
-  using HandlerFn = void (*)(uint8_t *, Context &, const Layout &,
-                             const GOTPLTContainer &, ContributionIterator,
-                             ContributionIterator);
-
-  WorkItem() = default;
-  WorkItem(uint8_t *Out, HandlerFn Handler) : Out{Out}, Handler{Handler} {}
-  WorkItem(uint8_t *Out, HandlerFn Handler, ContributionIterator First,
-           ContributionIterator Last)
-      : Out{Out}, Handler{Handler}, First{First}, Last{Last} {}
-
-  // Where output should be written. If this value is null, the consumer job
-  // exits.
-  uint8_t *Out = nullptr;
-  // Function responsible for performing the copy.
-  HandlerFn Handler = nullptr;
-  // The first contribution to be copied.
-  ContributionIterator First{static_cast<const Contribution *>(nullptr)};
-  // The end of the range of contributions to be copied.
-  ContributionIterator Last{static_cast<const Contribution *>(nullptr)};
-};
-
 static constexpr char const *jobName(const SectionKind SectionK) {
   switch (SectionK) {
 #define X(K)                                                                   \
@@ -392,37 +366,40 @@ static std::string sectionTimerName(const bool TimersEnabled) {
 }
 
 template <SectionKind SectionK>
-static void copySection(uint8_t *const Data, Context &Context,
-                        const Layout &Layout,
-                        const GOTPLTContainer & /*GOTPLTs*/,
-                        WorkItem::ContributionIterator First,
-                        WorkItem::ContributionIterator Last) {
+static void
+copySection(uint8_t *const Data, Context &Context, const Layout &Layout,
+            const GOTPLTContainer & /*GOTPLTs*/,
+            const SectionIndexedArray<unsigned> & /*SectionToIndex*/,
+            WorkItem::Pointer First, WorkItem::Pointer Last) {
   llvm::NamedRegionTimer _{sectionTimerName<SectionK>(Context.TimersEnabled),
                            "Copy section", rld::TimerGroupName,
                            rld::TimerGroupDescription, Context.TimersEnabled};
 
-  std::for_each(First, Last, [&](const Contribution &Contribution) {
-    llvmDebug(DebugType, Context.IOMut,
-              [] { llvm::dbgs() << SectionK << ": "; });
+  using Iterator = OutputSection::ContributionVector::chunk::const_iterator;
+  std::for_each(get<Iterator>(First), get<Iterator>(Last),
+                [&](const Contribution &Contribution) {
+                  llvmDebug(DebugType, Context.IOMut,
+                            [] { llvm::dbgs() << SectionK << ": "; });
 
-    auto *const Dest = Data + alignTo(Contribution.Offset, Contribution.Align);
-    switch (Contribution.SectionK) {
+                  auto *const Dest =
+                      Data + alignTo(Contribution.Offset, Contribution.Align);
+                  switch (Contribution.SectionK) {
 #define X(a)                                                                   \
   case SectionKind::a:                                                         \
     copyContribution<SectionKind::a>(Dest, Context, Contribution, Layout);     \
     break;
-      PSTORE_MCREPO_SECTION_KINDS
+                    PSTORE_MCREPO_SECTION_KINDS
 #undef X
 
-    case SectionKind::init_array:
-      copyContribution<SectionKind::read_only>(Dest, Context, Contribution,
-                                               Layout);
-      break;
-    default:
-      llvm_unreachable("Bad section kind");
-      break;
-    }
-  });
+                  case SectionKind::init_array:
+                    copyContribution<SectionKind::read_only>(
+                        Dest, Context, Contribution, Layout);
+                    break;
+                  default:
+                    llvm_unreachable("Bad section kind");
+                    break;
+                  }
+                });
 }
 
 template <SectionKind SectionK>
@@ -435,8 +412,9 @@ static void scheduleCopySection(uint8_t *const Data, MPMCQueue<WorkItem> &Q,
                   if (Chunk.empty()) {
                     return;
                   }
-                  Q.emplace(Data, &copySection<SectionK>, Chunk.begin(),
-                            Chunk.end());
+                  Q.emplace(Data, &copySection<SectionK>,
+                            WorkItem::Pointer{Chunk.begin()},
+                            WorkItem::Pointer{Chunk.end()});
                 });
 }
 
@@ -521,11 +499,11 @@ void copySection<SectionKind::plt>(uint8_t *Dest, Context &Ctxt,
 #endif
 
 template <>
-void copySection<SectionKind::got>(uint8_t *Dest, Context &Context,
-                                   const Layout &Lout,
-                                   const GOTPLTContainer &GOTPLTs,
-                                   WorkItem::ContributionIterator /*First*/,
-                                   WorkItem::ContributionIterator /*Last*/) {
+void copySection<SectionKind::got>(
+    uint8_t *Dest, Context &Context, const Layout &Lout,
+    const GOTPLTContainer &GOTPLTs,
+    const SectionIndexedArray<unsigned> &SectionToIndex,
+    WorkItem::Pointer /*First*/, WorkItem::Pointer /*Last*/) {
   llvm::NamedRegionTimer _{"GOT write", "Write the GOT section",
                            rld::TimerGroupName, rld::TimerGroupDescription,
                            Context.TimersEnabled};
@@ -591,17 +569,6 @@ bool hasDataToCopy(SectionKind SectionK, const Context &Ctxt,
   llvm_unreachable("Unhandled section type");
 }
 
-static void consumer(MPMCQueue<WorkItem> &Q, Context &Context,
-                     const Layout &Layout, const GOTPLTContainer &GOTPLTs) {
-  for (;;) {
-    WorkItem W = Q.pop();
-    if (W.Out == nullptr) {
-      break;
-    }
-    (*W.Handler)(W.Out, Context, Layout, GOTPLTs, W.First, W.Last);
-  }
-}
-
 static void
 producer(Context &Context, MPMCQueue<WorkItem> &Q, uint8_t *const Data,
          const Layout &Layout, const GOTPLTContainer &GOTPLTs,
@@ -634,30 +601,14 @@ producer(Context &Context, MPMCQueue<WorkItem> &Q, uint8_t *const Data,
 namespace rld {
 
 void copyToOutput(
-    Context &Context, llvm::ThreadPool &Workers, uint8_t *const Data,
+    Context &Context, MPMCQueue<WorkItem> &Q, uint8_t *const Data,
     const Layout &Layout, const GOTPLTContainer &GOTPLTs,
     const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     uint64_t TargetDataOffset) {
 
-  MPMCQueue<WorkItem> Q{std::size_t{32768}};
-
-  const auto NumConsumers = std::max(Workers.getThreadCount(), 1U);
-
-  assert(llvm::llvm_is_multithreaded());
-  std::thread Producer{[&] {
-    producer(Context, Q, Data + TargetDataOffset, Layout, GOTPLTs,
-             SectionFileOffsets);
-    // Queue one job per consumer which tells it to exit.
-    for (auto Ctr = 0U; Ctr < NumConsumers; ++Ctr) {
-      Q.emplace();
-    }
-  }};
-  for (auto Ctr = 0U; Ctr < NumConsumers; ++Ctr) {
-    Workers.async(consumer, std::ref(Q), std::ref(Context), std::cref(Layout),
-                  std::cref(GOTPLTs));
-  }
-  Workers.wait();
-  Producer.join();
+  // Schedule all of the copy/fixup work.
+  producer(Context, Q, Data + TargetDataOffset, Layout, GOTPLTs,
+           SectionFileOffsets);
 }
 
 } // end namespace rld

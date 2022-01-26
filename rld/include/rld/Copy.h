@@ -16,6 +16,11 @@
 #define RLD_COPY_H
 
 #include "rld/LayoutBuilder.h"
+#include "rld/MPMCQueue.h"
+#include "rld/Variant.h"
+#include "rld/WorkItem.h"
+
+#include "pstore/adt/chunked_sequence.hpp"
 
 #include <cstdint>
 
@@ -34,7 +39,7 @@ class Context;
 /// \param SegmentDataOffsets  The absolute offset within the output buffer
 /// of each segment's data.
 void copyToOutput(
-    Context &Ctxt, llvm::ThreadPool &Workers, uint8_t *const Data,
+    Context &Ctxt, MPMCQueue<WorkItem> &Q, uint8_t *const Data,
     const Layout &Lout, const GOTPLTContainer &GOTPLTs,
     const SectionArray<llvm::Optional<int64_t>> &SectionFileOffsets,
     uint64_t TargetDataOffset);
