@@ -80,6 +80,7 @@ Driver::~Driver() noexcept {
   GlobalSymbs_.release();
   WorkPool_.release();
   Context_.release();
+  AllSymbols_.release();
 }
 
 // resolve compilation
@@ -249,17 +250,17 @@ bool Driver::runImpl(CompilationGroup *const Group, GroupSet *const NextGroup) {
   // Get the lists of local and global symbols from layout.
   SymbolOrder SymOrder = Layout.symbolOrder();
 
-  auto AllSymbols =
+  AllSymbols_ =
       std::make_unique<rld::GlobalSymbolsContainer>(GlobalSymbs_->all());
   llvmDebug(DebugType_, Context_->IOMut,
-            [&] { debugDumpSymbols(*Context_, *AllSymbols); });
+            [&] { debugDumpSymbols(*Context_, *AllSymbols_); });
 
   // Now we set about emitting an ELF executable...
   rld::llvmDebug(DebugType_, Context_->IOMut,
                  [] { llvm::dbgs() << "Beginning output\n"; });
 
   llvm::Error Err = elfOutput<llvm::object::ELF64LE>(
-      OutputFileName_, *Context_, *AllSymbols, SymOrder, Undefs_, *WorkPool_,
+      OutputFileName_, *Context_, *AllSymbols_, SymOrder, Undefs_, *WorkPool_,
       LO.get(), *GOTPLTs);
   if (Err) {
     ErrorFlag_.store(true);

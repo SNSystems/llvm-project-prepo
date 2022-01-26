@@ -119,8 +119,9 @@ private:
   UndefsContainer Undefs_;
   std::unique_ptr<GlobalsStorage> GlobalSymbs_;
   std::unique_ptr<FixupStorage> FixupStorage_;
-  std::unique_ptr<rld::Layout> LO;
-  std::unique_ptr<rld::GOTPLTContainer> GOTPLTs;
+  std::unique_ptr<Layout> LO;
+  std::unique_ptr<GOTPLTContainer> GOTPLTs;
+  std::unique_ptr<GlobalSymbolsContainer> AllSymbols_;
   const llvm::StringRef OutputFileName_;
   ErrorHandler ReportError_;
 
