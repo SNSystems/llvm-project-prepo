@@ -343,7 +343,7 @@ void svector_ostream<Container>::pwrite_impl(const char *Ptr, size_t Size,
 } // namespace
 
 static pstore::repo::section_kind
-SectionKindToRepoType(MCSectionRepo const &Section) {
+sectionKindToRepoType(MCSectionRepo const &Section) {
   SectionKind K = Section.getKind();
 
   if (K.isText()) {
@@ -402,7 +402,7 @@ SectionKindToRepoType(MCSectionRepo const &Section) {
   if (K.isMetadata()) {
     switch (Section.getDebugKind()) {
     case MCSectionRepo::DebugSectionKind::None:
-      assert(false);
+      llvm_unreachable("Unsupported debug section in SectionKindToRepoType");
     case MCSectionRepo::DebugSectionKind::Line:
       return pstore::repo::section_kind::debug_line;
     case MCSectionRepo::DebugSectionKind::String:
@@ -425,7 +425,7 @@ void RepoObjectWriter::writeSectionData(ContentsType &Fragments,
   if (Section.isDummy()) {
     pstore::index::digest Digest{Section.hash().high(), Section.hash().low()};
     LLVM_DEBUG(dbgs() << "A dummy section: section type '"
-                      << SectionKindToRepoType(Section) << "' and digest '"
+                      << sectionKindToRepoType(Section) << "' and digest '"
                       << Digest.to_hex_string() << "' \n");
 
     // The default (dummy) section must have no data, no external/internal
@@ -448,7 +448,7 @@ void RepoObjectWriter::writeSectionData(ContentsType &Fragments,
     return;
   }
 
-  pstore::repo::section_kind const St = SectionKindToRepoType(Section);
+  pstore::repo::section_kind const St = sectionKindToRepoType(Section);
   assert(Sec.getAlignment() > 0);
   unsigned const Alignment = Sec.getAlignment();
 
@@ -477,7 +477,7 @@ void RepoObjectWriter::writeSectionData(ContentsType &Fragments,
               dyn_cast<MCSectionRepo>(&S)) {
         if (TargetSection->hash() == Section.hash()) {
           Content->ifixups.emplace_back(
-              SectionKindToRepoType(*TargetSection),
+              sectionKindToRepoType(*TargetSection),
               static_cast<repo_relocation_type>(Relocation.Type),
               Relocation.Offset, Relocation.Addend);
 
@@ -629,9 +629,11 @@ TransactionType &getRepoTransaction() {
   return Transaction;
 }
 
+#ifndef NDEBUG
 raw_ostream &operator<<(raw_ostream &OS, pstore::index::digest const &V) {
   return OS << V.to_hex_string();
 }
+#endif
 
 template <typename StringStorage = SmallString<64>>
 StringRef streamPath(raw_fd_ostream &Stream, StringStorage &ResultPath) {
