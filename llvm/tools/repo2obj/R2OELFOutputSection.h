@@ -452,9 +452,8 @@ OutputSection<ELFT>::write(llvm::raw_ostream &OS, StringTable &SectionNames,
   }
   assert(Pos == OS.tell());
   auto const SectionType = this->getType();
-  assert(OS.tell() - StartPos == (SectionType == ELFSectionType::bss)
-             ? 0
-             : SectionSize_);
+  assert(OS.tell() - StartPos ==
+         (SectionType == ELFSectionType::bss ? 0 : SectionSize_));
 
   auto const &Attrs = details::SectionAttributes.find(SectionType);
   assert(Attrs != details::SectionAttributes.end());
