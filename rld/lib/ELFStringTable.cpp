@@ -14,22 +14,24 @@
 //===----------------------------------------------------------------------===//
 #include "rld/ELFStringTable.h"
 
-// prepare string table
-// ~~~~~~~~~~~~~~~~~~~~
-uint64_t rld::elf::prepareStringTable(Layout *const Lout, const Context &Ctxt,
-                                      const GlobalSymbolsContainer &Globals) {
-  const auto StringTableSize = Ctxt.ELFStringTableSize.load();
+// prepare string table section
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+uint64_t
+rld::elf::prepareStringTableSection(Layout *const Layout,
+                                    const Context &Context,
+                                    const GlobalSymbolsContainer &Globals) {
+  const auto StringTableSize = Context.ELFStringTableSize.load();
   (void)Globals;
   assert(StringTableSize ==
          std::accumulate(std::begin(Globals), std::end(Globals), uint64_t{1},
-                         [&Ctxt](const uint64_t Acc, const Symbol &Sym) {
+                         [&Context](const uint64_t Acc, const Symbol &Sym) {
                            const auto Length =
-                               stringLength(Ctxt.Db, Sym.name());
+                               stringLength(Context.Db, Sym.name());
                            assert(Length == Sym.nameLength());
                            return Acc + Length + 1U;
                          }));
 
-  OutputSection &StrTab = Lout->Sections[SectionKind::strtab];
+  OutputSection &StrTab = Layout->Sections[SectionKind::strtab];
   StrTab.AlwaysEmit = true;
   StrTab.FileSize = StringTableSize;
   StrTab.MaxAlign = 1U;

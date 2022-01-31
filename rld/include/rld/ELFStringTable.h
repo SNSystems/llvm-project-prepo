@@ -27,8 +27,14 @@ class SymbolOrder;
 
 namespace elf {
 
-uint64_t prepareStringTable(Layout *const Lout, const Context &Ctxt,
-                            const GlobalSymbolsContainer &Globals);
+/// Fills in properties of the layout strtab section.
+///
+/// \param Layout  The file layout.
+/// \param Context  The rld global context object.
+/// \param Globals The global symbols container
+/// \returns The total size of the strtab section.
+uint64_t prepareStringTableSection(Layout *const Layout, const Context &Context,
+                                   const GlobalSymbolsContainer &Globals);
 
 template <typename ELFT>
 void scheduleStrings(Context &Context, MPMCQueue<WorkItem> &Q, uint8_t *Out,

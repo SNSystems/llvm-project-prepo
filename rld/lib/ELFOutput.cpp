@@ -203,8 +203,7 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
                                rld::TimerGroupName, rld::TimerGroupDescription,
                                Context.TimersEnabled);
 
-  const uint64_t StringTableSize =
-      elf::prepareStringTable(Layout, Context, Globals);
+  elf::prepareStringTableSection(Layout, Context, Globals);
   const uint64_t SymbolTableSize =
       elf::prepareSymbolTableSection<ELFT>(Layout, Globals);
   const SectionIndexedArray<uint64_t> NameOffsets =
