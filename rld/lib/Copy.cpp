@@ -538,17 +538,17 @@ void scheduleCopySection<SectionKind::got>(
 }
 
 bool hasDataToCopy(SectionKind SectionK, const Context &Ctxt,
-                   const Layout &Lout) {
-  auto SectionHasNoContributions = [&](SectionKind K) {
-    return Lout.Sections[K].Contributions.empty();
+                   const Layout &Layout) {
+  auto SectionHasFileData = [&Layout](SectionKind K) {
+    return Layout.Sections[K].FileSize > 0;
   };
   switch (SectionK) {
   case SectionKind::init_array:
   case SectionKind::fini_array:
-    return !SectionHasNoContributions(SectionK);
+    return SectionHasFileData(SectionK);
 #define X(K)                                                                   \
   case SectionKind::K:                                                         \
-    return !SectionHasNoContributions(SectionKind::K);
+    return SectionHasFileData(SectionKind::K);
 
     PSTORE_MCREPO_SECTION_KINDS
 #undef X
