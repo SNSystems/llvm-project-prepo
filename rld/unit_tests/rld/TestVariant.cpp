@@ -135,19 +135,19 @@ TEST(Variant, Emplace) {
 TEST(Variant, GetIf1) {
   Variant<char, int> V{'c'};
   auto *const P = getIf<int>(&V);
-  assert(P == nullptr);
+  EXPECT_EQ(P, nullptr);
   char *const C = getIf<char>(&V);
-  assert(C != nullptr);
-  assert(get<char>(V) == 'c');
+  ASSERT_NE(C, nullptr);
+  EXPECT_EQ(get<char>(V), 'c');
 }
 
 TEST(Variant, GetIf2) {
   Variant<char, int> V{17};
   auto *const C = getIf<char>(&V);
-  assert(C == nullptr);
+  EXPECT_EQ(C, nullptr);
   int *const P = getIf<int>(&V);
-  assert(P != nullptr);
-  assert(get<int>(V) == 17);
+  ASSERT_NE(P, nullptr);
+  EXPECT_EQ(get<int>(V), 17);
 }
 
 TEST(Variant, OperatorEq) {
