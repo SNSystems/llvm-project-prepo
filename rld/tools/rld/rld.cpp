@@ -113,7 +113,9 @@ int main(int Argc, char *Argv[]) {
     return EXIT_FAILURE;
   }
 
-  rld::Driver D(Db->get(), CompilationIndex, EntryPoint, NumWorkers,
+  // We call release() on the database pointer here safe in the knowledge that
+  // it is, for the moment, read-only.
+  rld::Driver D(Db->release(), CompilationIndex, EntryPoint, NumWorkers,
                 OutputFileName, reportError);
   return D.run(std::make_pair(InputFiles.begin(), InputFiles.end()),
                std::make_pair(Libraries.begin(), Libraries.end()),
