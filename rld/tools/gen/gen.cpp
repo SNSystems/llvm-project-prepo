@@ -82,11 +82,11 @@ llvm::cl::opt<unsigned> SectionSize{
     llvm::cl::init(16U)};
 
 llvm::cl::opt<unsigned> XFixupSize{
-    "xfixup-size", llvm::cl::desc{"Number of external fixups in a section"},
+    "external-fixups", llvm::cl::desc{"Number of external fixups in a section"},
     llvm::cl::init(0U)};
 
 llvm::cl::opt<unsigned> IFixupSize{
-    "ifixup-size", llvm::cl::desc{"Number of internal fixups in a section"},
+    "internal-fixups", llvm::cl::desc{"Number of internal fixups in a section"},
     llvm::cl::init(0U)};
 
 llvm::cl::opt<std::string::size_type> PrefixLength{
