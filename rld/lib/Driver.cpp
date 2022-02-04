@@ -76,11 +76,15 @@ Driver::Driver(
 // (dtor)
 // ~~~~~~
 Driver::~Driver() noexcept {
+  AllSymbols_.release();
+  GOTPLTs.release();
+  LO.release();
   FixupStorage_.release();
   GlobalSymbs_.release();
+  // UndefsContainer Undefs_;
   WorkPool_.release();
   Context_.release();
-  AllSymbols_.release();
+  // CompilationIndex_.release();
 }
 
 // resolve compilation
