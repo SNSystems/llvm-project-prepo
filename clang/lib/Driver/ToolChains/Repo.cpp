@@ -54,8 +54,8 @@ static void constructRepoMuslLinkArgs(Compilation &C, const JobAction &JA,
     llvm::sys::path::append(CRTBegin, "/clang_rt.crtbegin-x86_64.o");
     auto CRTEnd = CRTPath;
     llvm::sys::path::append(CRTEnd, "/clang_rt.crtend-x86_64.o");
-    CmdArgs.push_back(Args.MakeArgString(CRTBegin));
-    CmdArgs.push_back(Args.MakeArgString(CRTEnd));
+    CmdArgs.push_back(Args.MakeArgString(RTC.GetFilePath(CRTBegin.c_str())));
+    CmdArgs.push_back(Args.MakeArgString(RTC.GetFilePath(CRTEnd.c_str())));
   }
 
   //----------------------------------------------------------------------------
@@ -161,6 +161,13 @@ void RepoMuslToolChain::AddClangSystemIncludeArgs(
     return;
 
   const Driver &D = getDriver();
+
+  // Add the Clang builtin headers (<resource>/include).
+  if (!DriverArgs.hasArg(options::OPT_nobuiltininc)) {
+    llvm::SmallString<128> P = llvm::StringRef(D.ResourceDir);
+    llvm::sys::path::append(P, "/include");
+    addSystemInclude(DriverArgs, CC1Args, P);
+  }
 
   if (DriverArgs.hasArg(options::OPT_nostdlibinc))
     return;
