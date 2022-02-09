@@ -28,7 +28,7 @@
 // CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-isysroot" "[[SYSROOT:[^"]+]]"
 // CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-internal-isystem" "[[RESOURCE_DIR]]{{/|\\\\}}include"
 // CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-internal-isystem" "{{.*}}basic_linux_libcxx_tree{{/|\\\\}}bin{{/|\\\\}}..{{/|\\\\}}include{{/|\\\\}}c++{{/|\\\\}}v1"
-// CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}include"
+// CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}include"
 
 // -----------------------------------------------------------------------------
 // Checking the header search
@@ -45,7 +45,7 @@
 // CHECK-NOSTDINC-SYSROOT: "-isysroot" "[[SYSROOT:[^"]+]]"
 // CHECK-NOSTDINC-SYSROOT-NOT: "-internal-isystem" "[[RESOURCE_DIR]]{{/|\\\\}}include"
 // CHECK-NOSTDINC-SYSROOT-NOT: "-internal-isystem" "{{.*}}basic_linux_libcxx_tree{{/|\\\\}}bin{{/|\\\\}}..{{/|\\\\}}include{{/|\\\\}}c++{{/|\\\\}}v1"
-// CHECK-NOSTDINC-SYSROOT-NOT: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}include"
+// CHECK-NOSTDINC-SYSROOT-NOT: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}include"
 
 // -----------------------------------------------------------------------------
 // Checking the header search
@@ -62,7 +62,7 @@
 // CHECK-NOBUILTININC: "-isysroot" "[[SYSROOT:[^"]+]]"
 // CHECK-NOBUILTININC-SYSROOT-NOT: "-internal-isystem" "[[RESOURCE_DIR]]{{/|\\\\}}include"
 // CHECK-NOBUILTININC-SYSROOT-NOT: "-internal-isystem" "{{.*}}basic_linux_libcxx_tree{{/|\\\\}}bin{{/|\\\\}}..{{/|\\\\}}include{{/|\\\\}}c++{{/|\\\\}}v1"
-// CHECK-NOBUILTININC-SYSROOT-NOT: "-internal-isystem" "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}include"
+// CHECK-NOBUILTININC-SYSROOT-NOT: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}include"
 
 // -----------------------------------------------------------------------------
 // Checking the header search
@@ -79,7 +79,7 @@
 // CHECK-NOSTDLIBINC-SYSROOT: "-isysroot" "[[SYSROOT:[^"]+]]"
 // CHECK-NOSTDLIBINC-SYSROOT: "-internal-isystem" "[[RESOURCE_DIR]]{{/|\\\\}}include"
 // CHECK-NOSTDLIBINC-SYSROOT-NOT: "-internal-isystem" "{{.*}}basic_linux_libcxx_tree{{/|\\\\}}bin{{/|\\\\}}..{{/|\\\\}}include{{/|\\\\}}c++{{/|\\\\}}v1"
-// CHECK-NOSTDLIBINC-SYSROOT-NOT: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}include"
+// CHECK-NOSTDLIBINC-SYSROOT-NOT: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}include"
 
 // -----------------------------------------------------------------------------
 // Checking the linked objects and libraries
@@ -107,10 +107,10 @@
 // RUN:   | FileCheck -check-prefix=CHECK001 %s
 
 // CHECK001:      "-isysroot" "[[SYSROOT:[^"]+]]"
-// CHECK001-NOT:  "[[SYSROOT]]{{/|\\\\}}lib{{/|\\\\}}crti.t"
-// CHECK001:      "[[SYSROOT]]{{/|\\\\}}lib{{/|\\\\}}crt1.t"
-// CHECK001:      "[[SYSROOT]]{{/|\\\\}}lib{{/|\\\\}}crt1_asm.t"
-// CHECK001:      "[[SYSROOT]]{{/|\\\\}}lib{{/|\\\\}}libc_repo.a"
+// CHECK001-NOT:  "[[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}lib{{/|\\\\}}crti.t"
+// CHECK001:      "[[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}lib{{/|\\\\}}crt1.t"
+// CHECK001:      "[[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}lib{{/|\\\\}}crt1_asm.t"
+// CHECK001:      "[[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}lib{{/|\\\\}}libc_repo.a"
 // CHECK001:      "[[SYSROOT]]{{/|\\\\}}lib{{/|\\\\}}linux{{/|\\\\}}clang_rt.crtbegin-x86_64.o"
 // CHECK001:      "[[SYSROOT]]{{/|\\\\}}lib{{/|\\\\}}linux{{/|\\\\}}clang_rt.crtend-x86_64.o"
 // CHECK001:      "-lclang_rt.builtins-x86_64"
@@ -127,10 +127,10 @@
 
 // CHECK002:      "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
 // CHECK002:      "-isysroot" "[[SYSROOT:[^"]+]]"
-// CHECK002-NOT:  "[[SYSROOT]]{{/|\\\\}}lib{{/|\\\\}}crti.t"
-// CHECK002:      "[[SYSROOT]]{{/|\\\\}}lib{{/|\\\\}}crt1.t"
-// CHECK002:      "[[SYSROOT]]{{/|\\\\}}lib{{/|\\\\}}crt1_asm.t"
-// CHECK002:      "[[SYSROOT]]{{/|\\\\}}lib{{/|\\\\}}libc_repo.a"
+// CHECK002-NOT:  "[[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}lib{{/|\\\\}}crti.t"
+// CHECK002:      "[[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}lib{{/|\\\\}}crt1.t"
+// CHECK002:      "[[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}lib{{/|\\\\}}crt1_asm.t"
+// CHECK002:      "[[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}lib{{/|\\\\}}libc_repo.a"
 // CHECK002:      "[[RESOURCE_DIR]]{{/|\\\\}}lib{{/|\\\\}}linux{{/|\\\\}}clang_rt.crtbegin-x86_64.o"
 // CHECK002:      "[[RESOURCE_DIR]]{{/|\\\\}}lib{{/|\\\\}}linux{{/|\\\\}}clang_rt.crtend-x86_64.o"
 // CHECK002:      "-lclang_rt.builtins-x86_64"
@@ -162,9 +162,10 @@
 // RUN:   | FileCheck -check-prefix=CHECK004 %s
 
 // CHECK004:       "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
-// CHECK004-NOT:   {{.*}}basic_linux_libcxx_tree{{/|\\\\}}lib{{/|\\\\}}crt1.t
-// CHECK004-NOT:   {{.*}}basic_linux_libcxx_tree{{/|\\\\}}lib{{/|\\\\}}crt1_asm.t
-// CHECK004-NOT:   {{.*}}basic_linux_libcxx_tree{{/|\\\\}}lib{{/|\\\\}}libc_repo.a"
+// CHECK004:       "-isysroot" "[[SYSROOT:[^"]+]]"
+// CHECK004-NOT:   [[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}lib{{/|\\\\}}crt1.t
+// CHECK004-NOT:   [[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}lib{{/|\\\\}}crt1_asm.t
+// CHECK004-NOT:   [[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}lib{{/|\\\\}}libc_repo.a"
 // CHECK004-NOT:   "[[RESOURCE_DIR]]{{/|\\\\}}lib{{/|\\\\}}linux{{/|\\\\}}clang_rt.crtbegin-x86_64.o"
 // CHECK004-NOT:   "[[RESOURCE_DIR]]{{/|\\\\}}lib{{/|\\\\}}linux{{/|\\\\}}clang_rt.crtend-x86_64.o"
 // CHECK004:   "-lclang_rt.builtins-x86_64"
@@ -180,8 +181,9 @@
 // RUN:   | FileCheck -check-prefix=CHECK005 %s
 
 // CHECK005:   "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
-// CHECK005:   {{.*}}basic_linux_libcxx_tree{{/|\\\\}}lib{{/|\\\\}}crt1.t
-// CHECK005:   {{.*}}basic_linux_libcxx_tree{{/|\\\\}}lib{{/|\\\\}}crt1_asm.t
+// CHECK005:   "-isysroot" "[[SYSROOT:[^"]+]]"
+// CHECK005:   [[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}lib{{/|\\\\}}crt1.t
+// CHECK005:   [[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}lib{{/|\\\\}}crt1_asm.t
 // CHECK005:   "[[RESOURCE_DIR]]{{/|\\\\}}lib{{/|\\\\}}linux{{/|\\\\}}clang_rt.crtbegin-x86_64.o"
 // CHECK005:   "[[RESOURCE_DIR]]{{/|\\\\}}lib{{/|\\\\}}linux{{/|\\\\}}clang_rt.crtend-x86_64.o"
 // CHECK005-NOT:   -lclang_rt.builtins-x86_64

@@ -8,7 +8,7 @@
 #
 #===-----------------------------------------------------------------------===//
 ./build_docker_image.sh                             \
-    --branch master                                 \
+    --branch docker_default_triple                  \
     --docker-tag latest                             \
     --install-target install-clang                  \
     --install-target install-clang-resource-headers \
@@ -21,6 +21,5 @@
     --                                              \
     -D CMAKE_BUILD_TYPE=Release                     \
     -D PSTORE_POSIX_SMALL_FILES=Yes                 \
-    -D LLVM_PARALLEL_LINK_JOBS=1
-
-#    -D LLVM_DEFAULT_TARGET_TRIPLE=x86_64-pc-linux-gnu-repo
+    -D LLVM_PARALLEL_LINK_JOBS=1                    \
+    -D LLVM_DEFAULT_TARGET_TRIPLE=x86_64-pc-linux-musl-repo

@@ -33,7 +33,7 @@ static void constructRepoMuslLinkArgs(Compilation &C, const JobAction &JA,
   //----------------------------------------------------------------------------
 
   const std::string MuslRoot =
-      D.SysRoot.empty() ? "/usr/local/musl" : D.SysRoot;
+      D.SysRoot.empty() ? "/usr/local/musl" : D.SysRoot + "/musl";
   if (!Args.hasArg(options::OPT_nostartfiles, options::OPT_nostdlib)) {
     CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/crt1.t"));
     CmdArgs.push_back(Args.MakeArgString(MuslRoot + "/lib/crt1_asm.t"));
@@ -186,7 +186,7 @@ void RepoMuslToolChain::AddClangSystemIncludeArgs(
   if (!DriverArgs.hasArg(options::OPT_nobuiltininc)) {
     if (!D.SysRoot.empty()) {
       SmallString<128> P(D.SysRoot);
-      llvm::sys::path::append(P, "include");
+      llvm::sys::path::append(P, "/musl/include");
       addSystemInclude(DriverArgs, CC1Args, P.str());
     } else {
       addSystemInclude(DriverArgs, CC1Args, "/usr/local/musl/include");
