@@ -267,6 +267,7 @@ auto Writer<ELFT>::writeSymbol(
       Def = Sym.definition();
   auto &Bodies = std::get<const Symbol::OptionalBodies &>(Def);
   auto &Lock = std::get<std::unique_lock<Symbol::Mutex>>(Def);
+  (void)Lock;
   if (!Bodies) {
     // This is an undefined symbol.
     std::memset(SymbolOut, 0, sizeof(*SymbolOut));
