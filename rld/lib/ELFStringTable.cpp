@@ -43,8 +43,10 @@ using namespace rld;
 // Copy a string.
 static uint8_t *writeString(uint8_t *Dest, Context &Context,
                             const Symbol &Sym) {
-  pstore::shared_sstring_view Owner;
-  const pstore::raw_sstring_view Str = pstore::get_sstring_view(
+  pstore::unique_pointer_sstring_view Owner{
+      pstore::unique_pointer<char const>{nullptr, pstore::deleter<char const>},
+      0};
+  const pstore::raw_sstring_view Str = pstore::get_unique_sstring_view(
       Context.Db, Sym.name(), Sym.nameLength(), &Owner);
   auto *const StringOutEnd = std::copy(std::begin(Str), std::end(Str), Dest);
   assert(Dest + Sym.nameLength() == StringOutEnd);
