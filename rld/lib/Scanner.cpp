@@ -39,13 +39,6 @@ namespace {
 
 constexpr auto DebugType = "rld-scanner";
 
-#if 0
-    llvm::raw_ostream &operator<<(llvm::raw_ostream &OS,
-                                  pstore::index::digest const &Digest) {
-      return OS << Digest.to_hex_string();
-    }
-#endif
-
 } // end anonymous namespace
 
 static std::string timerName(const bool Enabled, const uint32_t InputOrdinal) {
