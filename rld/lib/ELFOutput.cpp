@@ -332,30 +332,7 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
                  Layout->Sections[SectionKind::shstrtab].FileSize);
     });
   }
-#if 0
-  {
-    assert(SectionFileOffsets[SectionKind::strtab].hasValue() &&
-           "The strtab section should have been assigned an offset");
-    auto *const StringStart = BufferStart +
-                              FileRegions[Region::SectionData].offset() +
-                              *SectionFileOffsets[SectionKind::strtab];
 
-    WorkPool.async([StringStart, &Context, &SymOrder, &Undefs,
-                    StringTableSize] {
-      // Produce the string table.
-      llvm::NamedRegionTimer StringTableTimer{
-          "String Table", "Write the symbol name section", rld::TimerGroupName,
-          rld::TimerGroupDescription, Context.TimersEnabled};
-
-      auto *const StringEnd =
-          elf::writeStrings(StringStart, Context, SymOrder, Undefs);
-      (void)StringTableSize;
-      (void)StringEnd;
-      assert(StringEnd > StringStart &&
-             static_cast<size_t>(StringEnd - StringStart) == StringTableSize);
-    });
-  }
-#endif
   MPMCQueue<WorkItem> Q{std::size_t{1024}};
 
   assert(llvm::llvm_is_multithreaded());
