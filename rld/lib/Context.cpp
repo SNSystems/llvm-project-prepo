@@ -71,12 +71,13 @@ void rld::Context::MmapDeleter::operator()(std::uint8_t *P) const {
 
 // record compilation
 // ~~~~~~~~~~~~~~~~~~
-pstore::repo::compilation const &rld::Context::recordCompilation(
+const pstore::repo::compilation &rld::Context::recordCompilation(
     pstore::extent<pstore::repo::compilation> const &CompilationExtent) {
-  std::lock_guard<std::mutex> Lock{CompilationsMut_};
-  Compilations_.emplace_back(
-      pstore::repo::compilation::load(this->Db, CompilationExtent));
-  return *Compilations_.back();
+
+  auto Compilation =
+      pstore::repo::compilation::load(this->Db, CompilationExtent);
+  std::lock_guard<decltype(CompilationsMut_)> _{CompilationsMut_};
+  return *Compilations_.emplace_back(std::move(Compilation));
 }
 
 // create shadow memory
