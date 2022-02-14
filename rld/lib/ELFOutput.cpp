@@ -333,7 +333,7 @@ rld::elfOutput(const llvm::StringRef &OutputFileName, Context &Context,
     });
   }
 
-  MPMCQueue<WorkItem> Q{std::size_t{1024}};
+  MPMCQueue<WorkItem> Q{std::size_t{32768}};
 
   assert(llvm::llvm_is_multithreaded());
   const auto NumConsumers = std::max(WorkPool.getThreadCount(), 1U);
