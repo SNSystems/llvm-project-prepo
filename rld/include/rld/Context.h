@@ -212,7 +212,8 @@ private:
   llvm::Optional<llvm::Triple> Triple_;
 
   std::mutex CompilationsMut_;
-  std::list<std::shared_ptr<pstore::repo::compilation const>> Compilations_;
+  pstore::chunked_sequence<std::shared_ptr<pstore::repo::compilation const>>
+      Compilations_;
 
   mutable std::mutex OrdinalNamesMut_;
   llvm::DenseMap<uint32_t, std::string> OrdinalNames_;
