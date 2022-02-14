@@ -53,9 +53,9 @@ public:
 protected:
   rld::StringAddress getStringAddress(char const *Name);
 
-  static void checkFragmentContents(
-      std::shared_ptr<pstore::repo::fragment const> const &Fragment,
-      uint8_t Index, pstore::repo::linkage Linkage);
+  static void checkFragmentContents(rld::FragmentPtr const &Fragment,
+                                    uint8_t Index,
+                                    pstore::repo::linkage Linkage);
 
   /// A function which will create a compilation containing a single definition
   /// with a particular name and linkage. There's unavoidable logic here because
@@ -91,9 +91,9 @@ SymbolScanner::compile(std::string const &DefinitionName,
 
 // check fragment contents [static]
 // ~~~~~~~~~~~~~~~~~~~~~~~
-void SymbolScanner::checkFragmentContents(
-    std::shared_ptr<pstore::repo::fragment const> const &Fragment,
-    uint8_t Index, pstore::repo::linkage Linkage) {
+void SymbolScanner::checkFragmentContents(rld::FragmentPtr const &Fragment,
+                                          uint8_t Index,
+                                          pstore::repo::linkage Linkage) {
   ASSERT_NE(Fragment.get(), nullptr);
   EXPECT_EQ(Fragment->size(), 1U);
   if (Linkage == pstore::repo::linkage::common) {
