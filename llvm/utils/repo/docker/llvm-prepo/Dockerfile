@@ -92,7 +92,7 @@ ARG wrap_dir="$workspace_dir/src/llvm/utils/repo/wrap"
 # musl libc #
 #############
 
-ARG musl_install_dir="/tmp/muslinstall"
+ARG musl_install_dir=$install_dir/musl
 ARG musl_workspace=$workspace_dir/musl
 
 RUN git clone --depth 1 --single-branch --progress \
@@ -128,9 +128,21 @@ RUN mkdir -p $musl_install_dir/include/linux
 COPY llvm-prepo/futex.h $musl_install_dir/include/linux/futex.h
 RUN cp /usr/include/linux/version.h $musl_install_dir/include/linux/version.h
 
-#############
-# libunwind #
-#############
+########################
+# generate dummy files #
+########################
+
+RUN mkdir ${install_dir}/lib/linux/
+RUN repo-create-ticket --output=${install_dir}/lib/linux/clang_rt.crtbegin-x86_64.o --repo=${stdlib_repo} d3540c32449fa62681dc5c22fbc2a353
+RUN repo-create-ticket --output=${install_dir}/lib/linux/clang_rt.crtend-x86_64.o --repo=${stdlib_repo} d3540c32449fa62681dc5c22fbc2a353
+
+RUN ar d ${install_dir}/lib/linux/libclang_rt.builtins-x86_64.a ${install_dir}/lib/linux/clang_rt.o
+RUN ar d ${install_dir}/lib/libc++.a ${install_dir}/lib/libc++.o
+RUN ar d ${install_dir}/lib/libc++abi.a ${install_dir}/lib/libc++abi.o
+
+##################
+# libcompiler-rt #
+##################
 
 # A directory to contain the standard library builds.
 ARG libbuild_dir="$workspace_dir/libbuild"
@@ -141,16 +153,35 @@ ARG cmake_common="\
   -D CMAKE_BUILD_TYPE=Release                              \
   -D CMAKE_CXX_COMPILER=$install_dir/bin/clang++           \
   -D CMAKE_C_COMPILER=$install_dir/bin/clang               \
+  -D CMAKE_ASM_COMPILER_TARGET=x86_64-pc-linux-gnu-elf     \
+  -D CMAKE_C_FLAGS="--sysroot=$install_dir"                \
+  -D CMAKE_CXX_FLAGS="--sysroot=$install_dir"              \
   -D CMAKE_INSTALL_PREFIX=$install_dir                     \
-  -D CMAKE_TOOLCHAIN_FILE=$workspace_dir/src/llvm/utils/repo/full_repo.cmake \
   -D LLVM_CONFIG_PATH=$workspace_dir/build/bin/llvm-config \
   -D LLVM_ENABLE_LIBCXX=Yes                                \
   -D LLVM_PATH=$workspace_dir/src/llvm                     \
-  -D musl=Yes                                              \
-  -D musl_install=$musl_install_dir                        \
-  -D utils_dir=$wrap_dir                                   \
 "
 
+RUN cp $stdlib_repo $configure_repo
+RUN REPOFILE=$configure_repo cmake                       \
+  -S $workspace_dir/src/compiler-rt                      \
+  -B $libbuild_dir/compiler-rt                           \
+  -D CMAKE_C_COMPILER_TARGET=x86_64-pc-linux-musl-repo   \
+  -D COMPILER_RT_DEFAULT_TARGET_ONLY=Yes                 \
+  -D COMPILER_RT_BUILD_BUILTINS=Yes                      \
+  -D COMPILER_RT_BUILD_SANITIZERS=No                     \
+  -D COMPILER_RT_BUILD_XRAY=No                           \
+  -D COMPILER_RT_BUILD_LIBFUZZER=No                      \
+  -D COMPILER_RT_BUILD_PROFILE=No                        \
+  $cmake_common
+
+RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/compiler-rt install
+
+#############
+# libunwind #
+#############
+
+RUN cp $stdlib_repo $configure_repo
 RUN REPOFILE=$configure_repo cmake \
   -S $workspace_dir/src/libunwind  \
   -B $libbuild_dir/unwind          \
@@ -159,25 +190,6 @@ RUN REPOFILE=$configure_repo cmake \
   $cmake_common
 
 RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/unwind install
-
-
-##################
-# libcompiler-rt #
-##################
-
-RUN REPOFILE=$configure_repo cmake       \
-  -S $workspace_dir/src/compiler-rt      \
-  -B $libbuild_dir/compiler-rt           \
-  -D COMPILER_RT_DEFAULT_TARGET_ONLY=Yes \
-  -D COMPILER_RT_BUILD_BUILTINS=Yes      \
-  -D COMPILER_RT_BUILD_SANITIZERS=No     \
-  -D COMPILER_RT_BUILD_XRAY=No           \
-  -D COMPILER_RT_BUILD_LIBFUZZER=No      \
-  -D COMPILER_RT_BUILD_PROFILE=No        \
-  $cmake_common
-
-RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/compiler-rt install
-
 
 #############
 # libcxxabi #
@@ -202,6 +214,7 @@ RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/cxxabi cxxabi install-cxxabi
 # libcxx #
 ##########
 
+RUN cp $stdlib_repo $configure_repo
 RUN REPOFILE=$configure_repo cmake                                     \
   -S $workspace_dir/src/libcxx                                         \
   -B $libbuild_dir/cxx                                                 \
@@ -232,7 +245,7 @@ COPY --from=builder /tmp/install/include /usr/include
 COPY --from=builder /tmp/install/lib /usr/lib/
 COPY --from=builder /tmp/install/etc/init.d/pstore-brokerd /etc/init.d/
 
-COPY --from=builder /tmp/muslinstall/ /usr/local/musl
+COPY --from=builder /tmp/install/musl /usr/local/musl
 
 # Copy the wrap tools (which can run repo2obj before passing the command to a
 # traditional ELF linker or archiver).

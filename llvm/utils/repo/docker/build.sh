@@ -21,6 +21,5 @@
     --                                              \
     -D CMAKE_BUILD_TYPE=Release                     \
     -D PSTORE_POSIX_SMALL_FILES=Yes                 \
-    -D LLVM_PARALLEL_LINK_JOBS=1
-
-#    -D LLVM_DEFAULT_TARGET_TRIPLE=x86_64-pc-linux-gnu-repo
+    -D LLVM_PARALLEL_LINK_JOBS=1                    \
+    -D LLVM_DEFAULT_TARGET_TRIPLE=x86_64-pc-linux-musl-repo
