@@ -183,15 +183,18 @@ RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/compiler-rt install
 # libcxxabi #
 #############
 
-RUN REPOFILE=$configure_repo cmake                                     \
-  -S $workspace_dir/src/libcxxabi                                      \
-  -B $libbuild_dir/cxxabi                                              \
-  -D libcxxabi_include=-I$workspace_dir/build/lib/clang/11.0.0/include \
-  -D LIBCXXABI_ENABLE_EXCEPTIONS=No                                    \
-  -D LIBCXXABI_USE_COMPILER_RT=Yes                                     \
-  -D LIBCXXABI_ENABLE_SHARED=No                                        \
-  -D LIBCXXABI_ENABLE_STATIC=Yes                                       \
-  -D LLVM_ENABLE_LIBCXX=Yes                                            \
+# Path of the clang-specific header files
+ARG clang_include=$workspace_dir/build/lib/clang/11.0.0/include
+
+RUN REPOFILE=$configure_repo cmake      \
+  -S $workspace_dir/src/libcxxabi       \
+  -B $libbuild_dir/cxxabi               \
+  -D libcxxabi_include=-I$clang_include \
+  -D LIBCXXABI_ENABLE_EXCEPTIONS=No     \
+  -D LIBCXXABI_USE_COMPILER_RT=Yes      \
+  -D LIBCXXABI_ENABLE_SHARED=No         \
+  -D LIBCXXABI_ENABLE_STATIC=Yes        \
+  -D LLVM_ENABLE_LIBCXX=Yes             \
   $cmake_common
 
 # TODO: the check-cxxabi stage is missing.
@@ -205,11 +208,13 @@ RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/cxxabi cxxabi install-cxxabi
 RUN REPOFILE=$configure_repo cmake                                     \
   -S $workspace_dir/src/libcxx                                         \
   -B $libbuild_dir/cxx                                                 \
-  -D LIBCXX_ENABLE_SHARED=No                                           \
-  -D LIBCXX_ENABLE_STATIC=Yes                                          \
+  -D CMAKE_CXX_FLAGS="-isystem $clang_include -isystem $musl_install_dir/include" \
   -D LIBCXX_CXX_ABI=libcxxabi                                          \
   -D LIBCXX_CXX_ABI_INCLUDE_PATHS=$workspace_dir/src/libcxxabi/include \
+  -D LIBCXX_ENABLE_SHARED=No                                           \
+  -D LIBCXX_ENABLE_STATIC=Yes                                          \
   -D LIBCXX_HAS_MUSL_LIBC=Yes                                          \
+  -D LIBCXX_INCLUDE_BENCHMARKS=No                                      \
   $cmake_common
 
 # TODO: the check-cxx stage is missing.
