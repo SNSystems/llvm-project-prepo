@@ -129,6 +129,7 @@ RUN cp /usr/include/linux/version.h $musl_install_dir/include/linux/version.h
 ########################
 
 RUN mkdir ${install_dir}/lib/linux/
+# Create ticket files which refer to an empty compilation/
 RUN repo-create-ticket                                         \
   --output=${install_dir}/lib/linux/clang_rt.crtbegin-x86_64.o \
   --repo=${stdlib_repo}                                        \
@@ -138,9 +139,10 @@ RUN repo-create-ticket                                       \
   --repo=${stdlib_repo}                                      \
   d3540c32449fa62681dc5c22fbc2a353
 
+# Create empty static archives.
 RUN ar d ${install_dir}/lib/linux/libclang_rt.builtins-x86_64.a
-RUN ar d ${install_dir}/lib/libc++.a ${install_dir}/lib/libc++.o
-RUN ar d ${install_dir}/lib/libc++abi.a ${install_dir}/lib/libc++abi.o
+RUN ar d ${install_dir}/lib/libc++.a
+RUN ar d ${install_dir}/lib/libc++abi.a
 
 
 ##################
