@@ -163,7 +163,7 @@ echo "LOCAL_REPOSITORY:  '$LOCAL_REPOSITORY'"
 echo "SOURCE_DIR:        '$SOURCE_DIR'"
 
 echo "Building $DOCKER_REPOSITORY$DOCKER_TAG from $IMAGE_SOURCE"
-docker build --tag "$DOCKER_REPOSITORY$DOCKER_TAG" \
+DOCKER_BUILDKIT=1 docker build --tag "$DOCKER_REPOSITORY$DOCKER_TAG" \
   --build-arg "checkout_args=$CHECKOUT_ARGS" \
   --build-arg "build_args=$BUILD_ARGS" \
   --file "$BUILD_DIR/$IMAGE_SOURCE/Dockerfile" \
