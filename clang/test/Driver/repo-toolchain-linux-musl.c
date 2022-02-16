@@ -9,8 +9,8 @@
 // RUN:   | FileCheck --check-prefix=CHECK-X86-64-LIBCXX-MUSL %s
 
 // CHECK-X86-64-LIBCXX-MUSL: "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
-// CHECK-X86-64-LIBCXX-MUSL: "-internal-isystem" "[[RESOURCE_DIR]]{{/|\\\\}}include"
 // CHECK-X86-64-LIBCXX-MUSL: "-internal-isystem" "{{.*}}basic_linux_libcxx_tree{{/|\\\\}}bin{{/|\\\\}}..{{/|\\\\}}include{{/|\\\\}}c++{{/|\\\\}}v1"
+// CHECK-X86-64-LIBCXX-MUSL: "-internal-isystem" "[[RESOURCE_DIR]]{{/|\\\\}}include"
 // CHECK-X86-64-LIBCXX-MUSL: "-internal-isystem" "{{/|\\\\}}usr{{/|\\\\}}local{{/|\\\\}}musl{{/|\\\\}}include"
 
 // -----------------------------------------------------------------------------
@@ -26,8 +26,8 @@
 
 // CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
 // CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-isysroot" "[[SYSROOT:[^"]+]]"
-// CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-internal-isystem" "[[RESOURCE_DIR]]{{/|\\\\}}include"
 // CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-internal-isystem" "{{.*}}basic_linux_libcxx_tree{{/|\\\\}}bin{{/|\\\\}}..{{/|\\\\}}include{{/|\\\\}}c++{{/|\\\\}}v1"
+// CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-internal-isystem" "[[RESOURCE_DIR]]{{/|\\\\}}include"
 // CHECK-X86-64-LIBCXX-SYSROOT-MUSL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}include"
 
 // -----------------------------------------------------------------------------
@@ -43,8 +43,8 @@
 
 // CHECK-NOSTDINC-SYSROOT: "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
 // CHECK-NOSTDINC-SYSROOT: "-isysroot" "[[SYSROOT:[^"]+]]"
-// CHECK-NOSTDINC-SYSROOT-NOT: "-internal-isystem" "[[RESOURCE_DIR]]{{/|\\\\}}include"
 // CHECK-NOSTDINC-SYSROOT-NOT: "-internal-isystem" "{{.*}}basic_linux_libcxx_tree{{/|\\\\}}bin{{/|\\\\}}..{{/|\\\\}}include{{/|\\\\}}c++{{/|\\\\}}v1"
+// CHECK-NOSTDINC-SYSROOT-NOT: "-internal-isystem" "[[RESOURCE_DIR]]{{/|\\\\}}include"
 // CHECK-NOSTDINC-SYSROOT-NOT: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}include"
 
 // -----------------------------------------------------------------------------
@@ -60,8 +60,8 @@
 
 // CHECK-NOBUILTININC: "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
 // CHECK-NOBUILTININC: "-isysroot" "[[SYSROOT:[^"]+]]"
-// CHECK-NOBUILTININC-SYSROOT-NOT: "-internal-isystem" "[[RESOURCE_DIR]]{{/|\\\\}}include"
 // CHECK-NOBUILTININC-SYSROOT-NOT: "-internal-isystem" "{{.*}}basic_linux_libcxx_tree{{/|\\\\}}bin{{/|\\\\}}..{{/|\\\\}}include{{/|\\\\}}c++{{/|\\\\}}v1"
+// CHECK-NOBUILTININC-SYSROOT-NOT: "-internal-isystem" "[[RESOURCE_DIR]]{{/|\\\\}}include"
 // CHECK-NOBUILTININC-SYSROOT-NOT: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}include"
 
 // -----------------------------------------------------------------------------
@@ -77,8 +77,8 @@
 
 // CHECK-NOSTDLIBINC-SYSROOT: "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
 // CHECK-NOSTDLIBINC-SYSROOT: "-isysroot" "[[SYSROOT:[^"]+]]"
-// CHECK-NOSTDLIBINC-SYSROOT: "-internal-isystem" "[[RESOURCE_DIR]]{{/|\\\\}}include"
 // CHECK-NOSTDLIBINC-SYSROOT-NOT: "-internal-isystem" "{{.*}}basic_linux_libcxx_tree{{/|\\\\}}bin{{/|\\\\}}..{{/|\\\\}}include{{/|\\\\}}c++{{/|\\\\}}v1"
+// CHECK-NOSTDLIBINC-SYSROOT: "-internal-isystem" "[[RESOURCE_DIR]]{{/|\\\\}}include"
 // CHECK-NOSTDLIBINC-SYSROOT-NOT: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}musl{{/|\\\\}}include"
 
 // -----------------------------------------------------------------------------
