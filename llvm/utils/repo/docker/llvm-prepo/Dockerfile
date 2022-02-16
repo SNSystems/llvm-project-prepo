@@ -294,18 +294,12 @@ RUN update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++ 30
 RUN apt-get update
 RUN apt-get install -y --no-install-recommends \
   binutils                                     \
+  libc6-dev                                    \
   linux-headers-$(uname -r)                    \
   make                                         \
   sudo
-
-
-# GNU libc and libstd++. TODO: remove once musl libc and LLVM libstdc++ are done.
-#RUN apt-get install -y --no-install-recommends libc6-dev
-#RUN apt-get install -y --no-install-recommends libgcc-10-dev
-#RUN apt-get install -y --no-install-recommends libstdc++-10-dev
-
+RUN apt-get -y upgrade
 RUN rm -rf /var/lib/apt/lists/*
-
 
 # Create the "prepo" user (password "prepo") with sudo privileges.
 COPY --from=builder /tmp/workspace/prepo_pwd.txt /tmp/prepo_pwd.txt
