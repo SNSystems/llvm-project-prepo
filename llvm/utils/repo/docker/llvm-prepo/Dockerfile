@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.3
 #===- llvm/utils/repo/docker/llvm-prepo/Dockerfile ------------------------===//
 #
 # Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -112,12 +113,6 @@ RUN REPOFILE=$stdlib_repo make -C $musl_workspace \
   CC=$install_dir/bin/clang                       \
   utils_dir=$wrap_dir
 
-# TODO: remove once running cmake doesn't require an ELF linker.
-RUN REPOFILE=$stdlib_repo make -C $musl_workspace \
-  -j $(nproc)                                     \
-  install-repo2obj-libs                           \
-  CC=$install_dir/bin/clang                       \
-  utils_dir=$wrap_dir
 RUN mkdir -p $musl_install_dir/include/linux
 
 
@@ -128,17 +123,25 @@ RUN mkdir -p $musl_install_dir/include/linux
 COPY llvm-prepo/futex.h $musl_install_dir/include/linux/futex.h
 RUN cp /usr/include/linux/version.h $musl_install_dir/include/linux/version.h
 
+
 ########################
-# generate dummy files #
+# Generate dummy files #
 ########################
 
 RUN mkdir ${install_dir}/lib/linux/
-RUN repo-create-ticket --output=${install_dir}/lib/linux/clang_rt.crtbegin-x86_64.o --repo=${stdlib_repo} d3540c32449fa62681dc5c22fbc2a353
-RUN repo-create-ticket --output=${install_dir}/lib/linux/clang_rt.crtend-x86_64.o --repo=${stdlib_repo} d3540c32449fa62681dc5c22fbc2a353
+RUN repo-create-ticket                                         \
+  --output=${install_dir}/lib/linux/clang_rt.crtbegin-x86_64.o \
+  --repo=${stdlib_repo}                                        \
+  d3540c32449fa62681dc5c22fbc2a353
+RUN repo-create-ticket                                       \
+  --output=${install_dir}/lib/linux/clang_rt.crtend-x86_64.o \
+  --repo=${stdlib_repo}                                      \
+  d3540c32449fa62681dc5c22fbc2a353
 
-RUN ar d ${install_dir}/lib/linux/libclang_rt.builtins-x86_64.a ${install_dir}/lib/linux/clang_rt.o
+RUN ar d ${install_dir}/lib/linux/libclang_rt.builtins-x86_64.a
 RUN ar d ${install_dir}/lib/libc++.a ${install_dir}/lib/libc++.o
 RUN ar d ${install_dir}/lib/libc++abi.a ${install_dir}/lib/libc++abi.o
+
 
 ##################
 # libcompiler-rt #
@@ -147,64 +150,78 @@ RUN ar d ${install_dir}/lib/libc++abi.a ${install_dir}/lib/libc++abi.o
 # A directory to contain the standard library builds.
 ARG libbuild_dir="$workspace_dir/libbuild"
 
-# Arguments common to the runs of cmake for each of the standard libraries.
-ARG cmake_common="\
-  -G Ninja                                                 \
-  -D CMAKE_BUILD_TYPE=Release                              \
-  -D CMAKE_CXX_COMPILER=$install_dir/bin/clang++           \
-  -D CMAKE_C_COMPILER=$install_dir/bin/clang               \
-  -D CMAKE_ASM_COMPILER_TARGET=x86_64-pc-linux-gnu-elf     \
-  -D CMAKE_C_FLAGS="--sysroot=$install_dir"                \
-  -D CMAKE_CXX_FLAGS="--sysroot=$install_dir"              \
-  -D CMAKE_INSTALL_PREFIX=$install_dir                     \
-  -D LLVM_CONFIG_PATH=$workspace_dir/build/bin/llvm-config \
-  -D LLVM_ENABLE_LIBCXX=Yes                                \
-  -D LLVM_PATH=$workspace_dir/src/llvm                     \
-"
+ARG c_flags="--sysroot=$install_dir"
+ARG cxx_flags="$c_flags -fno-exceptions -fno-rtti"
 
 RUN cp $stdlib_repo $configure_repo
-RUN REPOFILE=$configure_repo cmake                       \
-  -S $workspace_dir/src/compiler-rt                      \
-  -B $libbuild_dir/compiler-rt                           \
-  -D CMAKE_C_COMPILER_TARGET=x86_64-pc-linux-musl-repo   \
-  -D COMPILER_RT_DEFAULT_TARGET_ONLY=Yes                 \
-  -D COMPILER_RT_BUILD_BUILTINS=Yes                      \
-  -D COMPILER_RT_BUILD_SANITIZERS=No                     \
-  -D COMPILER_RT_BUILD_XRAY=No                           \
-  -D COMPILER_RT_BUILD_LIBFUZZER=No                      \
-  -D COMPILER_RT_BUILD_PROFILE=No                        \
-  $cmake_common
+RUN REPOFILE=$configure_repo cmake                         \
+  -S $workspace_dir/src/compiler-rt                        \
+  -B $libbuild_dir/compiler-rt                             \
+  -G Ninja                                                 \
+  -D CMAKE_ASM_COMPILER_TARGET=x86_64-pc-linux-gnu-elf     \
+  -D CMAKE_BUILD_TYPE=Release                              \
+  -D CMAKE_CXX_COMPILER=$install_dir/bin/clang++           \
+  -D CMAKE_CXX_FLAGS="$cxx_flags"                          \
+  -D CMAKE_C_COMPILER=$install_dir/bin/clang               \
+  -D CMAKE_C_COMPILER_TARGET=x86_64-pc-linux-musl-repo     \
+  -D CMAKE_C_FLAGS="$c_flags"                              \
+  -D CMAKE_INSTALL_PREFIX=$install_dir                     \
+  -D COMPILER_RT_BUILD_BUILTINS=Yes                        \
+  -D COMPILER_RT_BUILD_LIBFUZZER=No                        \
+  -D COMPILER_RT_BUILD_PROFILE=No                          \
+  -D COMPILER_RT_BUILD_SANITIZERS=No                       \
+  -D COMPILER_RT_BUILD_XRAY=No                             \
+  -D COMPILER_RT_DEFAULT_TARGET_ONLY=Yes                   \
+  -D LLVM_CONFIG_PATH=$workspace_dir/build/bin/llvm-config
 
 RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/compiler-rt install
+
 
 #############
 # libunwind #
 #############
 
 RUN cp $stdlib_repo $configure_repo
-RUN REPOFILE=$configure_repo cmake \
-  -S $workspace_dir/src/libunwind  \
-  -B $libbuild_dir/unwind          \
-  -D LIBUNWIND_ENABLE_SHARED=No    \
-  -D LIBUNWIND_ENABLE_STATIC=Yes   \
-  $cmake_common
+RUN REPOFILE=$configure_repo cmake                         \
+  -S $workspace_dir/src/libunwind                          \
+  -B $libbuild_dir/unwind                                  \
+  -G Ninja                                                 \
+  -D CMAKE_ASM_COMPILER_TARGET=x86_64-pc-linux-gnu-elf     \
+  -D CMAKE_BUILD_TYPE=Release                              \
+  -D CMAKE_CXX_COMPILER=$install_dir/bin/clang++           \
+  -D CMAKE_CXX_FLAGS="$cxx_flags"                          \
+  -D CMAKE_C_COMPILER=$install_dir/bin/clang               \
+  -D CMAKE_C_FLAGS="$c_flags"                              \
+  -D CMAKE_INSTALL_PREFIX=$install_dir                     \
+  -D LIBUNWIND_ENABLE_SHARED=No                            \
+  -D LIBUNWIND_ENABLE_STATIC=Yes                           \
+  -D LLVM_CONFIG_PATH=$workspace_dir/build/bin/llvm-config \
+  -D LLVM_ENABLE_LIBCXX=Yes                                \
+  -D LLVM_PATH=$workspace_dir/src/llvm
 
 RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/unwind install
+
 
 #############
 # libcxxabi #
 #############
 
-RUN REPOFILE=$configure_repo cmake                                     \
-  -S $workspace_dir/src/libcxxabi                                      \
-  -B $libbuild_dir/cxxabi                                              \
-  -D libcxxabi_include=-I$workspace_dir/build/lib/clang/11.0.0/include \
-  -D LIBCXXABI_ENABLE_EXCEPTIONS=No                                    \
-  -D LIBCXXABI_USE_COMPILER_RT=Yes                                     \
-  -D LIBCXXABI_ENABLE_SHARED=No                                        \
-  -D LIBCXXABI_ENABLE_STATIC=Yes                                       \
-  -D LLVM_ENABLE_LIBCXX=Yes                                            \
-  $cmake_common
+RUN REPOFILE=$configure_repo cmake                         \
+  -S $workspace_dir/src/libcxxabi                          \
+  -B $libbuild_dir/cxxabi                                  \
+  -G Ninja                                                 \
+  -D CMAKE_BUILD_TYPE=Release                              \
+  -D CMAKE_CXX_COMPILER=$install_dir/bin/clang++           \
+  -D CMAKE_CXX_FLAGS="$cxx_flags"                          \
+  -D CMAKE_C_COMPILER=$install_dir/bin/clang               \
+  -D CMAKE_C_FLAGS="$c_flags"                              \
+  -D CMAKE_INSTALL_PREFIX=$install_dir                     \
+  -D LIBCXXABI_ENABLE_EXCEPTIONS=No                        \
+  -D LIBCXXABI_ENABLE_SHARED=No                            \
+  -D LIBCXXABI_ENABLE_STATIC=Yes                           \
+  -D LIBCXXABI_USE_COMPILER_RT=Yes                         \
+  -D LLVM_CONFIG_PATH=$workspace_dir/build/bin/llvm-config \
+  -D LLVM_PATH=$workspace_dir/src/llvm
 
 # TODO: the check-cxxabi stage is missing.
 RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/cxxabi cxxabi install-cxxabi
@@ -218,18 +235,26 @@ RUN cp $stdlib_repo $configure_repo
 RUN REPOFILE=$configure_repo cmake                                     \
   -S $workspace_dir/src/libcxx                                         \
   -B $libbuild_dir/cxx                                                 \
-  -D LIBCXX_ENABLE_SHARED=No                                           \
-  -D LIBCXX_ENABLE_STATIC=Yes                                          \
+  -G Ninja                                                             \
+  -D CMAKE_BUILD_TYPE=Release                                          \
+  -D CMAKE_CXX_COMPILER=$install_dir/bin/clang++                       \
+  -D CMAKE_CXX_FLAGS="$cxx_flags"                                      \
+  -D CMAKE_C_COMPILER=$install_dir/bin/clang                           \
+  -D CMAKE_C_FLAGS="$c_flags"                                          \
+  -D CMAKE_INSTALL_PREFIX=$install_dir                                 \
   -D LIBCXX_CXX_ABI=libcxxabi                                          \
   -D LIBCXX_CXX_ABI_INCLUDE_PATHS=$workspace_dir/src/libcxxabi/include \
+  -D LIBCXX_ENABLE_SHARED=No                                           \
+  -D LIBCXX_ENABLE_STATIC=Yes                                          \
   -D LIBCXX_HAS_MUSL_LIBC=Yes                                          \
-  $cmake_common
+  -D LLVM_PATH=$workspace_dir/src/llvm
 
 # TODO: the check-cxx stage is missing.
 RUN REPOFILE=$stdlib_repo ninja -C $libbuild_dir/cxx cxx install-cxx
 
 # Give all users read permission for the stdlib database.
 RUN chmod a+r $stdlib_repo
+
 
 #####################################################################################################
 # Stage 2. Produce a minimal release image with build results.
