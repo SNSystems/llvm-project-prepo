@@ -162,16 +162,6 @@ void RepoMuslToolChain::AddClangSystemIncludeArgs(
 
   const Driver &D = getDriver();
 
-  // Add the Clang builtin headers (<resource>/include).
-  if (!DriverArgs.hasArg(options::OPT_nobuiltininc)) {
-    llvm::SmallString<128> P = llvm::StringRef(D.ResourceDir);
-    llvm::sys::path::append(P, "/include");
-    addSystemInclude(DriverArgs, CC1Args, P);
-  }
-
-  if (DriverArgs.hasArg(options::OPT_nostdlibinc))
-    return;
-
   if (!DriverArgs.hasArg(options::OPT_nostdinc) &&
       !DriverArgs.hasArg(options::OPT_nostdlibinc) &&
       !DriverArgs.hasArg(options::OPT_nobuiltininc) &&
@@ -183,7 +173,16 @@ void RepoMuslToolChain::AddClangSystemIncludeArgs(
     addSystemInclude(DriverArgs, CC1Args, P);
   }
 
+  // Add the Clang builtin headers (<resource>/include).
   if (!DriverArgs.hasArg(options::OPT_nobuiltininc)) {
+    llvm::SmallString<128> P = llvm::StringRef(D.ResourceDir);
+    llvm::sys::path::append(P, "/include");
+    addSystemInclude(DriverArgs, CC1Args, P);
+  }
+
+  // Add the musl headers (musl/include).
+  if (!DriverArgs.hasArg(options::OPT_nobuiltininc) &&
+      !DriverArgs.hasArg(options::OPT_nostdlibinc)) {
     if (!D.SysRoot.empty()) {
       SmallString<128> P(D.SysRoot);
       llvm::sys::path::append(P, "/musl/include");
