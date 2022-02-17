@@ -294,7 +294,7 @@ RUN update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++ 30
 RUN apt-get update
 RUN apt-get install -y --no-install-recommends \
   binutils                                     \
-  libc6-dev                                    \
+  linux-libc-dev                               \
   linux-headers-$(uname -r)                    \
   make                                         \
   sudo
