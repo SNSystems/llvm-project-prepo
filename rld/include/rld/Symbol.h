@@ -19,6 +19,7 @@
 #include "rld/Contribution.h"
 #include "rld/SectionArray.h"
 #include "rld/Shadow.h"
+#include "rld/Variant.h"
 
 #include "pstore/core/address.hpp"
 #include "pstore/core/indirect_string.hpp"
@@ -213,6 +214,16 @@ public:
     ResType ResolveMap_;
   };
 
+  using Mutex = SpinLock;
+  using BodyContainer = llvm::SmallVector<Body, 1>;
+
+  struct Reference {
+    constexpr explicit Reference(const uint32_t IO) : InputOrdinal{IO} {}
+    uint32_t InputOrdinal;
+  };
+
+  using Contents = Variant<MonoState, Reference, BodyContainer>;
+
   static pstore::address stringBodyFromIndirect(const pstore::database &DB,
                                                 const StringAddress Name) {
     return pstore::indirect_string::read(DB, Name).in_store_address();
@@ -224,13 +235,15 @@ public:
   /// \param NameLength  The number of code units in the name of the symbol.
   /// \param Binding  The weak/strong binding of the reference that caused
   ///   the creation of this symbol.
-  explicit Symbol(pstore::address Name, size_t NameLength,
-                  pstore::repo::binding Binding)
+  explicit Symbol(const pstore::address Name, const size_t NameLength,
+                  const pstore::repo::binding Binding,
+                  const uint32_t InputOrdinal)
       : Name_{Name.absolute()}, WeakUndefined_{Binding ==
                                                pstore::repo::binding::weak},
         NameLength_{NameLength}, Contribution_{nullptr}, HasPLT_{false} {
     assert(name() == Name &&
            Name.absolute() < (UINT64_C(1) << StringAddress::total_bits));
+    Contents_.emplace<Reference>(InputOrdinal);
   }
 
   /// Constructs a symbol with an initial definition.
@@ -244,31 +257,36 @@ public:
     assert(name() == Name &&
            Name.absolute() < (UINT64_C(1) << StringAddress::total_bits));
 
-    llvm::SmallVector<Body, 1> D;
+    BodyContainer D;
     D.emplace_back(std::move(Definition));
-    Definition_.emplace(std::move(D));
+    Contents_.emplace<BodyContainer>(std::move(D));
   }
 
-  using Mutex = SpinLock;
-  using BodyContainer = llvm::SmallVector<Body, 1>;
-  using OptionalBodies = llvm::Optional<BodyContainer>;
-
-  auto definition() const
-      -> std::tuple<const OptionalBodies &, std::unique_lock<Mutex>> {
+  auto contentsAndLock() const
+      -> std::tuple<const Contents &, std::unique_lock<Mutex>> {
     std::unique_lock<Mutex> Lock{Mut_};
-    return {std::cref(Definition_), std::move(Lock)};
+    return {std::cref(Contents_), std::move(Lock)};
   }
 
-  auto definition() -> std::tuple<OptionalBodies &, std::unique_lock<Mutex>> {
+  auto contentsAndLock() -> std::tuple<Contents &, std::unique_lock<Mutex>> {
     std::unique_lock<Mutex> Lock{Mut_};
-    return {std::ref(Definition_), std::move(Lock)};
+    return {std::ref(Contents_), std::move(Lock)};
   }
 
-  bool hasDefinition() const {
-    std::lock_guard<Mutex> Lock{Mut_};
-    assert((!Definition_.hasValue() || Definition_->size() > 0U) &&
+  bool isDefinition() const {
+    std::lock_guard<Mutex> _{Mut_};
+    assert((holdsAlternative<Reference>(Contents_) ||
+            get<BodyContainer>(Contents_).size() > 0U) &&
            "A defined symbol must have a least 1 body");
-    return Definition_.hasValue();
+    return holdsAlternative<BodyContainer>(Contents_);
+  }
+
+  bool isUndefined() const {
+    std::lock_guard<Mutex> _{Mut_};
+    assert((holdsAlternative<Reference>(Contents_) ||
+            get<BodyContainer>(Contents_).size() > 0U) &&
+           "A defined symbol must have a least 1 body");
+    return holdsAlternative<Reference>(Contents_);
   }
 
   /// \returns The name of the symbol.
@@ -277,9 +295,10 @@ public:
   size_t nameLength() const;
 
   bool hasLocalLinkage() const {
-    const auto Def = this->definition();
-    const auto &Bodies = std::get<rld::Symbol::OptionalBodies const &>(Def);
-    return Bodies.hasValue() && Bodies->front().hasLocalLinkage();
+    const auto Def = this->contentsAndLock();
+    const auto &Bodies = std::get<rld::Symbol::Contents const &>(Def);
+    return holdsAlternative<BodyContainer>(Bodies) &&
+           get<BodyContainer>(Bodies).front().hasLocalLinkage();
   }
 
   /// \returns The value of the symbol. Available once layout is complete.
@@ -315,9 +334,10 @@ public:
   /// Records a reference from an external fixup.
   ///
   /// \param Binding  The weak/strong binding of the reference.
+  /// \param InputOrdinal  The input ordinal of the referencing file.
   /// \returns True if the resulting symbol was previously only weakly
   ///   referenced, is now strongly referenced and undefined.
-  bool addReference(pstore::repo::binding Binding);
+  bool addReference(pstore::repo::binding Binding, uint32_t InputOrdinal);
 
   /// \returns True if the symbol is undefined and all references to it are
   /// weak.
@@ -327,12 +347,12 @@ public:
   }
 
   bool allReferencesAreWeak(std::unique_lock<Mutex> const &) const {
-    assert((!WeakUndefined_ || !Definition_.hasValue()) &&
+    assert((!WeakUndefined_ || holdsAlternative<Reference>(Contents_)) &&
            "A weakly undefined symbol must not have a definition");
     return WeakUndefined_;
   }
   bool allReferencesAreWeak(std::lock_guard<Mutex> const &) const {
-    assert((!WeakUndefined_ || !Definition_.hasValue()) &&
+    assert((!WeakUndefined_ || holdsAlternative<Reference>(Contents_)) &&
            "A weakly undefined symbol must not have a definition");
     return WeakUndefined_;
   }
@@ -514,7 +534,7 @@ private:
   unsigned GOTIndex_ = 0;
   /// We allow an array of definitions so that append symbols can associate
   /// multiple definitions with a single name.
-  llvm::Optional<BodyContainer> Definition_;
+  Contents Contents_;
 };
 
 // name
@@ -527,12 +547,17 @@ inline size_t Symbol::nameLength() const { return NameLength_; }
 
 // add reference
 // ~~~~~~~~~~~~~
-inline bool Symbol::addReference(pstore::repo::binding Binding) {
-  std::lock_guard<Mutex> Lock{Mut_};
+inline bool Symbol::addReference(const pstore::repo::binding Binding,
+                                 const uint32_t InputOrdinal) {
+  std::lock_guard<Mutex> _{Mut_};
   const bool WasWeak = WeakUndefined_;
   // If the symbol is weakly undefined, we must not have a definition.
-  assert((!WasWeak || !Definition_.hasValue()) &&
+  assert((!WasWeak || holdsAlternative<Reference>(Contents_)) &&
          "A weakly undefined symbol must not have a definition");
+  if (holdsAlternative<Reference>(Contents_)) {
+    auto &Ref = get<Reference>(Contents_);
+    Ref.InputOrdinal = std::min(Ref.InputOrdinal, InputOrdinal);
+  }
   WeakUndefined_ = WasWeak && Binding == pstore::repo::binding::weak;
   return WasWeak && !WeakUndefined_;
 }
@@ -775,11 +800,14 @@ public:
   /// \param NameLength The length of the symbol name.
   /// \param Binding  Is this symbol table entry being created as the
   ///   result of a weak reference?
+  /// \param InputOrdinal  The ordinal of the file from which the reference is
+  ///   made.
   /// \returns  The newly created symbol.
   static NotNull<Symbol *>
   addUndefined(NotNull<GlobalSymbolsContainer *> Globals,
                NotNull<UndefsContainer *> Undefs, pstore::address Name,
-               size_t NameLength, pstore::repo::binding Binding);
+               size_t NameLength, pstore::repo::binding Binding,
+               uint32_t InputOrdinal);
 
   /// Records a reference to a symbol.
   ///
@@ -788,11 +816,13 @@ public:
   /// \param Undefs  The global collection of undefined symbols.
   /// \param Name  The name of the symbol being referenced.
   /// \param Binding  Is this a weak or strong reference to the symbol?
+  /// \param InputOrdinal  The ordinal of the file from which the reference is
+  ///   made.
   /// \returns  The referenced symbol.
   static NotNull<Symbol *>
   addReference(NotNull<Symbol *> Sym, NotNull<GlobalSymbolsContainer *> Globals,
                NotNull<UndefsContainer *> Undefs, StringAddress Name,
-               pstore::repo::binding Binding);
+               pstore::repo::binding Binding, uint32_t InputOrdinal);
 
 private:
   std::tuple<NotNull<Symbol *>, bool>
@@ -863,13 +893,15 @@ class GroupSet;
 /// \param Name  The name of the symbol being created.
 /// \param Binding  The weak/strong binding of the reference that caused
 ///   the creation of this symbol.
+/// \param InputOrdinal  The ordinal of the file from which the reference is
+///   made.
 /// \return  A pointer to the referenced symbol.
 std::tuple<shadow::TaggedPointer, bool>
 referenceSymbol(Context &Ctxt, const CompilationSymbolsView &Locals,
                 const NotNull<GlobalSymbolsContainer *> Globals,
                 const NotNull<UndefsContainer *> Undefs,
                 const NotNull<GroupSet *> NextGroup, StringAddress Name,
-                pstore::repo::binding Binding);
+                pstore::repo::binding Binding, uint32_t InputOrdinal);
 
 } // end namespace rld
 #endif // RLD_SYMBOL_H

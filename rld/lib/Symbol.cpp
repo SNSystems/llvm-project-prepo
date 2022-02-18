@@ -92,14 +92,14 @@ uint64_t Symbol::value() const {
 // ~~~~~~~~~~~~~~~~
 #ifndef NDEBUG
 void Symbol::checkInvariants() const {
-  std::tuple<const OptionalBodies &, std::unique_lock<Mutex>> BodiesAndLock =
-      this->definition();
-  auto const &OptBodies = std::get<const OptionalBodies &>(BodiesAndLock);
-  if (!OptBodies) {
+  std::tuple<const Contents &, std::unique_lock<Mutex>> ContentsAndLock =
+      this->contentsAndLock();
+  auto const &OptBodies = std::get<const Contents &>(ContentsAndLock);
+  if (!holdsAlternative<BodyContainer>(OptBodies)) {
     return;
   }
 
-  auto const &Bodies = OptBodies.getValue();
+  auto const &Bodies = get<BodyContainer>(OptBodies);
 
   assert((Bodies.size() == 1U ||
           (Bodies.size() >= 1U &&
@@ -128,13 +128,14 @@ inline Symbol *Symbol::replaceIfLowerOrdinal(
     const pstore::repo::definition &Def, const uint32_t InputOrdinal) {
   (void)Lock;
   assert(Lock.owns_lock());
-  assert(Definition_ && Definition_->size() == 1U &&
-         Definition_->front().inputOrdinal() != InputOrdinal);
-  if (InputOrdinal >= Definition_->front().inputOrdinal()) {
+  assert(holdsAlternative<BodyContainer>(Contents_) &&
+         get<BodyContainer>(Contents_).size() == 1U &&
+         get<BodyContainer>(Contents_).front().inputOrdinal() != InputOrdinal);
+
+  Body &ExistingBody = get<BodyContainer>(Contents_).front();
+  if (InputOrdinal >= ExistingBody.inputOrdinal()) {
     return this; // Keep the existing definition.
   }
-
-  auto &ExistingBody = Definition_->front();
   ExistingBody = Symbol::Body{&Def,
                               ExistingBody.fragmentAddress() == Def.fext.addr
                                   ? ExistingBody.fragment()
@@ -152,14 +153,14 @@ inline Symbol *Symbol::defineImpl(std::unique_lock<SpinLock> &&Lock,
                                   const uint32_t InputOrdinal) {
   (void)Lock;
   assert(Lock.owns_lock());
-  assert(!Definition_ &&
+  assert(holdsAlternative<Reference>(Contents_) &&
          "defineImpl was called for a symbol which is already defined");
 
   {
-    llvm::SmallVector<Body, 1> B;
+    BodyContainer B;
     B.emplace_back(&Def, pstore::repo::fragment::load(Db, Def.fext),
                    Def.fext.addr, InputOrdinal);
-    Definition_.emplace(std::move(B));
+    Contents_.emplace<BodyContainer>(std::move(B));
   }
 
   const bool WasWeakUndefined = WeakUndefined_;
@@ -183,12 +184,12 @@ inline Symbol *Symbol::replaceImpl(const std::unique_lock<SpinLock> &Lock,
                                    FragmentPtr &&Fragment) {
   (void)Lock;
   assert(Lock.owns_lock());
-  assert(Definition_ &&
+  assert(holdsAlternative<BodyContainer>(Contents_) &&
          "If we're replacing a definition, then we must already have one.");
 
-  llvm::SmallVector<Body, 1> B;
+  BodyContainer B;
   B.emplace_back(&Def, std::move(Fragment), Def.fext.addr, InputOrdinal);
-  Definition_.emplace(std::move(B));
+  Contents_.emplace<BodyContainer>(std::move(B));
   return this;
 }
 
@@ -210,12 +211,12 @@ Symbol *Symbol::updateAppendSymbol(const pstore::database &Db,
 
   std::unique_lock<decltype(Mut_)> Lock{Mut_};
   // If we don't have a definition, create one.
-  if (!Definition_) {
+  if (holdsAlternative<Reference>(Contents_)) {
     return this->defineImpl(std::move(Lock), Db, Def, Undefs, InputOrdinal);
   }
 
   // Add this symbol to the existing sorted vector for this symbol.
-  auto &Bodies = Definition_.getValue();
+  auto &Bodies = get<BodyContainer>(Contents_);
 
   // We've already got a definition for this symbol. Append linkage may
   // only collide with another append-linkage symbol.
@@ -268,16 +269,16 @@ Symbol *Symbol::updateExternalSymbol(const pstore::database &Db,
   std::unique_lock<decltype(Mut_)> Lock{Mut_};
 
   // Do we have a definition of the symbol? If not make one.
-  if (!Definition_) {
+  if (holdsAlternative<Reference>(Contents_)) {
     return this->defineImpl(std::move(Lock), Db, Def, Undefs, InputOrdinal);
   }
 
   // We've already got a definition for this symbol and we're not
   // allowing replacement.
-  assert(Definition_->size() == 1 &&
+  auto &D = get<BodyContainer>(Contents_);
+  assert(D.size() == 1 &&
          "An external symbol definition must have exactly 1 body");
-  if (isAnyOf<linkage::append, linkage::external>(
-          (*Definition_)[0].linkage())) {
+  if (isAnyOf<linkage::append, linkage::external>(D[0].linkage())) {
     return nullptr; // Error.
   }
   return this->replaceImpl(Lock, Db, Def, InputOrdinal);
@@ -292,13 +293,15 @@ Symbol *Symbol::updateCommonSymbol(const pstore::database &Db,
   assert(Def.linkage() == linkage::common);
 
   std::unique_lock<decltype(Mut_)> Lock{Mut_};
-  if (!Definition_) {
+  if (holdsAlternative<Reference>(Contents_)) {
     return this->defineImpl(std::move(Lock), Db, Def, Undefs, InputOrdinal);
   }
   // If we have already have an external definition of this symbol, we
   // just use it,
-  assert(Definition_->size() == 1);
-  switch ((*Definition_)[0].linkage()) {
+  auto &D = get<BodyContainer>(Contents_);
+  assert(D.size() == 1 &&
+         "A common symbol should only ever have a single body");
+  switch (D[0].linkage()) {
   case linkage::external:
     return this; // common hits external: ignored
   case linkage::append:
@@ -317,7 +320,7 @@ Symbol *Symbol::updateCommonSymbol(const pstore::database &Db,
       return F->at<pstore::repo::section_kind::bss>().size();
     };
 
-    Symbol::Body &B = Definition_->front();
+    Symbol::Body &B = D.front();
     if (B.fragmentAddress() == Def.fext.addr) {
       // The same fragment as the existing definition so therefore the same
       // size.
@@ -352,12 +355,12 @@ Symbol *Symbol::updateWeakSymbol(const pstore::database &Db,
                   linkage::weak_any, linkage::weak_odr>(Def.linkage())));
 
   std::unique_lock<decltype(Mut_)> Lock{Mut_};
-  if (!Definition_) {
+  if (holdsAlternative<Reference>(Contents_)) {
     return this->defineImpl(std::move(Lock), Db, Def, Undefs, InputOrdinal);
   }
-  assert(Definition_->size() == 1U &&
-         "The should be exactly 1 weak symbol definition");
-  switch (Definition_->front().linkage()) {
+  auto &D = get<BodyContainer>(Contents_);
+  assert(D.size() == 1 && "A weak symbol should only ever have a single body");
+  switch (D.front().linkage()) {
   case linkage::append:
     // We've already got a definition for this symbol and we're not
     // allowing replacement.
@@ -392,16 +395,16 @@ void debugDumpSymbols(Context const &Ctx,
     // object. That means that we need to get the name first since accessing
     // both will try to acquire the same lock.
     auto const Name = S.name();
-    auto const X = S.definition();
-    auto const &Def = std::get<const Symbol::OptionalBodies &>(X);
+    auto const ContentsAndLock = S.contentsAndLock();
+    auto const &Contents = std::get<const Symbol::Contents &>(ContentsAndLock);
 
-    auto const IsDefined = Def.hasValue();
+    auto const IsDefined = holdsAlternative<Symbol::BodyContainer>(Contents);
     pstore::shared_sstring_view Owner;
     OS << "  " << stringViewAsRef(loadString(Ctx.Db, Name, &Owner))
        << ": defined: " << (IsDefined ? "yes" : "no");
     if (IsDefined) {
       auto Sep = ", ordinals: [";
-      for (auto const &Body : *Def) {
+      for (auto const &Body : get<Symbol::BodyContainer>(Contents)) {
         OS << Sep << Body.inputOrdinal();
         Sep = ",";
       }
@@ -449,7 +452,7 @@ bool UndefsContainer::strongUndefCountIsCorrect() const {
       std::accumulate(std::begin(List_), std::end(List_), 0UL,
                       [](const unsigned long Acc, const Symbol &S) {
                         const bool IsStrongUndef =
-                            !S.hasDefinition() && !S.allReferencesAreWeak();
+                            !S.isDefinition() && !S.allReferencesAreWeak();
                         return Acc + static_cast<unsigned long>(IsStrongUndef);
                       });
   return Count == StrongUndefCount_;
@@ -466,8 +469,10 @@ bool UndefsContainer::strongUndefCountIsCorrect() const {
 NotNull<Symbol *> SymbolResolver::addUndefined(
     const NotNull<GlobalSymbolsContainer *> Globals,
     const NotNull<UndefsContainer *> Undefs, const pstore::address Name,
-    const size_t NameLength, const pstore::repo::binding Binding) {
-  Symbol *const Sym = &Globals->emplace_back(Name, NameLength, Binding);
+    const size_t NameLength, const pstore::repo::binding Binding,
+    uint32_t InputOrdinal) {
+  Symbol *const Sym =
+      &Globals->emplace_back(Name, NameLength, Binding, InputOrdinal);
   Undefs->insert(Sym);
   return Sym;
 }
@@ -477,9 +482,9 @@ NotNull<Symbol *> SymbolResolver::addUndefined(
 NotNull<Symbol *> SymbolResolver::addReference(
     NotNull<Symbol *> Sym, NotNull<GlobalSymbolsContainer *> Globals,
     NotNull<UndefsContainer *> Undefs, StringAddress Name,
-    pstore::repo::binding Binding) {
+    const pstore::repo::binding Binding, const uint32_t InputOrdinal) {
 
-  if (Sym->addReference(Binding)) {
+  if (Sym->addReference(Binding, InputOrdinal)) {
     Undefs->addStrongUndef();
   }
   return Sym;
@@ -592,7 +597,8 @@ referenceSymbol(Context &Ctxt, const CompilationSymbolsView &Locals,
                 const NotNull<GlobalSymbolsContainer *> Globals,
                 const NotNull<UndefsContainer *> Undefs,
                 const NotNull<GroupSet *> NextGroup, StringAddress Name,
-                pstore::repo::binding Binding) {
+                const pstore::repo::binding Binding,
+                const uint32_t InputOrdinal) {
 
   // Do we have a local definition for this symbol?
   const auto NamePos = Locals.Map.find(Name);
@@ -606,8 +612,9 @@ referenceSymbol(Context &Ctxt, const CompilationSymbolsView &Locals,
     const auto IndirStr = pstore::indirect_string::read(Ctxt.Db, Name);
     const size_t Length = IndirStr.length();
     Ctxt.ELFStringTableSize.fetch_add(Length + 1U, std::memory_order_relaxed);
-    return SymbolResolver::addUndefined(
-        Globals, Undefs, IndirStr.in_store_address(), Length, Binding);
+    return SymbolResolver::addUndefined(Globals, Undefs,
+                                        IndirStr.in_store_address(), Length,
+                                        Binding, InputOrdinal);
   };
   // Despite what its name suggests, this function does not create an undef
   // symbol. We need to keep the CompilationRef record in the shadow memory in
@@ -627,8 +634,8 @@ referenceSymbol(Context &Ctxt, const CompilationSymbolsView &Locals,
   const auto Update = [&](shadow::AtomicTaggedPointer *, Symbol *const Sym) {
     // Called if we see a reference to a symbol already in the symbol
     // table.
-    return shadow::TaggedPointer{
-        SymbolResolver::addReference(Sym, Globals, Undefs, Name, Binding)};
+    return shadow::TaggedPointer{SymbolResolver::addReference(
+        Sym, Globals, Undefs, Name, Binding, InputOrdinal)};
   };
 
   return shadow::set(

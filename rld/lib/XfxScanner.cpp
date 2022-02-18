@@ -40,8 +40,10 @@ constexpr auto DebugType = "rld-xfx-scanner";
 struct State {
   State(Context &C, const NotNull<CompilationSymbolsView *> L,
         const NotNull<GlobalSymbolsContainer *> G,
-        const NotNull<UndefsContainer *> U, const NotNull<GroupSet *> NG)
-      : Ctxt{C}, Locals{L}, Globals{G}, Undefs{U}, NextGroup{NG} {}
+        const NotNull<UndefsContainer *> U, const uint32_t InputOrdinal,
+        const NotNull<GroupSet *> NG)
+      : Ctxt{C}, Locals{L}, Globals{G}, Undefs{U},
+        InputOrdinal{InputOrdinal}, NextGroup{NG} {}
 
   State(State const &) = delete;
   State &operator=(State const &) = delete;
@@ -50,6 +52,7 @@ struct State {
   const NotNull<CompilationSymbolsView *> Locals;
   const NotNull<GlobalSymbolsContainer *> Globals;
   const NotNull<UndefsContainer *> Undefs;
+  const uint32_t InputOrdinal;
   const NotNull<GroupSet *> NextGroup;
 };
 
@@ -81,7 +84,7 @@ Symbol **resolve(State &S, const pstore::repo::fragment &Fragment,
 
     std::tuple<shadow::TaggedPointer, bool> Ref =
         referenceSymbol(S.Ctxt, *S.Locals, S.Globals, S.Undefs, S.NextGroup,
-                        Xfx.name, Xfx.strength());
+                        Xfx.name, Xfx.strength(), S.InputOrdinal);
 
     Symbol *const Sym = symbol(std::get<shadow::TaggedPointer>(Ref));
     assert(Sym != nullptr && "referenceSymbol must not return nullptr");
@@ -138,11 +141,11 @@ void forEachNewFragment(Context &Context,
     //                   << loadStdString(Context.Db, Sym->name()) << "\"\n";
     //    });
 
-    auto BodiesAndLock = Sym->definition();
-    auto &OptionalBodies = std::get<Symbol::OptionalBodies &>(BodiesAndLock);
-    assert(OptionalBodies.hasValue() &&
+    auto ContentsAndLock = Sym->contentsAndLock();
+    auto &Contents = std::get<Symbol::Contents &>(ContentsAndLock);
+    assert(holdsAlternative<Symbol::BodyContainer>(Contents) &&
            "All local symbol definitions must have a body");
-    auto &Bodies = OptionalBodies.getValue();
+    auto &Bodies = get<Symbol::BodyContainer>(Contents);
     assert(Bodies.size() >= 1U && "Defined symbols must have a body");
     if (Bodies.size() == 1U) {
       auto &Body = Bodies[0];
@@ -171,7 +174,6 @@ void forEachNewFragment(Context &Context,
 // ~~~~~~~~~
 static void externals(State &S, Symbol::Body &Def,
                       const NotNull<FixupStorage::Container *> ResolvedFixups,
-                      uint32_t InputOrdinal,
                       const NotNull<GOTPLTContainer *> GOTPLTs) {
 
   const FragmentPtr &Fragment = Def.fragment();
@@ -225,12 +227,12 @@ GOTPLTContainer rld::resolveFixups(
     const NotNull<GroupSet *> NextGroup) {
 
   GOTPLTContainer GOTPLTs;
-  State S{Context, Locals, Globals, Undefs, NextGroup};
+  State S{Context, Locals, Globals, Undefs, InputOrdinal, NextGroup};
 
   forEachNewFragment(Context, Locals, InputOrdinal,
                      [&](CompilationSymbolsView::Container::value_type &NS,
                          Symbol::Body &Def) {
-                       externals(S, Def, Storage, InputOrdinal, &GOTPLTs);
+                       externals(S, Def, Storage, &GOTPLTs);
                        NS.second.Ifx = internals(Def, Storage);
                      });
   return GOTPLTs;

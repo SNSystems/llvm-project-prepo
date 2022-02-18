@@ -165,7 +165,7 @@ TEST_F(XfxScannerTest, StrongRefToUndefined) {
   std::vector<std::pair<pstore::address, bool>> G;
   std::transform(std::begin(Globals_), std::end(Globals_),
                  std::back_inserter(G), [](rld::Symbol const &Sym) {
-                   return std::make_pair(Sym.name(), Sym.hasDefinition());
+                   return std::make_pair(Sym.name(), Sym.isDefinition());
                  });
   EXPECT_THAT(G, UnorderedElementsAre(
                      std::make_pair(CompilationBuilder_.directStringAddress(
@@ -211,7 +211,7 @@ TEST_F(XfxScannerTest, WeakRefToUndefined) {
   std::vector<std::pair<pstore::address, bool>> G;
   std::transform(std::begin(Globals_), std::end(Globals_),
                  std::back_inserter(G), [](rld::Symbol const &Sym) {
-                   return std::make_pair(Sym.name(), Sym.hasDefinition());
+                   return std::make_pair(Sym.name(), Sym.isDefinition());
                  });
   EXPECT_THAT(G, UnorderedElementsAre(
                      std::make_pair(CompilationBuilder_.directStringAddress(
@@ -311,7 +311,7 @@ TEST_F(XfxScannerTest, StrongRefToExternalDef) {
   const auto Pos = std::begin(Globals_);
   EXPECT_EQ(Pos->name(), CompilationBuilder_.directStringAddress(
                              CompilationBuilder_.storeString("f")));
-  EXPECT_TRUE(Pos->hasDefinition()) << "Expected 'f' to be defined";
+  EXPECT_TRUE(Pos->isDefinition()) << "Expected 'f' to be defined";
 }
 
 TEST_F(XfxScannerTest, RefToAppendDef) {
@@ -354,5 +354,5 @@ TEST_F(XfxScannerTest, RefToAppendDef) {
   const auto Pos = std::begin(Globals_);
   EXPECT_EQ(Pos->name(), CompilationBuilder_.directStringAddress(
                              CompilationBuilder_.storeString("f")));
-  EXPECT_TRUE(Pos->hasDefinition()) << "Expected 'f' to be defined";
+  EXPECT_TRUE(Pos->isDefinition()) << "Expected 'f' to be defined";
 }

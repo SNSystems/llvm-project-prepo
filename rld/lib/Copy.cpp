@@ -163,7 +163,7 @@ template <typename TargetType, typename FixupType>
 void applier<llvm::ELF::R_X86_64_PLT32>::apply(
     uint8_t *const Out, Context &Context, const Contribution &Src,
     const Layout &Layout, const TargetType &Target, const FixupType &Fixup) {
-  if (Target.hasDefinition()) {
+  if (Target.isDefinition()) {
     return applier<llvm::ELF::R_X86_64_PC32>::apply(Out, Context, Src, Layout,
                                                     Target, Fixup);
   }

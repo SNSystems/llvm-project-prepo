@@ -100,9 +100,11 @@ static void createCompilationRefForLibraryMember(
     };
     const auto Update = [&](shadow::AtomicTaggedPointer *const P,
                             Symbol *const Sym) {
-      auto D = Sym->definition();
+      auto ContentsAndLock = Sym->contentsAndLock();
+      auto &Contents = std::get<Symbol::Contents &>(ContentsAndLock);
+
       // Do we have a definition for this symbol?
-      if (std::get<Symbol::OptionalBodies &>(D)) {
+      if (holdsAlternative<Symbol::BodyContainer>(Contents)) {
         return shadow::TaggedPointer{Sym};
       }
       // No. A definition in an archive has matched with an undefined symbol

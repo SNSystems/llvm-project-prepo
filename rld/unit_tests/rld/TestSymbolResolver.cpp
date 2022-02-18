@@ -16,6 +16,7 @@
 
 #include "rld/Context.h"
 #include "rld/GroupSet.h"
+#include "rld/Variant.h"
 
 // pstore
 #include "pstore/core/hamt_set.hpp"
@@ -155,25 +156,26 @@ TEST_P(SingleSymbol, SingleSymbol) {
   {
     ASSERT_EQ(Globals.size(), 1U);
     rld::Symbol const &Sym = *Globals.begin();
-    ASSERT_TRUE(Sym.hasDefinition()) << "The symbol must be be defined";
-    auto DefinitionAndLock = Sym.definition();
-    auto const &Bodies =
-        std::get<rld::Symbol::OptionalBodies const &>(DefinitionAndLock);
-    auto const &Lock =
-        std::get<std::unique_lock<rld::Symbol::Mutex>>(DefinitionAndLock);
-    ASSERT_TRUE(Lock.owns_lock()) << "definition() must return an owned lock";
-    ASSERT_TRUE(Bodies.hasValue()) << "The symbol should be defined [and must "
-                                      "agree with Sym.hasDefinition()]";
-
-    ASSERT_EQ(Bodies->size(), 1U);
-    rld::Symbol::Body const &B = Bodies->front();
+    ASSERT_TRUE(Sym.isDefinition()) << "The symbol must be be defined";
+    auto ContentsAndLock = Sym.contentsAndLock();
+    const auto &Contents =
+        std::get<rld::Symbol::Contents const &>(ContentsAndLock);
+    const auto &Lock =
+        std::get<std::unique_lock<rld::Symbol::Mutex>>(ContentsAndLock);
+    ASSERT_TRUE(Lock.owns_lock()) << "contents() must return an owned lock";
+    ASSERT_TRUE(rld::holdsAlternative<rld::Symbol::BodyContainer>(Contents))
+        << "The symbol should be defined [and must agree with "
+           "Sym.hasDefinition()]";
+    const auto &Bodies = rld::get<rld::Symbol::BodyContainer>(Contents);
+    ASSERT_EQ(Bodies.size(), 1U);
+    rld::Symbol::Body const &B = Bodies.front();
     EXPECT_EQ(B.inputOrdinal(), InputOrdinal);
     EXPECT_EQ(B.linkage(), Linkage);
 
     SCOPED_TRACE("SingleSymbol,SingleSymbol");
     this->checkFragmentContents(B.fragment(), uint8_t{0}, Linkage);
   }
-  // Now that the CU-local view of the symbols is correct.
+  // Now verify that the CU-local view of the symbols is correct.
   {
     ASSERT_EQ(C0Locals->Map.size(), 1U);
     rld::CompilationSymbolsView::Container::value_type const &S =
@@ -241,17 +243,19 @@ TwoSymbols::getSymbol(const rld::GlobalSymbolsContainer &Globals,
 void TwoSymbols::checkSymbol(const rld::Symbol &Symbol,
                              uint32_t TicketFileOrdinal, linkage Linkage,
                              uint8_t FragmentIndex) {
-  ASSERT_TRUE(Symbol.hasDefinition()) << "The symbol must be be defined";
-  auto DefinitionAndLock = Symbol.definition();
-  const auto &Bodies =
-      std::get<rld::Symbol::OptionalBodies const &>(DefinitionAndLock);
+  ASSERT_TRUE(Symbol.isDefinition()) << "The symbol must be be defined";
+  auto ContentsAndLock = Symbol.contentsAndLock();
+  const auto &Contents =
+      std::get<rld::Symbol::Contents const &>(ContentsAndLock);
   const auto &Lock =
-      std::get<std::unique_lock<rld::Symbol::Mutex>>(DefinitionAndLock);
-  ASSERT_TRUE(Lock.owns_lock()) << "definition() must return an owned lock";
-  ASSERT_TRUE(Bodies.hasValue()) << "The symbol should be defined [and must "
-                                    "agree with Symbol.hasDefinition()]";
-  ASSERT_EQ(Bodies->size(), 1U) << "Symbol must have a single body";
-  const rld::Symbol::Body &B = Bodies->front();
+      std::get<std::unique_lock<rld::Symbol::Mutex>>(ContentsAndLock);
+  ASSERT_TRUE(Lock.owns_lock()) << "contents() must return an owned lock";
+  ASSERT_TRUE(rld::holdsAlternative<rld::Symbol::BodyContainer>(Contents))
+      << "The symbol should be defined [and must agree with "
+         "Sym.hasDefinition()]";
+  const auto &Bodies = rld::get<rld::Symbol::BodyContainer>(Contents);
+  ASSERT_EQ(Bodies.size(), 1U) << "Symbol must have a single body";
+  const rld::Symbol::Body &B = Bodies.front();
   EXPECT_EQ(B.inputOrdinal(), TicketFileOrdinal);
   EXPECT_EQ(B.linkage(), Linkage);
   // Ensure that we have the expected fragment associated with this symbol. We
@@ -665,18 +669,20 @@ protected:
 // check symbol table entry
 // ~~~~~~~~~~~~~~~~~~~~~~~~
 void Append::checkSymbolTableEntry(rld::Symbol const &Symbol0) {
-  ASSERT_TRUE(Symbol0.hasDefinition()) << "The symbol must be be defined";
-  auto DefinitionAndLock = Symbol0.definition();
-  auto const &Bodies =
-      std::get<rld::Symbol::OptionalBodies const &>(DefinitionAndLock);
+  ASSERT_TRUE(Symbol0.isDefinition()) << "The symbol must be be defined";
+  auto ContentsAndLock = Symbol0.contentsAndLock();
+  auto const &Contents =
+      std::get<rld::Symbol::Contents const &>(ContentsAndLock);
   auto const &Lock =
-      std::get<std::unique_lock<rld::Symbol::Mutex>>(DefinitionAndLock);
-  ASSERT_TRUE(Lock.owns_lock()) << "definition() must return an owned lock";
-  ASSERT_TRUE(Bodies.hasValue()) << "The symbol should be defined [and must "
-                                    "agree with Symbol.hasDefinition()]";
-  ASSERT_EQ(Bodies->size(), 2U) << "Symbol must have two bodies";
+      std::get<std::unique_lock<rld::Symbol::Mutex>>(ContentsAndLock);
+  ASSERT_TRUE(Lock.owns_lock()) << "contents() must return an owned lock";
+  ASSERT_TRUE(rld::holdsAlternative<rld::Symbol::BodyContainer>(Contents))
+      << "The symbol should be defined [and must agree with "
+         "Sym.hasDefinition()]";
+  const auto &Bodies = rld::get<rld::Symbol::BodyContainer>(Contents);
+  ASSERT_EQ(Bodies.size(), 2U) << "Symbol must have two bodies";
   {
-    const rld::Symbol::Body &B0 = (*Bodies)[0];
+    const rld::Symbol::Body &B0 = Bodies[0];
     EXPECT_EQ(B0.inputOrdinal(), Input0_)
         << "Body 0 must be from the first compilation";
     EXPECT_EQ(B0.linkage(), linkage::append);
@@ -686,7 +692,7 @@ void Append::checkSymbolTableEntry(rld::Symbol const &Symbol0) {
     this->checkFragmentContents(B0.fragment(), 0, linkage::append);
   }
   {
-    const rld::Symbol::Body &B1 = (*Bodies)[1];
+    const rld::Symbol::Body &B1 = Bodies[1];
     EXPECT_EQ(B1.inputOrdinal(), Input1_)
         << "Body 1 must be from the second compilation";
     EXPECT_EQ(B1.linkage(), linkage::append);
@@ -794,24 +800,25 @@ protected:
 };
 
 // check common symbol
-// ~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~
 void Largest::checkCommonSymbol(rld::Symbol const &Sym,
                                 std::size_t ExpectedOrdinal,
                                 std::size_t ExpectedSize) {
-  ASSERT_TRUE(Sym.hasDefinition()) << "The symbol must be defined";
-  auto DefinitionAndLock = Sym.definition();
-  auto const &Bodies =
-      std::get<rld::Symbol::OptionalBodies const &>(DefinitionAndLock);
+  ASSERT_TRUE(Sym.isDefinition()) << "The symbol must be defined";
+  auto ContentsAndLock = Sym.contentsAndLock();
+  auto const &Contents =
+      std::get<rld::Symbol::Contents const &>(ContentsAndLock);
   auto const &Lock =
-      std::get<std::unique_lock<rld::Symbol::Mutex>>(DefinitionAndLock);
-  ASSERT_TRUE(Lock.owns_lock()) << "definition() must return an owned lock";
-  ASSERT_TRUE(Bodies.hasValue()) << "The symbol should be defined [and must "
-                                    "agree with Sym.hasDefinition()]";
-
-  ASSERT_EQ(Bodies->size(), 1U)
+      std::get<std::unique_lock<rld::Symbol::Mutex>>(ContentsAndLock);
+  ASSERT_TRUE(Lock.owns_lock()) << "contents() must return an owned lock";
+  ASSERT_TRUE(rld::holdsAlternative<rld::Symbol::BodyContainer>(Contents))
+      << "The symbol should be defined [and must agree with "
+         "Sym.hasDefinition()]";
+  const auto &Bodies = rld::get<rld::Symbol::BodyContainer>(Contents);
+  ASSERT_EQ(Bodies.size(), 1U)
       << "There must be a single definition of the symbol";
 
-  auto const &Body = Bodies->front();
+  auto const &Body = Bodies.front();
   EXPECT_EQ(Body.linkage(), linkage::common)
       << "Expected the symbol to have common linkage";
   EXPECT_EQ(Body.inputOrdinal(), ExpectedOrdinal)
@@ -977,12 +984,22 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
   rld::GlobalSymbolsContainer Globals;
   rld::CompilationSymbolsView S0{0};
   rld::GroupSet NextGroup;
+  constexpr auto ReferencingOrdinal = uint32_t{37};
+
   rld::referenceSymbol(Ctx_, S0, &Globals, &Undefs, &NextGroup,
-                       CompilationBuilder_.storeString(Name),
-                       binding::strong);
+                       CompilationBuilder_.storeString(Name), binding::strong,
+                       ReferencingOrdinal);
   EXPECT_EQ(S0.Map.size(), 0U);
   ASSERT_EQ(Globals.size(), 1U);
-  EXPECT_FALSE(this->getSymbol(Globals, 0U).hasDefinition());
+  EXPECT_FALSE(this->getSymbol(Globals, 0U).isDefinition());
+  {
+    const auto ContentsAndLock = this->getSymbol(Globals, 0U).contentsAndLock();
+    const auto &Contents =
+        std::get<const rld::Symbol::Contents &>(ContentsAndLock);
+    ASSERT_TRUE(rld::holdsAlternative<rld::Symbol::Reference>(Contents));
+    EXPECT_EQ(rld::get<rld::Symbol::Reference>(Contents).InputOrdinal,
+              ReferencingOrdinal);
+  }
 
   // Check that the undef list contains this symbol.
   {
@@ -993,10 +1010,10 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
   }
 
   // Create a definition of "f".
-  constexpr auto InputNo = 1U;
+  constexpr auto DefiningOrdinal = uint32_t{41};
   std::shared_ptr<pstore::repo::compilation const> C1 = this->compile(Name, Linkage);
   llvm::Optional<rld::CompilationSymbolsView> S1 = Resolver_.defineSymbols(
-      &Globals, &Undefs, *C1, InputNo, std::cref(ErrorCallback));
+      &Globals, &Undefs, *C1, DefiningOrdinal, std::cref(ErrorCallback));
   ASSERT_TRUE(S1.hasValue());
 
   // Check that the undef list is now empty again.
@@ -1010,14 +1027,14 @@ TEST_P(RefBeforeDef, DefinitionReplacesReference) {
     rld::Symbol const &Symbol0 = this->getSymbol(Globals, 0U);
     {
       SCOPED_TRACE("RefBeforeDef, DefinitionReplacesReference");
-      this->checkSymbol(Symbol0, InputNo, Linkage, 0U);
+      this->checkSymbol(Symbol0, DefiningOrdinal, Linkage, 0U);
       this->checkCompilationLocalView(S1, Symbol0);
     }
 
     std::tuple<rld::shadow::TaggedPointer, bool> ReferenceResult =
         rld::referenceSymbol(Ctx_, *S1, &Globals, &Undefs, &NextGroup,
-                             this->getStringAddress(Name),
-                             binding::strong);
+                             this->getStringAddress(Name), binding::strong,
+                             DefiningOrdinal);
     EXPECT_EQ(std::get<0>(ReferenceResult), &Symbol0);
     EXPECT_EQ(std::get<1>(ReferenceResult), true);
   }
@@ -1083,12 +1100,12 @@ TEST_P(InternalCollision, InternalAfter) {
     this->checkCompilationLocalView(C1, Symbol1);
   }
   EXPECT_EQ(rld::referenceSymbol(Ctx_, *C0, &Globals, &Undefs, &NextGroup,
-                                 this->getStringAddress(Name_),
-                                 binding::strong),
+                                 this->getStringAddress(Name_), binding::strong,
+                                 Input1_),
             std::make_tuple(&Symbol0, true));
   EXPECT_EQ(rld::referenceSymbol(Ctx_, *C1, &Globals, &Undefs, &NextGroup,
-                                 this->getStringAddress(Name_),
-                                 binding::strong),
+                                 this->getStringAddress(Name_), binding::strong,
+                                 Input1_),
             std::make_tuple(&Symbol1, true));
   EXPECT_TRUE(Undefs.empty());
   EXPECT_EQ(Undefs.strongUndefCount(), 0U);
@@ -1132,12 +1149,12 @@ TEST_P(InternalCollision, InternalBefore) {
     this->checkCompilationLocalView(C1, Symbol1);
   }
   EXPECT_EQ(rld::referenceSymbol(Ctx_, *C0, &Globals, &Undefs, &NextGroup,
-                                 this->getStringAddress(Name_),
-                                 binding::strong),
+                                 this->getStringAddress(Name_), binding::strong,
+                                 Input1_),
             std::make_tuple(&Symbol0, true));
   EXPECT_EQ(rld::referenceSymbol(Ctx_, *C1, &Globals, &Undefs, &NextGroup,
-                                 this->getStringAddress(Name_),
-                                 binding::strong),
+                                 this->getStringAddress(Name_), binding::strong,
+                                 Input1_),
             std::make_tuple(&Symbol1, true));
 }
 

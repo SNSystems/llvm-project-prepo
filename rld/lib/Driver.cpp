@@ -181,15 +181,21 @@ bool Driver::reportUndefinedSymbols() {
   assert(Undefs_.strongUndefCountIsCorrect() &&
          "The strong undef count must match the entries in the undefs list");
   if (Undefs_.strongUndefCount() > 0U) {
-    for (auto const &U : Undefs_) {
-      assert(!U.hasDefinition());
+    for (const Symbol &U : Undefs_) {
+      assert(!U.isDefinition());
       if (!U.allReferencesAreWeak()) {
-        // FIXME: also need to show where the reference is made. To support
-        // this, a symbol needs to contain a typed variant holding either the
-        // body (for a def) or reference origin (for an undef).
-        ReportError_(*Context_,
-                     "'" + loadStdString(Context_->Db, U.name()) + "'",
-                     ErrorCode::UndefinedSymbol);
+        const auto ContentsAndLock = U.contentsAndLock();
+        const auto &Contents =
+            std::get<const Symbol::Contents &>(ContentsAndLock);
+        assert(holdsAlternative<Symbol::Reference>(Contents));
+        std::string OutString;
+        raw_string_ostream OS{OutString};
+        OS << '\'' << loadStdString(Context_->Db, U.name())
+           << "' referenced from \""
+           << Context_->ordinalName(
+                  get<Symbol::Reference>(Contents).InputOrdinal)
+           << '"';
+        ReportError_(*Context_, OutString, ErrorCode::UndefinedSymbol);
       }
     }
     ErrorFlag_.store(true);

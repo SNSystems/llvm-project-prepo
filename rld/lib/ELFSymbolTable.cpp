@@ -262,13 +262,11 @@ template <typename ELFT>
 auto Writer<ELFT>::writeSymbol(
     Elf_Sym *const SymbolOut, const Symbol &Sym,
     const SectionIndexedArray<unsigned> &SectionToIndex) -> Elf_Sym * {
-  const std::tuple<const Symbol::OptionalBodies &,
-                   std::unique_lock<Symbol::Mutex>>
-      Def = Sym.definition();
-  auto &Bodies = std::get<const Symbol::OptionalBodies &>(Def);
-  auto &Lock = std::get<std::unique_lock<Symbol::Mutex>>(Def);
+  const auto ContentsAndLock = Sym.contentsAndLock();
+  const auto &Contents = std::get<const Symbol::Contents &>(ContentsAndLock);
+  auto &Lock = std::get<std::unique_lock<Symbol::Mutex>>(ContentsAndLock);
   (void)Lock;
-  if (!Bodies) {
+  if (holdsAlternative<Symbol::Reference>(Contents)) {
     // This is an undefined symbol.
     std::memset(SymbolOut, 0, sizeof(*SymbolOut));
     assert(Sym.allReferencesAreWeak(Lock) &&
@@ -277,18 +275,21 @@ auto Writer<ELFT>::writeSymbol(
     SymbolOut->setBinding(llvm::ELF::STB_WEAK);
     return SymbolOut + 1;
   }
+
   // If there are multiple bodies associated with a symbol then the ELF
   // symbol simply points to the first.
-  const Symbol::Body &B = Bodies->front();
+  const auto &D = get<Symbol::BodyContainer>(Contents);
+  const auto &FirstBody = D.front();
+
   const Contribution *const C = Sym.contribution();
   assert(C != nullptr);
   SymbolOut->st_name = Sym.elfNameOffset();
-  SymbolOut->setBindingAndType(linkageToELFBinding(B.linkage()),
+  SymbolOut->setBindingAndType(linkageToELFBinding(FirstBody.linkage()),
                                sectionToSymbolType(C->OScn->SectionK));
-  SymbolOut->setVisibility(elf::elfVisibility<ELFT>(B.visibility()));
+  SymbolOut->setVisibility(elf::elfVisibility<ELFT>(FirstBody.visibility()));
   SymbolOut->st_shndx = SectionToIndex[C->OScn->SectionK];
   SymbolOut->st_value = elf::symbolValue(*C);
-  SymbolOut->st_size = symbolSize(B.fragment()->front(), *Bodies);
+  SymbolOut->st_size = symbolSize(FirstBody.fragment()->front(), D);
   return SymbolOut + 1;
 }
 

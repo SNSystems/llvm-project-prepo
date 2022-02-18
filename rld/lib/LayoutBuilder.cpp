@@ -550,7 +550,7 @@ void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
     return AddSymbol();
   };
   const auto Update = [&](shadow::AtomicTaggedPointer *, Symbol *Sym) {
-    if (Sym->hasDefinition()) {
+    if (Sym->isDefinition()) {
       // We already have a definition. Do nothing.
       return shadow::TaggedPointer{Sym};
     }
@@ -558,10 +558,12 @@ void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
     // The shadow memory pointer may be null if the string is known, but
     // isn't used as the name of a symbol.
     if (const Symbol *const AliaseeSym = Ctors->load().get_if<Symbol *>()) {
-      const auto CtorsDef = AliaseeSym->definition();
-      if (const auto &Bodies =
-              std::get<const Symbol::OptionalBodies &>(CtorsDef)) {
-        const Symbol::Body &FirstBody = Bodies->front();
+      const auto ContentsAndLock = AliaseeSym->contentsAndLock();
+      const auto &Contents =
+          std::get<const Symbol::Contents &>(ContentsAndLock);
+      if (holdsAlternative<Symbol::BodyContainer>(Contents)) {
+        const auto &Bodies = get<Symbol::BodyContainer>(Contents);
+        const Symbol::Body &FirstBody = Bodies.front();
 
         constexpr auto InputOrdinal = std::numeric_limits<uint32_t>::max();
         SymbolResolver Resolver{Ctx_};
@@ -639,12 +641,11 @@ void LayoutBuilder::run() {
       });
 
       // Get the symbol definition and a lock on the symbol table entry.
-      auto const SymDef = Sym->definition();
-
-      assert(std::get<Symbol::OptionalBodies &>(SymDef).hasValue() &&
+      assert(Sym->isDefinition() &&
              "Symbols that reach layout must be defined");
-
-      auto const &Bodies = *std::get<Symbol::OptionalBodies &>(SymDef);
+      auto ContentsAndLock = Sym->contentsAndLock();
+      auto &Contents = std::get<Symbol::Contents &>(ContentsAndLock);
+      auto const &Bodies = get<Symbol::BodyContainer>(Contents);
       assert(Bodies.size() >= 1U &&
              "A defined symbol must have a least 1 body");
 

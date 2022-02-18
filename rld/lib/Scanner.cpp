@@ -83,11 +83,15 @@ bool Scanner::run(
     const std::string Name =
         llvm::demangle(loadStdString(Context_.Db, Sym->name()));
     {
-      auto Def = Sym->definition();
-      if (const auto &Bodies = std::get<const Symbol::OptionalBodies &>(Def)) {
+      const auto ContentsAndLock = Sym->contentsAndLock();
+      const auto &Contents =
+          std::get<const Symbol::Contents &>(ContentsAndLock);
+      if (holdsAlternative<Symbol::BodyContainer>(Contents)) {
+        const auto &Bodies = get<Symbol::BodyContainer>(Contents);
         const std::string Previous =
-            Context_.ordinalName((*Bodies)[0].inputOrdinal());
+            Context_.ordinalName(Bodies[0].inputOrdinal());
         std::lock_guard<decltype(Context_.IOMut)> const Lock{Context_.IOMut};
+        // FIXME: funnel errors through a user-provided function
         llvm::errs() << "Error: Duplicate symbol '" << Name << "' in \"" << Path
                      << "\" previously defined by \"" << Previous << "\"\n";
         return;
@@ -95,6 +99,7 @@ bool Scanner::run(
     }
 
     std::lock_guard<decltype(Context_.IOMut)> const Lock{Context_.IOMut};
+    // FIXME: funnel errors through a user-provided function
     llvm::errs() << "Error: Duplicate symbol '" << Name << "' in \"" << Path
                  << "\"\n";
   };
