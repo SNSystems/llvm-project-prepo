@@ -528,6 +528,15 @@ getIf(Variant<Types...> const *const PV) noexcept {
       PV);
 }
 
+struct MonoState {};
+
+inline constexpr bool operator<(MonoState, MonoState) { return false; }
+inline constexpr bool operator>(MonoState, MonoState) { return false; }
+inline constexpr bool operator<=(MonoState, MonoState) { return true; }
+inline constexpr bool operator>=(MonoState, MonoState) { return true; }
+inline constexpr bool operator==(MonoState, MonoState) { return true; }
+inline constexpr bool operator!=(MonoState, MonoState) { return false; }
+
 } // end namespace rld
 
 //*  _            _     *
