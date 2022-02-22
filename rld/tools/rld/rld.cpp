@@ -31,6 +31,13 @@ using namespace rld;
 
 namespace {
 
+//FIXME: hack hack. These options are simply ignored ATM.
+cl::opt<bool> GcSections("gc-sections", cl::desc{"Enable garbage collection of unused sections"});
+cl::opt<std::string> RPath{"rpath", cl::desc{"Add a DT_RUNPATH to the output"}};
+cl::opt<char> OptLevel("O", cl::Prefix, cl::desc{"Optimization level."});
+// end hack hack.
+
+
 cl::list<std::string> InputFiles{cl::Positional, cl::desc{"<input-file>..."}};
 
 cl::opt<std::string> RepoPath{"repo", cl::Optional,
