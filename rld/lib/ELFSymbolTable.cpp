@@ -248,13 +248,28 @@ void Writer<ELFT>::writeUndefSymbolRange(
     const GOTPLTContainer & /*GOTPLTs*/,
     const SectionIndexedArray<unsigned> &SectionToIndex,
     WorkItem::Pointer First, WorkItem::Pointer Last) {
-
   using Iterator = UndefsContainer::Container::const_iterator;
+  // Make a container containing pointers to the undefined symbols. This can
+  // then be sorted to guarantee stable output. I don't anticipate a large
+  // number of undefined symbols.
+  auto F = get<Iterator>(First);
+  auto L = get<Iterator>(Last);
+  llvm::SmallVector<const Symbol *, 64> SortedSymbols;
+  SortedSymbols.reserve(std::distance(F, L));
+  std::transform(F, L, std::back_inserter(SortedSymbols),
+                 [](const Symbol &Sym) { return &Sym; });
+  std::sort(std::begin(SortedSymbols), std::end(SortedSymbols),
+            [](const Symbol *const A, const Symbol *const B) {
+              return A->name() < B->name();
+            });
+
+  // Write the symbols to the output.
   auto *SymbolOut = reinterpret_cast<Elf_Sym *>(Dest);
-  std::for_each(
-      get<Iterator>(First), get<Iterator>(Last), [&](const Symbol &Sym) {
-        SymbolOut = Writer<ELFT>::writeSymbol(SymbolOut, Sym, SectionToIndex);
-      });
+  std::for_each(std::begin(SortedSymbols), std::end(SortedSymbols),
+                [&](const Symbol *const Sym) {
+                  SymbolOut = Writer<ELFT>::writeSymbol(SymbolOut, *Sym,
+                                                        SectionToIndex);
+                });
 }
 
 // Build a symbol.
