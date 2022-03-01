@@ -75,6 +75,8 @@ auto initELFHeader(const unsigned Machine) -> typename ELFT::Ehdr {
   Header.e_ident[llvm::ELF::EI_VERSION] = llvm::ELF::EV_CURRENT;
   Header.e_ident[llvm::ELF::EI_OSABI] = llvm::ELF::ELFOSABI_NONE;
   Header.e_ident[llvm::ELF::EI_ABIVERSION] = 0;
+  std::fill(&Header.e_ident[llvm::ELF::EI_PAD],
+            &Header.e_ident[llvm::ELF::EI_NIDENT], '\0');
   Header.e_type = llvm::ELF::ET_REL;
   Header.e_machine = Machine;
   Header.e_version = llvm::ELF::EV_CURRENT;
