@@ -54,7 +54,7 @@ struct TicketFile {
   uint32_t CRC;
   uint16_t Version;
   uint16_t Unused;
-  pstore::uuid OwnerID;
+  pstore::uuid::container_type OwnerID;
   pstore::index::digest Digest;
 };
 
@@ -169,8 +169,9 @@ static size_t writeTicketFile(Writer &&W, const pstore::database &Db,
   Ticket.CRC = 0;
   Ticket.Version = support::endian::byte_swap(TicketFileVersion, Endian);
   Ticket.Unused = 0;
-  Ticket.OwnerID = Db.get_header().id(); // No need to swap. OwnerID is a UUID
-                                         // whose bytes are in network order.
+  Ticket.OwnerID =
+      Db.get_header().id().array(); // No need to swap. OwnerID is a UUID whose
+                                    // bytes are in network order.
   Ticket.Digest = support::endian::byte_swap(Digest, Endian);
 
   Ticket.CRC = support::endian::byte_swap(ticketCRC(Ticket), Endian);
@@ -242,7 +243,7 @@ static ErrorOr<TicketFile> getTicket(const llvm::MemoryBufferRef &Buffer,
   }
 
   if (Owner != nullptr) {
-    if (Ticket.OwnerID != Owner->get_header().id()) {
+    if (Ticket.OwnerID != Owner->get_header().id().array()) {
       return mc::repo::TicketError::DatabaseIDMismatch;
     }
   }
@@ -303,7 +304,7 @@ llvm::mc::repo::getOwnerIDFromTicket(const llvm::MemoryBufferRef &Buffer) {
   if (!TicketOrErr) {
     return TicketOrErr.getError();
   }
-  return TicketOrErr->OwnerID;
+  return pstore::uuid{TicketOrErr->OwnerID};
 }
 
 ErrorOr<pstore::uuid>
