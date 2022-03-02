@@ -24,6 +24,7 @@ public:
   enum class DebugSectionKind {
     None,
     Line,
+    Loc,
     Ranges,
     String,
   };

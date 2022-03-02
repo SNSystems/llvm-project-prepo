@@ -352,6 +352,7 @@ getELFSectionType(pstore::repo::section_kind Kind,
     REPO_TO_ELF_SECTION(bss)
     REPO_TO_ELF_SECTION(data)
     REPO_TO_ELF_SECTION(debug_line)
+    REPO_TO_ELF_SECTION(debug_loc)
     REPO_TO_ELF_SECTION(debug_ranges)
     REPO_TO_ELF_SECTION(debug_string)
     REPO_TO_ELF_SECTION(mergeable_1_byte_c_string)
@@ -396,6 +397,7 @@ shouldCreateSubsection(bool IsLinkOnce,
   case pstore::repo::section_kind::debug_line:
   case pstore::repo::section_kind::debug_string:
   case pstore::repo::section_kind::debug_ranges:
+  case pstore::repo::section_kind::debug_loc:
     // Don't split the debug sections into subsections.
     return false;
 

@@ -221,6 +221,7 @@ unsigned SymbolTable<ELFT>::sectionToSymbolType(ELFSectionType T) {
   case ELFSectionType::thread_data:
     return llvm::ELF::STT_TLS;
   case ELFSectionType::debug_line:
+  case ELFSectionType::debug_loc:
   case ELFSectionType::debug_ranges:
   case ELFSectionType::debug_string:
   case ELFSectionType::interp:

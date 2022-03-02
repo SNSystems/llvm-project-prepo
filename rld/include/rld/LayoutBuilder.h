@@ -129,6 +129,7 @@ inline SegmentKind operator++(SegmentKind &SK, int) noexcept {
   RLD_X(SectionKind::bss)                                                      \
                                                                                \
   RLD_X(SectionKind::debug_line)                                               \
+  RLD_X(SectionKind::debug_loc)                                                \
   RLD_X(SectionKind::debug_string)                                             \
   RLD_X(SectionKind::debug_ranges)                                             \
   RLD_X(SectionKind::linked_definitions)                                       \

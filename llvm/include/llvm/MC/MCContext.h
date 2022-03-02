@@ -305,6 +305,7 @@ namespace llvm {
       ReadOnlySection,
       ReadOnlyWithRelSection,
       DebugLine,
+      DebugLoc,
       DebugString,
       DebugRanges,
     };

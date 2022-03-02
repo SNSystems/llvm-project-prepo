@@ -53,6 +53,7 @@ static constexpr bool hasFileData(pstore::repo::section_kind Kind) {
   case section_kind::read_only:
   case section_kind::thread_data:
   case section_kind::debug_line:
+  case section_kind::debug_loc:
   case section_kind::debug_string:
   case section_kind::debug_ranges:
     return true;
@@ -229,6 +230,7 @@ LayoutBuilder::SectionToSegmentArray const LayoutBuilder::SectionToSegment_{{
     {SectionKind::thread_data, SegmentKind::tls},
     {SectionKind::thread_bss, SegmentKind::tls},
     {SectionKind::debug_line, SegmentKind::discard},
+    {SectionKind::debug_loc, SegmentKind::discard},
     {SectionKind::debug_string, SegmentKind::discard},
     {SectionKind::debug_ranges, SegmentKind::discard},
     {SectionKind::linked_definitions, SegmentKind::discard},

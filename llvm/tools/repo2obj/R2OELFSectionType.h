@@ -14,6 +14,7 @@
   X(bss)                                                                       \
   X(data)                                                                      \
   X(debug_line)                                                                \
+  X(debug_loc)                                                                 \
   X(debug_ranges)                                                              \
   X(debug_string)                                                              \
   X(fini_array)                                                                \

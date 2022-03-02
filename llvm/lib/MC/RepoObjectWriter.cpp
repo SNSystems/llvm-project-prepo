@@ -409,6 +409,8 @@ sectionKindToRepoType(MCSectionRepo const &Section) {
       return pstore::repo::section_kind::debug_string;
     case MCSectionRepo::DebugSectionKind::Ranges:
       return pstore::repo::section_kind::debug_ranges;
+    case MCSectionRepo::DebugSectionKind::Loc:
+      return pstore::repo::section_kind::debug_loc;
     }
   }
   llvm_unreachable("Unsupported section type in getRepoSection");

@@ -51,6 +51,7 @@ static constexpr auto elfSectionType(const SectionKind Kind) {
   switch (Kind) {
   case SectionKind::data:
   case SectionKind::debug_line:
+  case SectionKind::debug_loc:
   case SectionKind::debug_ranges:
   case SectionKind::debug_string:
   case SectionKind::mergeable_1_byte_c_string:
@@ -133,6 +134,7 @@ static constexpr auto elfSectionFlags(const SectionKind Kind) {
     return Elf_Word{llvm::ELF::SHF_ALLOC};
 
   case SectionKind::debug_line:
+  case SectionKind::debug_loc:
   case SectionKind::debug_string:
   case SectionKind::debug_ranges:
   case SectionKind::strtab:
@@ -179,6 +181,7 @@ static constexpr auto elfSectionEntSize(const SectionKind Kind) {
   case SectionKind::bss:
   case SectionKind::data:
   case SectionKind::debug_line:
+  case SectionKind::debug_loc:
   case SectionKind::debug_ranges:
   case SectionKind::debug_string:
   case SectionKind::linked_definitions:

@@ -659,6 +659,10 @@ MCContext::getRepoSection(RepoSection K, StringRef Name,
     Kind = SectionKind::getMetadata();
     DebugKind = MCSectionRepo::DebugSectionKind::Ranges;
     break;
+  case RepoSection::DebugLoc:
+    Kind = SectionKind::getMetadata();
+    DebugKind = MCSectionRepo::DebugSectionKind::Loc;
+    break;
   }
 
   auto Result =
