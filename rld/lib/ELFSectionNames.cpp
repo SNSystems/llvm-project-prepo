@@ -28,6 +28,7 @@ using namespace rld;
   ELF_SECTION_NAME(bss, ".bss")                                                \
   ELF_SECTION_NAME(data, ".data")                                              \
   ELF_SECTION_NAME(debug_line, ".debug_line")                                  \
+  ELF_SECTION_NAME(debug_loc, ".debug_loc")                                    \
   ELF_SECTION_NAME(debug_ranges, ".debug_ranges")                              \
   ELF_SECTION_NAME(debug_string, ".debug_str")                                 \
   ELF_SECTION_NAME(linked_definitions, "")                                     \

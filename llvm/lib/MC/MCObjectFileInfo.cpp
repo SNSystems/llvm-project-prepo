@@ -310,6 +310,8 @@ void MCObjectFileInfo::initRepoMCObjectFileInfo(const Triple &T) {
       Ctx->getRepoSection(MCContext::RepoSection::DebugString)->markAsDummy();
   DwarfRangesSection =
       Ctx->getRepoSection(MCContext::RepoSection::DebugRanges)->markAsDummy();
+  DwarfLocSection =
+      Ctx->getRepoSection(MCContext::RepoSection::DebugLoc)->markAsDummy();
   DwarfLineSection = Ctx->getRepoSection(MCContext::RepoSection::DebugLine);
 
   BSSSection = nullptr;

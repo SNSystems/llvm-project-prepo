@@ -73,6 +73,7 @@ static constexpr unsigned char sectionToSymbolType(const SectionKind K) {
   case SectionKind::thread_data:
     return llvm::ELF::STT_TLS;
   case SectionKind::debug_line:
+  case SectionKind::debug_loc:
   case SectionKind::debug_ranges:
   case SectionKind::debug_string:
     return llvm::ELF::STT_NOTYPE;
