@@ -80,11 +80,6 @@ private:
   uint32_t addFile(llvm::StringRef InputFilePath, GroupContainer *const Group,
                    GroupSet *const NextGroup, uint32_t ArchiveCount);
 
-  void doIterateArchiveMembers(std::string const &InputFilePath,
-                               std::shared_ptr<llvm::MemoryBuffer> MB,
-                               uint32_t ArchiveCount,
-                               GroupSet *const NextGroup);
-
   template <typename LibraryPathIterator>
   void addLibrary(
       llvm::StringRef Library, unsigned ArchiveCount, GroupSet *const NextGroup,
@@ -193,9 +188,9 @@ uint32_t Driver::addFile(llvm::StringRef InputFilePath,
     }
     break;
   case FileKind::Archive:
-    this->doIterateArchiveMembers(std::string{InputFilePath},
-                                  std::move(*FileBuffer), ArchiveCount,
-                                  NextGroup);
+    iterateArchiveMembers(&ErrorFlag_, *Context_, WorkPool_.get(),
+                          std::string{InputFilePath}, ArchiveCount,
+                          FileBuffer->get(), NextGroup, CompilationIndex_);
     ++ArchiveCount;
     break;
   case FileKind::Unknown:
@@ -233,8 +228,9 @@ void Driver::addLibrary(
         *LibPath,
         make_error_code(llvm::object::object_error::invalid_file_type));
   }
-  this->doIterateArchiveMembers(*LibPath, std::move(*FileBuffer), ArchiveCount,
-                                NextGroup);
+  iterateArchiveMembers(&ErrorFlag_, *Context_, WorkPool_.get(), *LibPath,
+                        ArchiveCount, FileBuffer->get(), NextGroup,
+                        CompilationIndex_);
 }
 
 // This is for -l<basename>. We'll look for lib<basename>.so or lib<basename>.a
