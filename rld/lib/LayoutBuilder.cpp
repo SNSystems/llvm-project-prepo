@@ -563,37 +563,58 @@ void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
           std::get<const Symbol::Contents &>(ContentsAndLock);
       if (holdsAlternative<Symbol::BodyContainer>(Contents)) {
         const auto &Bodies = get<Symbol::BodyContainer>(Contents);
-        const Symbol::Body &FirstBody = Bodies.front();
+        const Symbol::Body *Body = nullptr;
 
-        constexpr auto InputOrdinal = std::numeric_limits<uint32_t>::max();
+        // Input ordinals are unsigned values that can be interested into LLVM
+        // "dense" maps and/or sets. These use empty and tombstone values that
+        // are max and max-1 respectively. The largest value that we can safely
+        // use here is therefore max - 2.
+        constexpr auto InputOrdinal = std::numeric_limits<uint32_t>::max() - 2U;
+        assert(InputOrdinal != llvm::DenseMapInfo<uint32_t>::getEmptyKey() &&
+               InputOrdinal !=
+                   llvm::DenseMapInfo<uint32_t>::getTombstoneKey() &&
+               "Input ordinals are unsigned values that can be used with LLVM "
+               "dense-maps and/or -sets. These use empty and tombstone values "
+               "that are max and max-1 respectively. The largest value that we "
+               "can safely use here is therefore max-2");
         SymbolResolver Resolver{Ctx_};
-        Sym = Resolver.updateSymbol(Sym, Undefs_, FirstBody.definition(),
-                                    InputOrdinal);
         assert(Sym != nullptr);
+        Contribution *C = nullptr;
         if (Start) {
-          Sym->setFirstContribution(
-              &Layout_->Sections[SectionK].Contributions.front());
+          Body = &Bodies.front();
+          Sym = Resolver.updateSymbol(Sym, Undefs_, Body->definition(),
+                                      InputOrdinal);
+          C = &Layout_->Sections[SectionK].Contributions.front();
         } else {
-          unsigned Alignment = 1;
-          unsigned Size = 0;
+          Body = &Bodies.back();
+          Sym = Resolver.updateSymbol(Sym, Undefs_, Body->definition(),
+                                      InputOrdinal);
 
+          constexpr auto Alignment = 1U;
+          constexpr auto Size = 0U;
+
+          // An "End" symbol represents the end of a half-open range of bytes.
+          // Add a contribution record for that "off the end" byte.
           OutputSection *const OutputSection = &Layout_->Sections[SectionK];
-          OutputSection->Contributions.emplace_back(
+          C = &OutputSection->Contributions.emplace_back(
               nullptr,       // The contribution's fragment section.
               nullptr,       // The array of external fixups to be applied when
                              // copying the contribution.
               nullptr,       // The contributions for the sections.
               OutputSection, // The output section to which the contribution
                              // belongs.
-              alignTo(
-                  LayoutBuilder::prevSectionEnd(OutputSection->Contributions),
-                  Alignment), // Offset
+              LayoutBuilder::prevSectionEnd(
+                  OutputSection->Contributions), // Offset
               Size, Alignment, InputOrdinal, SectionK, Alias);
-          Sym->setFirstContribution(&OutputSection->Contributions.back());
         }
+        assert(Sym != nullptr && C != nullptr &&
+               "Must have a symbol and a contribution by now");
+        Sym->setFirstContribution(C);
 
         // c.f. addSymbolBody
-        if ((isLocalLinkage(FirstBody.linkage()) ? &LocalEmit_ : &GlobalEmit_)->append(Sym)) {
+        assert(Body != nullptr && "Must have a symbol body by now");
+        if ((isLocalLinkage(Body->linkage()) ? &LocalEmit_ : &GlobalEmit_)
+                ->append(Sym)) {
           ELFNameOffset_ = Sym->setELFNameOffset(ELFNameOffset_);
         }
       }
