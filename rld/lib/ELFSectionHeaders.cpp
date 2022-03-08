@@ -260,9 +260,6 @@ auto rld::elf::emitSectionHeaders(
   forEachSectionKind([&](const SectionKind SectionK) {
     const OutputSection &OScn = Lout.Sections[SectionK];
     if (OScn.shouldEmit()) {
-      const auto linkSection = [&Links](SectionKind L) {
-        return L == SectionKind::last ? 0 : Links[L];
-      };
       std::memset(Shdr, 0, sizeof(*Shdr));
       Shdr->sh_name = NameOffsets[SectionK];
       Shdr->sh_type = elfSectionType<ELFT>(SectionK);
@@ -274,7 +271,7 @@ auto rld::elf::emitSectionHeaders(
           *SectionFileOffsets[SectionK] +
           TargetDataOffset; // File offset of section data, in bytes
       Shdr->sh_size = OScn.FileSize;
-      Shdr->sh_link = linkSection(OScn.Link);
+      Shdr->sh_link = OScn.Link == SectionKind::last ? 0 : Links[OScn.Link];
       Shdr->sh_info = getShInfoValue<ELFT>(SectionK, Lout, Links, LocalsSize);
       Shdr->sh_addralign = OScn.MaxAlign;
       Shdr->sh_entsize = elfSectionEntSize<ELFT>(SectionK);
