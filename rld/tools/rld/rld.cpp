@@ -32,9 +32,15 @@ using namespace rld;
 namespace {
 
 //FIXME: hack hack. These options are simply ignored ATM.
-cl::opt<bool> GcSections("gc-sections", cl::desc{"Enable garbage collection of unused sections"});
-cl::opt<std::string> RPath{"rpath", cl::desc{"Add a DT_RUNPATH to the output"}};
-cl::opt<char> OptLevel("O", cl::Prefix, cl::desc{"Optimization level."});
+cl::opt<bool> GcSections{
+    "gc-sections",
+    cl::desc{"Enable garbage collection of unused sections (ignored)"}};
+cl::opt<std::string> RPath{
+    "rpath", cl::desc{"Add a DT_RUNPATH to the output (ignored)"}};
+cl::opt<char> OptLevel{"O", cl::Prefix,
+                       cl::desc{"Optimization level (ignored)"}};
+cl::opt<bool> ExportDymamic{"export-dynamic",
+                            cl::desc{"Export all dynamic symbols (ignored)"}};
 // end hack hack.
 
 
