@@ -29,7 +29,7 @@ namespace rld {
 /// Provides per-worker thread storage for symbol pointers yielded by
 /// fixup resolution.
 class FixupStorage {
-  constexpr static size_t ChunkSize = 256 * 1024;
+  constexpr static size_t ChunkSize = 1024 * 1024;
 
 public:
   explicit FixupStorage(unsigned NumWorkerThreads);
