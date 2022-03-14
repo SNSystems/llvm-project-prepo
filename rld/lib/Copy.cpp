@@ -179,7 +179,7 @@ void applier<llvm::ELF::R_X86_64_PLT32>::applyInternal(
     uint8_t *const Out, Context &Context, const Contribution &Src,
     const Layout &Layout, const Contribution &Target,
     const InternalFixup &Fixup) {
-  llvm_unreachable("an internal R_X86_64_PLT32 fixup was encountered");
+  llvm::outs() << "Warning: internal R_X86_64_PLT32 is not yet supported\n";
 }
 
 // R_X86_64_GOTPCREL
@@ -211,7 +211,7 @@ void applier<llvm::ELF::R_X86_64_GOTPCREL>::applyInternal(
     uint8_t *const Out, Context &Context, const Contribution &Src,
     const Layout &Layout, const Contribution &Target,
     const InternalFixup &Fixup) {
-  llvm_unreachable("an internal GOTPCREL fixup was encountered");
+  llvm::outs() << "Warning: internal R_X86_64_GOTPCREL is not yet supported\n";
 }
 
 // R_X86_64_TPOFF32
