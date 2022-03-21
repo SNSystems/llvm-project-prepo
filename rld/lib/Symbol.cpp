@@ -273,13 +273,13 @@ Symbol *Symbol::updateExternalSymbol(const pstore::database &Db,
     return this->defineImpl(std::move(Lock), Db, Def, Undefs, InputOrdinal);
   }
 
-  // We've already got a definition for this symbol and we're not
-  // allowing replacement.
   auto &D = get<BodyContainer>(Contents_);
   assert(D.size() == 1 &&
          "An external symbol definition must have exactly 1 body");
   if (isAnyOf<linkage::append, linkage::external>(D[0].linkage())) {
-    return nullptr; // Error.
+    // We've already got a definition for this symbol and we're not
+    // going to allow replacement. Issue an error.
+    return nullptr;
   }
   return this->replaceImpl(Lock, Db, Def, InputOrdinal);
 }
