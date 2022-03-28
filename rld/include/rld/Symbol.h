@@ -155,11 +155,6 @@ public:
         : InputOrdinal_{InputOrdinal}, Def_{Def},
           Fragment_{std::move(Fragment)}, FAddr_{FAddr}, ResolveMap_{} {}
 
-    Body(const pstore::repo::definition *const Def, const FragmentPtr &Fragment,
-         const FragmentAddress FAddr, const uint32_t InputOrdinal)
-        : InputOrdinal_{InputOrdinal}, Def_{Def}, Fragment_{Fragment},
-          FAddr_{FAddr}, ResolveMap_{} {}
-
     Body(Body const &) = delete;
     Body(Body &&Other) noexcept
         : InputOrdinal_{Other.InputOrdinal_}, Def_{Other.Def_},

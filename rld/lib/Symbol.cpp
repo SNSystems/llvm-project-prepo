@@ -136,11 +136,16 @@ inline Symbol *Symbol::replaceIfLowerOrdinal(
   if (InputOrdinal >= ExistingBody.inputOrdinal()) {
     return this; // Keep the existing definition.
   }
-  ExistingBody = Symbol::Body{&Def,
-                              ExistingBody.fragmentAddress() == Def.fext.addr
-                                  ? ExistingBody.fragment()
-                                  : pstore::repo::fragment::load(Db, Def.fext),
-                              Def.fext.addr, InputOrdinal};
+  using pstore::repo::fragment;
+  ExistingBody =
+      Symbol::Body{&Def,
+                   ExistingBody.fragmentAddress() == Def.fext.addr
+                       ? pstore::unique_pointer<
+                             fragment const>{ExistingBody.fragment().get(),
+                                             pstore::deleter_nop<
+                                                 pstore::repo::fragment const>}
+                       : fragment::loadu(Db, Def.fext),
+                   Def.fext.addr, InputOrdinal};
   return this; // Use this definition instead.
 }
 
@@ -158,13 +163,13 @@ inline Symbol *Symbol::defineImpl(std::unique_lock<SpinLock> &&Lock,
 
   {
     BodyContainer B;
-    B.emplace_back(&Def, pstore::repo::fragment::load(Db, Def.fext),
+    B.emplace_back(&Def, pstore::repo::fragment::loadu(Db, Def.fext),
                    Def.fext.addr, InputOrdinal);
     Contents_.emplace<BodyContainer>(std::move(B));
   }
 
   const bool WasWeakUndefined = WeakUndefined_;
-  // A weakly undefined sybol must not have a definition so here we ensure that
+  // A weakly undefined symbol must not have a definition so here we ensure that
   // this symbol is not tagged as weakly undefined.
   WeakUndefined_ = false;
   Lock.unlock();
@@ -198,7 +203,7 @@ inline Symbol *Symbol::replaceImpl(const std::unique_lock<SpinLock> &Lock,
                                    const pstore::repo::definition &Def,
                                    const uint32_t InputOrdinal) {
   return this->replaceImpl(Lock, Db, Def, InputOrdinal,
-                           pstore::repo::fragment::load(Db, Def.fext));
+                           pstore::repo::fragment::loadu(Db, Def.fext));
 }
 
 // update append symbol
@@ -248,7 +253,7 @@ Symbol *Symbol::updateAppendSymbol(const pstore::database &Db,
       [=](Symbol::Body const &B) { return B.inputOrdinal() < InputOrdinal; });
   assert(Def.linkage() == linkage::append);
   Bodies.insert(Pos.base(),
-                Symbol::Body{&Def, pstore::repo::fragment::load(Db, Def.fext),
+                Symbol::Body{&Def, pstore::repo::fragment::loadu(Db, Def.fext),
                              Def.fext.addr, InputOrdinal});
   assert(std::is_sorted(std::begin(Bodies), std::end(Bodies),
                         [](Symbol::Body const &A, Symbol::Body const &B) {
@@ -327,7 +332,7 @@ Symbol *Symbol::updateCommonSymbol(const pstore::database &Db,
       return this->replaceIfLowerOrdinal(Lock, Db, Def, InputOrdinal);
     }
 
-    FragmentPtr Fragment = pstore::repo::fragment::load(Db, Def.fext);
+    FragmentPtr Fragment = pstore::repo::fragment::loadu(Db, Def.fext);
     std::size_t const ThisSize = BssSize(Fragment);
     std::size_t const ExistingSize = BssSize(B.fragment());
 
@@ -499,7 +504,7 @@ SymbolResolver::add(const NotNull<GlobalSymbolsContainer *> Globals,
                     const uint32_t InputOrdinal) {
   return &Globals->emplace_back(
       Name, Length,
-      Symbol::Body(&Def, pstore::repo::fragment::load(Context_.Db, Def.fext),
+      Symbol::Body(&Def, pstore::repo::fragment::loadu(Context_.Db, Def.fext),
                    Def.fext.addr, InputOrdinal));
 }
 
