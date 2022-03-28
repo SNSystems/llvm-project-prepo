@@ -94,8 +94,7 @@ static constexpr bool hasFileData(rld::SectionKind Kind) {
 namespace rld {
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, Contribution const &C) {
-  return OS << "offset:" << C.Offset << ", size:" << C.Size
-            << ", align:" << C.Align;
+  return OS << "offset:" << C.Offset << ", size:" << C.Size;
 }
 
 #define RLD_X(x) x,
@@ -384,8 +383,7 @@ LayoutBuilder::addSectionToLayout(const StringAddress Name,
       OutputSection,    // The output section to which the contribution belongs.
       alignTo(LayoutBuilder::prevSectionEnd(OutputSection->Contributions),
               Alignment), // Offset
-      Size, Alignment, Body.inputOrdinal(), ToRldSectionKind<InSection>::value,
-      Name);
+      Size, Body.inputOrdinal(), ToRldSectionKind<InSection>::value, Name);
 
   llvmDebug(DebugType, Ctx_.IOMut, [&] {
     const auto &Entry = OutputSection->Contributions.back();
@@ -491,6 +489,22 @@ void LayoutBuilder::addSymbolBody(Symbol *const Sym, const Symbol::Body &Body,
 #undef X
 }
 
+static unsigned sectionAlignment(const SectionKind SectionK,
+                                 pstore::repo::section_base const *const Scn) {
+#define X(x)                                                                   \
+  case rld::SectionKind::x:                                                    \
+    return pstore::repo::section_alignment(                                    \
+        *reinterpret_cast<pstore::repo::enum_to_section_t<                     \
+            pstore::repo::section_kind::x> const *>(Scn));
+
+  switch (SectionK) {
+    PSTORE_MCREPO_SECTION_KINDS
+  default:
+    return 1;
+  }
+#undef X
+}
+
 // debug dump layout
 // ~~~~~~~~~~~~~~~~~
 void LayoutBuilder::debugDumpLayout() const {
@@ -517,13 +531,14 @@ void LayoutBuilder::debugDumpLayout() const {
         for (const Contribution &C : Scn->Contributions) {
           EmitSegment(SegmentK);
           EmitSection(SectionK);
-          VAddr = alignTo(VAddr, C.Align);
+          const unsigned Align = sectionAlignment(SectionK, C.Section);
+          VAddr = alignTo(VAddr, Align);
           // TODO: If we encounter a contribution from a definition that was
           // later overridden (e.g., weak-external followed by external or
           // common with a later, larger, definition) then we should indicate
           // that by, say, writing the name in parentheses.
           OS << "\t\t" << format_hex(VAddr) << '\t' << format_hex(C.Size)
-             << '\t' << format_hex(C.Align) << '\t'
+             << '\t' << format_hex(Align) << '\t'
              << stringViewAsRef(loadString(Ctx_.Db, C.Name, &Owner)) << '\t'
              << Ctx_.ordinalName(C.InputOrdinal) << '\n';
           VAddr += C.Size;
@@ -567,10 +582,6 @@ void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
         const auto &Bodies = get<Symbol::BodyContainer>(Contents);
         const Symbol::Body *Body = nullptr;
 
-        // Input ordinals are unsigned values that can be interested into LLVM
-        // "dense" maps and/or sets. These use empty and tombstone values that
-        // are max and max-1 respectively. The largest value that we can safely
-        // use here is therefore max - 2.
         constexpr auto InputOrdinal = std::numeric_limits<uint32_t>::max() - 2U;
         assert(InputOrdinal != llvm::DenseMapInfo<uint32_t>::getEmptyKey() &&
                InputOrdinal !=
@@ -592,7 +603,6 @@ void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
           Sym = Resolver.updateSymbol(Sym, Undefs_, Body->definition(),
                                       InputOrdinal);
 
-          constexpr auto Alignment = 1U;
           constexpr auto Size = 0U;
 
           // An "End" symbol represents the end of a half-open range of bytes.
@@ -607,7 +617,7 @@ void LayoutBuilder::addAliasSymbol(const StringAddress Alias,
                              // belongs.
               LayoutBuilder::prevSectionEnd(
                   OutputSection->Contributions), // Offset
-              Size, Alignment, InputOrdinal, SectionK, Alias);
+              Size, InputOrdinal, SectionK, Alias);
         }
         assert(Sym != nullptr && C != nullptr &&
                "Must have a symbol and a contribution by now");

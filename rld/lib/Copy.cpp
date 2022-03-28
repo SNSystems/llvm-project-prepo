@@ -61,7 +61,6 @@ public:
   static void applyExternal(uint8_t *const Out, Context &Context,
                             const Contribution &Src, const Layout &Layout,
                             const Symbol &Target, const ExternalFixup &Fixup) {
-    assert(alignTo(Src.Offset, Src.Align) == Src.Offset);
     return apply(Out, Context, Src, Layout, Target, Fixup);
   }
 
@@ -69,7 +68,6 @@ public:
                             const Contribution &Src, const Layout &Layout,
                             const Contribution &Target,
                             const InternalFixup &Fixup) {
-    assert(alignTo(Src.Offset, Src.Align) == Src.Offset);
     return apply(Out, Context, Src, Layout, Target, Fixup);
   }
 
@@ -151,7 +149,6 @@ void applier<llvm::ELF::R_X86_64_PC32>::apply(
     const Layout &Layout, const TargetType &Target, const FixupType &Fixup) {
   const auto S = getS(Target);
   const int64_t A = getA(Fixup);
-  assert(alignTo(Src.Offset, Src.Align) == Src.Offset);
   const uint64_t P = Src.OScn->VirtualAddr + Src.Offset + Fixup.offset;
   llvm::support::little32_t::ref{Out} = S + A - P;
 }
@@ -381,8 +378,7 @@ copySection(uint8_t *const Data, Context &Context, const Layout &Layout,
                   llvmDebug(DebugType, Context.IOMut,
                             [] { llvm::dbgs() << SectionK << ": "; });
 
-                  auto *const Dest =
-                      Data + alignTo(Contribution.Offset, Contribution.Align);
+                  auto *const Dest = Data + Contribution.Offset;
                   switch (Contribution.SectionK) {
 #define X(a)                                                                   \
   case SectionKind::a:                                                         \

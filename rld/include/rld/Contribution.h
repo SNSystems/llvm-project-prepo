@@ -67,16 +67,15 @@ struct Contribution {
   /// \param Offset_  The offset of this section within the output section.
   /// \param Size_  The number of bytes occupied by this contribution's
   ///   section data.
-  /// \param Align_  The alignment of this contribution's section data.
   Contribution(const pstore::repo::section_base *const S,
                const Symbol *const *XfxSymbols_,
                const ContributionSpArray *const IfxContributions_,
                OutputSection *OScn_, uint64_t Offset_, uint64_t Size_,
-               unsigned Align_, unsigned InputOrdinal_,
-               const SectionKind SectionK, const StringAddress Name)
+               unsigned InputOrdinal_, const SectionKind SectionK,
+               const StringAddress Name)
       : Section{S}, XfxSymbols{XfxSymbols_},
         IfxContributions{IfxContributions_}, OScn{OScn_}, Offset{Offset_},
-        Size{Size_}, Align{Align_},
+        Size{Size_},
         InputOrdinal{InputOrdinal_}, SectionK{SectionK}, Name{Name} {}
 
   Contribution(Contribution const &) = delete;
@@ -96,12 +95,8 @@ struct Contribution {
   /// The number of bytes occupied by this section.
   const uint64_t Size; // TODO: we really don't need 64-bits for the size of an
                        // individual section.
-  /// The required alignment for this section's data.
-  const unsigned Align;
   /// The input-ordinal of the ticket file from which this section originates.
   const unsigned InputOrdinal;
-
-  // TODO: the final fields are primarily used for debugging.
   const SectionKind SectionK;
   const StringAddress Name;
 };
